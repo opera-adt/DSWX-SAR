@@ -1,0 +1,101 @@
+runconfig:
+    name: dswx_s1_workflow_default
+  
+    groups:
+        pge_name_group:
+            pge_name: DSWX_S1_PGE
+       
+        input_file_group:
+            # REQUIRED - Single S1 RTC geotiff or 
+            #            multiple burst RTC directory containing
+            #            hdf5 metadata and rtc geotiff (directory or files)
+            input_file_path:
+       
+        dynamic_ancillary_file_group:
+            # Digital elevation model (Required)
+            dem_file:
+
+            # Digital elevation model source description
+            dem_file_description:
+
+            # ESA WorldCover map file
+            # (REQUIRED if check_ancillary_inputs_coverage is True)
+            worldcover_file:
+
+            # ESA WorldCover map description
+            worldcover_file_description:
+
+            # Reference water body map (Required)
+            reference_water_file:
+
+            # Pekel's water description
+            reference_water_file_description:
+
+            # Height Above Nearest Drainage (optional)
+            hand_file: 
+            
+            # HAND description
+            hand_file_description: 
+
+            # NOAA GSHHS shapefile
+            # (REQUIRED if check_ancillary_inputs_coverage is True)
+            shoreline_shapefile:
+
+            # NOAA GSHHS shapefile description
+            shoreline_shapefile_description:
+
+        primary_executable:
+            product_type: DSWX_S1
+
+        product_path_group:
+            # Directory where PGE will place results
+            product_path:
+       
+            # Directory where SAS can write temporary data
+            scratch_path:
+       
+            # Intermediate file name.  SAS writes the output product to the following file.
+            # After the SAS completes, the PGE wrapper renames the product file
+            # according to proper file naming conventions.
+            sas_output_file:
+       
+            product_id:
+            product_version:
+
+        processing:
+            # dswx_workflow 'opera_dswx_s1', 'twele', 'opera_dswx_s1_inundated_vegetation'
+            dswx_workflow: 'opera_dswx_s1'
+            # valid values for polarizations
+            # empty for all polarizations found in RSLC
+            # [polarizations] for list of specific frequency(s) e.g. [HH, HV] or [HH]
+            polarizations: ['VV', 'VH']
+
+            reference_water:
+                max_value: 100
+                no_data_value: 255
+
+            mosaic:
+                mosaic_prefix: 'mosaic'
+                mosaic_cog_enable: True
+
+            filter:
+                enabled: True
+                window_size: 5
+
+            initial_threshold:
+                tile_size: 
+                    x: 400
+                    y: 400
+                selection_method: 'combined'
+                interpolation_method: 'smoothed'
+                threshold_method: 'ki'
+                multi_threshold: True
+
+            region_growing:
+                seed: 0.83
+                tolerance: 0.51
+                line_per_block: 400
+            
+            visualization_flag: False
+
+        log_file: None

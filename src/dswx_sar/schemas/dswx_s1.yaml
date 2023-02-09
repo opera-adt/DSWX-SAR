@@ -1,0 +1,97 @@
+runconfig:
+    name: str()
+
+    groups:
+        pge_name_group:
+            pge_name: enum('DSWX_S1_PGE')
+
+        input_file_group:
+            # REQUIRED - list of RTC products (directory or files)
+            input_file_path: list(str(), min=1)
+       
+        dynamic_ancillary_file_group:
+            # Digital elevation model
+            dem_file: str(required=False)
+
+            # Digital elevation model description
+            dem_file_description: str(required=False)
+
+            # Reference water body map (Required)
+            # https://global-surface-water.appspot.com/download
+            reference_water_map_file: str(required=True)
+
+            # Pekel's water description
+            reference_water_file_description: str(required=False)
+
+            # Height Above Nearest Drainage (optional)
+            hand_file: str(required=False)
+            
+            # HAND description
+            hand_file_description: str(required=False)
+
+            # ESA WorldCover map file
+            # (REQUIRED if check_ancillary_inputs_coverage is True)
+            worldcover_file: str(required=True)
+
+            # ESA WorldCover map description
+            worldcover_file_description: str(required=False)
+
+            # NOAA GSHHS shapefile
+            # (REQUIRED if check_ancillary_inputs_coverage is True)
+            shoreline_shapefile: str(required=False)
+
+            # NOAA GSHHS shapefile description
+            shoreline_shapefile_description: str(required=False)
+
+        primary_executable:
+            product_type: enum('DSWX_S1', 'twele')
+
+        product_path_group:
+            # Directory where PGE will place results
+            product_path: str()
+       
+            # Directory where SAS can write temporary data
+            scratch_path: str()
+       
+            # Intermediate file name.  SAS writes the output product to the following file.
+            # After the SAS completes, the PGE wrapper renames the product file
+            # according to proper file naming conventions.
+            sas_output_file: str()
+            product_id: str()
+            product_version: num(required=False)
+
+        processing:
+            dswx_workflow: str(required=False)
+            # Mechanism to select frequencies and polarizations
+
+            polarizations: any(list(str(min=2, max=10), min=1, max=4), str(min=4, max=4), null(), required=False)
+
+            reference_water:
+                max_value: num(required=False)
+                no_data_value: num(required=False)
+
+            mosaic:
+                mosaic_prefix: str(required=False)
+                mosaic_cog_enable: bool(required=False)
+            
+            filter:
+                enabled: bool(required=False)
+                window_size: num(min=1, max=999, required=False)
+
+            initial_threshold:
+                tile_size: 
+                    x: num(required=False)
+                    y: num(required=False)
+                selection_method: str(required=False)
+                interpolation_method: str(required=False)
+                threshold_method: str(required=False)
+                multi_threshold: bool(required=False)
+            
+            region_growing:
+                seed: num(min=0, max=1, required=False)
+                tolerance: num(min=0, max=1, required=False)
+                line_per_block: num(min=1, required=False)
+            
+            visualization_flag: bool(required=False)
+
+        log_file: str(required=False)

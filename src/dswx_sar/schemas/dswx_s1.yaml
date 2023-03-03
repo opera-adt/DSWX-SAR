@@ -11,7 +11,7 @@ runconfig:
        
         dynamic_ancillary_file_group:
             # Digital elevation model
-            dem_file: str(required=False)
+            dem_file: str(required=True)
 
             # Digital elevation model description
             dem_file_description: str(required=False)
@@ -24,27 +24,25 @@ runconfig:
             reference_water_file_description: str(required=False)
 
             # Height Above Nearest Drainage (optional)
-            hand_file: str(required=False)
+            hand_file: str(required=True)
             
             # HAND description
             hand_file_description: str(required=False)
 
             # ESA WorldCover map file
-            # (REQUIRED if check_ancillary_inputs_coverage is True)
-            worldcover_file: str(required=True)
+            worldcover_file: str(required=False)
 
             # ESA WorldCover map description
             worldcover_file_description: str(required=False)
 
             # NOAA GSHHS shapefile
-            # (REQUIRED if check_ancillary_inputs_coverage is True)
             shoreline_shapefile: str(required=False)
 
             # NOAA GSHHS shapefile description
             shoreline_shapefile_description: str(required=False)
 
         primary_executable:
-            product_type: enum('DSWX_S1', 'twele')
+            product_type: enum('dswx_s1', 'twele')
 
         product_path_group:
             # Directory where PGE will place results
@@ -57,15 +55,19 @@ runconfig:
             # After the SAS completes, the PGE wrapper renames the product file
             # according to proper file naming conventions.
             sas_output_file: str()
-            product_id: str()
+
             product_version: num(required=False)
 
         processing:
+            # Algorithms for surface water extents
+            # ['opera_dswx_s1', 'twele', 'opera_dswx_s1_inundated_vegetation']
             dswx_workflow: str(required=False)
-            # Mechanism to select frequencies and polarizations
 
+            # Polarizations to be used for DSWx-SAR
+            # [polarizations] for list of specific frequency(s) e.g. [VV, VH] or [VV]
             polarizations: any(list(str(min=2, max=10), min=1, max=4), str(min=4, max=4), null(), required=False)
 
+            # Specifiy the max_value for permanent water and no_data_value for invalid pixels
             reference_water:
                 max_value: num(required=False)
                 no_data_value: num(required=False)
@@ -73,25 +75,47 @@ runconfig:
             mosaic:
                 mosaic_prefix: str(required=False)
                 mosaic_cog_enable: bool(required=False)
-            
+
+            # Flag to turn on/off the filtering for RTC image.
+            # The enhanced Lee filter is available.
             filter:
                 enabled: bool(required=False)
                 window_size: num(min=1, max=999, required=False)
 
             initial_threshold:
-                tile_size: 
+                # Maximum tile size for initial threshold.
+                maximum_tile_size:
                     x: num(required=False)
                     y: num(required=False)
+                # minimum tile size for initial threshold.
+                minimum_tile_size:
+                    x: num(required=False)
+                    y: num(required=False)
+                # tile selecting strategy to identify the boundary between water and nonwater
+                # ['twele', 'chini', 'bimodality', 'combined']
+                # 'combined' option applies all selection strategy
                 selection_method: str(required=False)
+                # Stratey to interpolate the tile-based thresholds.
+                # Currently, only 'smoothed' is available.
                 interpolation_method: str(required=False)
+                # Thresholding algorithm for initial thresholds.
+                # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.   
+                # ['otsu', 'ki']
                 threshold_method: str(required=False)
+                # Flag to assume the trimodal distribution.
+                # If flag is false, the distribution is assumed to have bimodal distribution and
+                # estimate single threshold per tile. If True, the trimodal distribution is assumed,
+                # the lowest threshold is estimated.
                 multi_threshold: bool(required=False)
             
             region_growing:
+                # seed value for region growing start
                 seed: num(min=0, max=1, required=False)
+                # value where region growing is stopped
                 tolerance: num(min=0, max=1, required=False)
                 line_per_block: num(min=1, required=False)
-            
-            visualization_flag: bool(required=False)
+
+            # debug mode is true, intermeidate product is generated. s
+            debug_mode: bool(required=False)
 
         log_file: str(required=False)

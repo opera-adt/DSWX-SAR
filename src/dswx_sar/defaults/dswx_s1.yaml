@@ -26,10 +26,10 @@ runconfig:
             worldcover_file_description:
 
             # Reference water body map (Required)
-            # Pekel's water occurrence or seasonality map
+            # e.g., Pekel's water occurrence or seasonality map
             reference_water_file:
 
-            # Pekel's water description
+            # Reference water description
             reference_water_file_description:
 
             # Height Above Nearest Drainage (Required)
@@ -117,7 +117,7 @@ runconfig:
                 # end value for region growing
                 tolerance: 0.51
                 line_per_block: 400
-            # debug mode is true, intermeidate product is generated. s
+            # debug mode is true, intermeidate product is generated.
             debug_mode: False
 
         log_file: None

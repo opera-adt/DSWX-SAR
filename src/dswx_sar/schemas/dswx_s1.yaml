@@ -8,7 +8,7 @@ runconfig:
         input_file_group:
             # REQUIRED - list of RTC products (directory or files)
             input_file_path: list(str(), min=1)
-       
+            input_stack_path: str(required=False)
         dynamic_ancillary_file_group:
             # Digital elevation model
             dem_file: str(required=True)
@@ -54,7 +54,7 @@ runconfig:
             # Intermediate file name.  SAS writes the output product to the following file.
             # After the SAS completes, the PGE wrapper renames the product file
             # according to proper file naming conventions.
-            sas_output_file: str()
+            sas_output_path: str()
 
             product_version: num(required=False)
 
@@ -114,8 +114,15 @@ runconfig:
                 # value where region growing is stopped
                 tolerance: num(min=0, max=1, required=False)
                 line_per_block: num(min=1, required=False)
+        
+            inundated_vegetation:
+                enabled: bool(required=False)
+                mode: enum('time_series', 'static_layer')
+                temporal_avg_path: str(required=False)
+                initial_class_path: str(required=False)
+                line_per_block: num(min=1, required=False)
 
-            # debug mode is true, intermeidate product is generated. s
+            # Debug mode is true, intermeidate product is generated.
             debug_mode: bool(required=False)
 
         log_file: str(required=False)

@@ -1,0 +1,13 @@
+gdal>=3.0
+numpy
+python>=3.6
+ruamel.yaml
+scipy
+pytest
+requests
+numpy
+h5py
+matplotlib
+scikit-image
+pyproj
+opencv

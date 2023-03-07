@@ -191,8 +191,8 @@ def save_h5_metadata_to_tif(h5_meta_path,
     dtype = data.dtype
     gdal_dtype = dswx_sar_util.np2gdal_conversion[str(dtype)]
     
-    geotransform = [xcoord[0], np.float(xres), 0, 
-                    ycoord[0], 0, np.float(yres)]
+    geotransform = [xcoord[0], float(xres), 0, 
+                    ycoord[0], 0, float(yres)]
     print(geotransform)
     srs = osr.SpatialReference()            # establish encoding
     srs.ImportFromEPSG(int(epsg))               # WGS84 lat/long

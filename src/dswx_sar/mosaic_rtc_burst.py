@@ -734,7 +734,6 @@ def run(cfg):
 
     scratch_path = cfg.groups.product_path_group.scratch_path
     input_list = cfg.groups.input_file_group.input_file_path
-    rtc_stack_dir = cfg.groups.input_file_group.input_stack_path
 
     os.makedirs(scratch_path, exist_ok=True)
 

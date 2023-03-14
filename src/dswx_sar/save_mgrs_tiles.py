@@ -13,7 +13,7 @@ import datetime
 
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-
+from dswx_sar.metadata import create_dswx_sar_metadata
 
 logger = logging.getLogger('dswx_S1')
 
@@ -181,7 +181,6 @@ def run(cfg):
         date_str_id_temp = date_str_list[0][:19]
         date_str_id = datetime.datetime.strptime(date_str_id_temp, input_date_format).strftime(output_date_format)
 
-        print(date_str_id)
     else:
         date_str_id = 'unknown'
 
@@ -218,7 +217,8 @@ def run(cfg):
         inundated_vegetation = dswx_sar_util.read_geotiff(f"{outputdir}/temp_inundated_vegetation.tif")
     else:
         inundated_vegetation = None
-
+    # Metadata
+    dswx_metadata_dict = create_dswx_sar_metadata(cfg)
 
     if dswx_workflow == 'opera_dswx_s1':
         region_grow_map = \
@@ -234,6 +234,7 @@ def run(cfg):
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Water classification (WTR)',
+            metadata=dswx_metadata_dict,
             scratch_dir=outputdir,
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
@@ -247,6 +248,7 @@ def run(cfg):
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Water classification (WTR)',
+            metadata=dswx_metadata_dict,
             scratch_dir=outputdir,
             inundated_vegetation=inundated_vegetation==2,
             layover_shadow_mask=layover_shadow_mask>0,
@@ -257,6 +259,7 @@ def run(cfg):
                     geotransform=water_meta['geotransform'],
                     projection=water_meta['projection'],
                     description='Water classification (WTR)',
+                    metadata=dswx_metadata_dict,
                     scratch_dir=outputdir,
                     layover_shadow_mask=layover_shadow_mask>0,
                     no_data=no_data_raster)
@@ -332,7 +335,6 @@ def run(cfg):
             lat, lon, z = transformation.TransformPoint(x_cand, y_cand, 0)
 
             mgrs_tile = mgrs_obj.toMGRS(lat, lon)
-            # print(water_meta['utmzone'], north_or_south, x_cand, y_cand )
             mgrs_tile_list.append(mgrs_tile[0:5])
 
     unique_mgrs_tile_list = list(set(mgrs_tile_list))
@@ -341,9 +343,8 @@ def run(cfg):
 
         for mgrs_tile_id in unique_mgrs_tile_list:
             #[TODO] specify file name
-            print('mgrs tile', mgrs_tile_id)
 
-            output_mgrs_wtr = f'dswx_s1_open_water_{date_str_id}_{mgrs_tile_id}_WTR.tif'
+            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_WTR.tif'
 
             # bbox and epsg extract from MGRS tile
             save_mgrs_tile(source_tif_path=full_wtr1_water_set_path,
@@ -352,14 +353,14 @@ def run(cfg):
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_open_water_{date_str_id}_{mgrs_tile_id}_BWTR.tif'
+            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_BWTR.tif'
             save_mgrs_tile(source_tif_path=full_wtr_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_open_water_{date_str_id}_{mgrs_tile_id}_CONF.tif'
+            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_CONF.tif'
             save_mgrs_tile(source_tif_path=full_conf_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,

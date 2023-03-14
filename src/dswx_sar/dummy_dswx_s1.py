@@ -33,6 +33,7 @@ def run(cfg):
     no_data_raster = np.isnan(rtc_data)
 
     # Create dummy results 
+    # Algorithm to generate the DSWX-S1 will be added and updated. 
     rtc_data_db = 10 * np.log10(rtc_data)
     dummy_conf = (rtc_data_db + 17) / (-14 + 17)
     dummy_conf[dummy_conf>1] = 1
@@ -45,7 +46,7 @@ def run(cfg):
     water_tif_strs = [f'{outputdir}/bimodality_output_binary_{pol_str}.tif', 
                       f'{outputdir}/region_growing_output_binary_{pol_str}.tif', 
                       f'{outputdir}/refine_landcover_binary_{pol_str}.tif']
-    thresholds = [-17, -14, -17.5,]
+    thresholds = [-16, -14, -15,]
 
     for path, threshold in zip(water_tif_strs, thresholds):
 

@@ -343,7 +343,7 @@ def run(cfg):
             #[TODO] specify file name
             print('mgrs tile', mgrs_tile_id)
 
-            output_mgrs_wtr = f'dswx_s1_open_water_{date_str_id}_{mgrs_tile_id}_WTR.tif'
+            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_WTR.tif'
 
             # bbox and epsg extract from MGRS tile
             save_mgrs_tile(source_tif_path=full_wtr1_water_set_path,
@@ -352,14 +352,14 @@ def run(cfg):
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_open_water_{date_str_id}_{mgrs_tile_id}_BWTR.tif'
+            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_BWTR.tif'
             save_mgrs_tile(source_tif_path=full_wtr_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_open_water_{date_str_id}_{mgrs_tile_id}_CONF.tif'
+            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_CONF.tif'
             save_mgrs_tile(source_tif_path=full_conf_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,

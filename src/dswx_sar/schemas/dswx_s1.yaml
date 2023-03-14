@@ -8,7 +8,7 @@ runconfig:
         input_file_group:
             # REQUIRED - list of RTC products (directory or files)
             input_file_path: list(str(), min=1)
-            input_stack_path: str(required=False)
+
         dynamic_ancillary_file_group:
             # Digital elevation model
             dem_file: str(required=True)
@@ -18,7 +18,7 @@ runconfig:
 
             # Reference water body map (Required)
             # https://global-surface-water.appspot.com/download
-            reference_water_map_file: str(required=True)
+            reference_water_file: str(required=True)
 
             # Pekel's water description
             reference_water_file_description: str(required=False)

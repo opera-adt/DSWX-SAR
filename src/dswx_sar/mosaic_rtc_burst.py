@@ -114,10 +114,10 @@ def check_consistency_metadata(list_metadata_hdf5, cfg):
     Check RTC metadata if they have same polarizations
     paremeters:
     -----------
-        list_metadata_hdf5: list
-            List of the path to the rtc metadata
-        cfg: RunConfig
-            Input runconfig
+    list_metadata_hdf5: list
+        List of the path to the rtc metadata
+    cfg: RunConfig
+        Input runconfig
     '''
     input_pol_list = cfg.groups.processing.polarizations
     # [TODO] currently, input polarizations are 4 characters (e.g. VHVH)
@@ -734,7 +734,6 @@ def run(cfg):
 
     scratch_path = cfg.groups.product_path_group.scratch_path
     input_list = cfg.groups.input_file_group.input_file_path
-    rtc_stack_dir = cfg.groups.input_file_group.input_stack_path
 
     os.makedirs(scratch_path, exist_ok=True)
 

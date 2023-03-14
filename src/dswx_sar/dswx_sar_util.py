@@ -138,7 +138,8 @@ def save_raster_gdal(data, output_file, geotransform,
 
 def save_dswx_product(wtr, output_file, geotransform,
                       projection, scratch_dir='.',
-                      description = None, **dswx_processed_bands):
+                      description=None, metadata=None, 
+                      **dswx_processed_bands):
     """Save DSWx product for assigned classes with colortable
     Parameters
     ----------
@@ -175,7 +176,7 @@ def save_dswx_product(wtr, output_file, geotransform,
     gdal_band = gdal_ds.GetRasterBand(1)
     gdal_band.WriteArray(wtr)
     gdal_band.SetNoDataValue(255)
-
+    gdal_band.SetMetadata(metadata)
     # set color table and color interpretation
     dswx_ctable = get_interpreted_dswx_s1_ctable()
     gdal_band.SetRasterColorTable(dswx_ctable)

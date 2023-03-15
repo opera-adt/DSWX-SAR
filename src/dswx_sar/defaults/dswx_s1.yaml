@@ -12,11 +12,6 @@ runconfig:
             #            for open water 
             input_file_path:
 
-            # REQUIRED if inundated vegetation is true
-            #          - Directory containing time-series burst RTC 
-            #            
-            input_stack_path:
-
         dynamic_ancillary_file_group:
             # Digital elevation model (Required)
             dem_file:
@@ -128,9 +123,8 @@ runconfig:
                 tolerance: 0.51
                 line_per_block: 400
 
-
             inundated_vegetation:
-                enabled: True
+                enabled: False
                 mode: 'static_layer'
                 temporal_avg_path: 
                 initial_class_path:

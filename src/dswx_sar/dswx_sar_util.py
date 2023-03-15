@@ -33,12 +33,12 @@ band_assign_value_dict = {
     'landcover_mask': 4,
     'hand_mask': 5,
     'layover_shadow_mask': 6,
-    'inundated_vegetation': 7, 
+    'inundated_vegetation': 7,
     'no_data': 255
 }
 
 def get_interpreted_dswx_s1_ctable():
-    """Get colortable for DSWx-S1 products 
+    """Get colortable for DSWx-S1 products
     Returns
     -------
     dswx_ctable: gdal.ColorTable
@@ -58,7 +58,7 @@ def get_interpreted_dswx_s1_ctable():
     dswx_ctable.SetColorEntry(7, (200, 200, 50))  # Gray - Inundated vegetation
 
     dswx_ctable.SetColorEntry(255, (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
-    
+
     return dswx_ctable
 
 def read_geotiff(input_tif_str, band_ind=None):
@@ -66,7 +66,7 @@ def read_geotiff(input_tif_str, band_ind=None):
     Parameters
     ----------
     input_tif_str: str
-        geotiff file path to read the band 
+        geotiff file path to read the band
     Returns
     -------
     tifdata: numpy.ndarray
@@ -75,10 +75,10 @@ def read_geotiff(input_tif_str, band_ind=None):
     tif = gdal.Open(input_tif_str)
     if band_ind is None:
         tifdata = tif.ReadAsArray()
-    
+
     else:
         tifdata = tif.GetRasterBand(band_ind+1).ReadAsArray()
-    
+
     tif.FlushCache()
     tif = None
     del tif
@@ -93,16 +93,16 @@ def save_raster_gdal(data, output_file, geotransform,
     ----------
     data: numpy.ndarray
         Data to save into the file
-    output_file: str 
+    output_file: str
         full path for filename to save the DSWx-S1 file
     geotransform: gdal
-        gdaltransform information 
-    projection: gdal 
+        gdaltransform information
+    projection: gdal
         projection object
     scratch_dir: str
-        temporary file path to process COG file. 
+        temporary file path to process COG file.
     DataType: str
-        Data types to save the file. 
+        Data types to save the file.
     """
     Gdal_type = np2gdal_conversion[str(DataType)]
     image_size = data.shape
@@ -124,11 +124,11 @@ def save_raster_gdal(data, output_file, geotransform,
     gdal_ds.SetProjection(projection)
 
     if nim == 1:
-        gdal_ds.GetRasterBand(1).WriteArray(data)  
+        gdal_ds.GetRasterBand(1).WriteArray(data)
     else:
         for im_ind in range(0, nim):
             gdal_ds.GetRasterBand(im_ind+1).WriteArray(
-                np.squeeze(data[im_ind, :, :]))  
+                np.squeeze(data[im_ind, :, :]))
 
     gdal_ds.FlushCache()
     gdal_ds = None
@@ -138,31 +138,31 @@ def save_raster_gdal(data, output_file, geotransform,
 
 def save_dswx_product(wtr, output_file, geotransform,
                       projection, scratch_dir='.',
-                      description=None, metadata=None, 
+                      description=None, metadata=None,
                       **dswx_processed_bands):
     """Save DSWx product for assigned classes with colortable
     Parameters
     ----------
     wtr: numpy.ndarray
-        classified image for DSWx-S1 product 
-    output_file: str 
+        classified image for DSWx-S1 product
+    output_file: str
         full path for filename to save the DSWx-S1 file
     geotransform: gdal
-        gdaltransform information 
-    projection: gdal 
+        gdaltransform information
+    projection: gdal
         projection object
     scratch_dir: str
-        temporary file path to process COG file. 
+        temporary file path to process COG file.
     description: str
         description for DSWx-S1
     dswx_processed_bands
-        classes to save to output 
+        classes to save to output
     """
     shape = wtr.shape
     driver = gdal.GetDriverByName("GTiff")
     wtr = np.asarray(wtr, dtype=np.byte)
     dswx_processed_bands_keys = dswx_processed_bands.keys()
-    
+
     for band_key in band_assign_value_dict.keys():
         if band_key.lower() in dswx_processed_bands_keys:
             dswx_product_value = band_assign_value_dict[band_key]
@@ -182,12 +182,12 @@ def save_dswx_product(wtr, output_file, geotransform,
     gdal_band.SetRasterColorTable(dswx_ctable)
     gdal_band.SetRasterColorInterpretation(
         gdal.GCI_PaletteIndex)
-    
+
     if description is not None:
         gdal_band.SetDescription(description)
     else:
         gdal_band.SetDescription(description_from_dict)
-    
+
     gdal_band.FlushCache()
     gdal_band = None
 
@@ -253,7 +253,7 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
                               'TILED=YES',
                               f'BLOCKXSIZE={tile_size}',
                               f'BLOCKYSIZE={tile_size}',
-                              'COPY_SRC_OVERVIEWS=YES'] 
+                              'COPY_SRC_OVERVIEWS=YES']
 
     if compression:
         gdal_translate_options += [f'COMPRESS={compression}']
@@ -274,33 +274,16 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
 
     shutil.move(temp_file, filename)
 
-    logger.info('        COG step 3: validate')
-    try:
-        from rtc.extern.validate_cloud_optimized_geotiff import main as validate_cog
-    except ModuleNotFoundError:
-        logger.info('WARNING could not import module validate_cloud_optimized_geotiff')
-        return
-
-    argv = ['--full-check=yes', filename]
-    validate_cog_ret = validate_cog(argv)
-    if validate_cog_ret == 0:
-        logger.info(f'        file "{filename}" is a valid cloud optimized'
-                    ' GeoTIFF')
-    else:
-        logger.warning(f'        file "{filename}" is NOT a valid cloud'
-                       f' optimized GeoTIFF!')
-
-
 def change_epsg_tif(input_tif, output_tif, epsg_output):
-    """Resample the input geotiff image to new EPSG code. 
+    """Resample the input geotiff image to new EPSG code.
     Parameters
     ----------
     input_tif: str
         geotiff file path to be changed
     output_tif: str
         geotiff file path to be saved
-    epsg_output: int 
-        new EPSG code 
+    epsg_output: int
+        new EPSG code
     """
     metadata = get_meta_from_tif(input_tif)
     opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
@@ -309,7 +292,7 @@ def change_epsg_tif(input_tif, output_tif, epsg_output):
                      xRes=metadata['geotransform'][1],
                      yRes=metadata['geotransform'][5],
                      format='GTIFF')
-    ds = gdal.Warp(output_tif, input_tif, options=opt)   
+    ds = gdal.Warp(output_tif, input_tif, options=opt)
     ds = None
 
 
@@ -318,12 +301,12 @@ def get_meta_from_tif(tif_file_name):
     Parameters
     ----------
     input_tif_str: str
-        geotiff file path to read the band 
+        geotiff file path to read the band
     Returns
     -------
     meta_dict: dict
-        dictionary containing geotransform, projection, image size, 
-        utmzone, and epsg code. 
+        dictionary containing geotransform, projection, image size,
+        utmzone, and epsg code.
     """
     if type(tif_file_name) is list:
         tif_name = tif_file_name[0]

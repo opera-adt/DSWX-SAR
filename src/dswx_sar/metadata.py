@@ -6,6 +6,15 @@ from collections import OrderedDict
 from dswx_sar.version import VERSION as SOFTWARE_VERSION
 
 def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
+    """Copy metadata dictionary from RTC metadata
+    Parameters
+    ----------
+    h5path_list : list
+            List of metadata HDF5 file
+    dswx_metadata_dict : collections.OrderedDict
+        Metadata dictionary
+    """
+
     metadata_dict = dict()
 
     metadata_rtc_str_list = [
@@ -208,6 +217,16 @@ def _get_dswx_metadata_dict(cfg, product_version=None):
     return dswx_metadata_dict
 
 def create_dswx_sar_metadata(cfg):
+    """Create dictionary containing metadat
+    Parameters
+    ----------
+    cfg: RunConfig
+        Input runconfig
+    Returns
+    -------
+    dswx_metadata_dict : collections.OrderedDict
+        Metadata dictionary
+    """
     dswx_metadata_dict = _get_dswx_metadata_dict(cfg, product_version=0.1)
     _populate_ancillary_metadata_datasets(dswx_metadata_dict,
                                         dem_file=None,

@@ -110,9 +110,9 @@ def load_validate_yaml(yaml_path: str, workflow_name: str) -> dict:
 
     # Copy user-supplied configuration options into default runconfig
     _deep_update(default_cfg, user_cfg)
-
     # Validate YAML values under groups dict
-    validate_group_dict(default_cfg['runconfig']['groups'], workflow_name)
+    if 'groups' in default_cfg['runconfig'].keys():
+        validate_group_dict(default_cfg['runconfig']['groups'], workflow_name)
 
     return default_cfg
 
@@ -189,9 +189,6 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     product_group = group_cfg['product_path_group']
     check_write_dir(product_group['product_path'])
     check_write_dir(product_group['scratch_path'])
-    processing_group = group_cfg['processing']
-    # check_polarizations(processing_group['polarizations'])
-
 
 def check_geocode_dict(geocode_cfg: dict) -> None:
 
@@ -267,12 +264,21 @@ class RunConfig:
             Name of the workflow for which uploading default options
         """
         cfg = load_validate_yaml(yaml_path, workflow_name)
+
         groups_cfg = cfg['runconfig']['groups']
 
         # Convert runconfig dict to SimpleNamespace
         sns = wrap_namespace(groups_cfg)
+        product = sns.primary_executable.product_type
+        sensor = product.split('_')[-1]
+        ancillary = sns.dynamic_ancillary_file_group
 
+        algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameter, 
+                                           f'algorithm_parameter_{sensor.lower()}')
+
+        algorithm_sns = wrap_namespace(algorithm_cfg['runconfig']['processing'])
         # copy runconfig parameters from dictionary
+        sns.processing = algorithm_sns
         processing_group = sns.processing
         debug_mode = processing_group.debug_mode
 

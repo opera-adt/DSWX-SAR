@@ -10,7 +10,7 @@ import h5py
 import glob
 import mgrs
 import datetime
-from dswx_sar.version import VERSION as software_version 
+from dswx_sar.version import VERSION as software_version
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
@@ -62,7 +62,7 @@ def save_mgrs_tile(source_tif_path,
                    output_dir_path,
                    output_tif_name,
                    output_mgrs_id,
-                   method='nearest', 
+                   method='nearest',
                    no_data_value=255):
 
     """Crop image along the MGRS tile grid and save as COG
@@ -79,7 +79,7 @@ def save_mgrs_tile(source_tif_path,
     method : str
         interpolation method.
     no_data_value: float or int
-        no data value for mgrs tile. 
+        no data value for mgrs tile.
     """
     input_tif_obj = gdal.Open(source_tif_path)
     band = input_tif_obj.GetRasterBand(1)
@@ -117,7 +117,7 @@ def save_mgrs_tile(source_tif_path,
                      yRes=yspacing,
                      outputBounds=bbox,
                      resampleAlg=method,
-                     dstNodata=no_data_value, 
+                     dstNodata=no_data_value,
                      format='GTIFF')
     ds = gdal.Warp(output_tif_file_path, source_tif_path, options=opt)
     ds = None
@@ -139,10 +139,10 @@ def run(cfg):
     pol_str = '_'.join(pol_list)
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
-    product_version = cfg.groups.product_path_group.product_version 
+    product_version = cfg.groups.product_path_group.product_version
 
     os.makedirs(sas_outputdir, exist_ok=True)
-    
+
     num_input_path = len(input_list)
     if os.path.isdir(input_list[0]):
         if num_input_path > 1:
@@ -155,7 +155,7 @@ def run(cfg):
         else:
             err_str = f'unable to process more than 1 images.'
             logger.error(err_str)
-            raise ValueError(err_str)   
+            raise ValueError(err_str)
 
     if mosaic_flag:
         print('Number of bursts to process:', num_input_path)
@@ -175,7 +175,7 @@ def run(cfg):
                 date_str = meta_h5[f'{id_path}/zeroDopplerStartTime'][()]
             date_str_list.append(date_str)
         date_str_list = [x.decode() for x in date_str_list]
-        
+
         input_date_format = "%Y-%m-%dT%H:%M:%S"
         output_date_format = "%Y%m%dT%H%M%SZ"
 

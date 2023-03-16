@@ -10,7 +10,7 @@ import h5py
 import glob
 import mgrs
 import datetime
-
+from dswx_sar.version import VERSION as software_version
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
@@ -62,7 +62,7 @@ def save_mgrs_tile(source_tif_path,
                    output_dir_path,
                    output_tif_name,
                    output_mgrs_id,
-                   method='nearest', 
+                   method='nearest',
                    no_data_value=255):
 
     """Crop image along the MGRS tile grid and save as COG
@@ -79,7 +79,7 @@ def save_mgrs_tile(source_tif_path,
     method : str
         interpolation method.
     no_data_value: float or int
-        no data value for mgrs tile. 
+        no data value for mgrs tile.
     """
     input_tif_obj = gdal.Open(source_tif_path)
     band = input_tif_obj.GetRasterBand(1)
@@ -117,7 +117,7 @@ def save_mgrs_tile(source_tif_path,
                      yRes=yspacing,
                      outputBounds=bbox,
                      resampleAlg=method,
-                     dstNodata=no_data_value, 
+                     dstNodata=no_data_value,
                      format='GTIFF')
     ds = gdal.Warp(output_tif_file_path, source_tif_path, options=opt)
     ds = None
@@ -139,9 +139,10 @@ def run(cfg):
     pol_str = '_'.join(pol_list)
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
+    product_version = cfg.groups.product_path_group.product_version
 
     os.makedirs(sas_outputdir, exist_ok=True)
-    
+
     num_input_path = len(input_list)
     if os.path.isdir(input_list[0]):
         if num_input_path > 1:
@@ -174,14 +175,13 @@ def run(cfg):
                 date_str = meta_h5[f'{id_path}/zeroDopplerStartTime'][()]
             date_str_list.append(date_str)
         date_str_list = [x.decode() for x in date_str_list]
-        
+
         input_date_format = "%Y-%m-%dT%H:%M:%S"
         output_date_format = "%Y%m%dT%H%M%SZ"
 
         date_str_id_temp = date_str_list[0][:19]
         date_str_id = datetime.datetime.strptime(date_str_id_temp, input_date_format).strftime(output_date_format)
 
-        print(date_str_id)
     else:
         date_str_id = 'unknown'
 
@@ -336,14 +336,16 @@ def run(cfg):
             mgrs_tile_list.append(mgrs_tile[0:5])
 
     unique_mgrs_tile_list = list(set(mgrs_tile_list))
+    # [TODO]
 
+    processing_time = datetime.datetime.now().strftime("%Y%m%dT%H%M%SZ")
     if dswx_workflow == 'opera_dswx_s1':
 
         for mgrs_tile_id in unique_mgrs_tile_list:
             #[TODO] specify file name
             print('mgrs tile', mgrs_tile_id)
-
-            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_WTR.tif'
+            dswx_name_format_prefix = f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_v{product_version}'
+            output_mgrs_wtr = f'{dswx_name_format_prefix}_B01_WTR.tif'
 
             # bbox and epsg extract from MGRS tile
             save_mgrs_tile(source_tif_path=full_wtr1_water_set_path,
@@ -352,14 +354,14 @@ def run(cfg):
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_BWTR.tif'
+            output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_BWTR.tif'
             save_mgrs_tile(source_tif_path=full_wtr_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_CONF.tif'
+            output_mgrs_wtr = f'{dswx_name_format_prefix}_B03_CONF.tif'
             save_mgrs_tile(source_tif_path=full_conf_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,

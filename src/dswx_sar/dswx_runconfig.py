@@ -273,7 +273,7 @@ class RunConfig:
         sensor = product.split('_')[-1]
         ancillary = sns.dynamic_ancillary_file_group
 
-        algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameter, 
+        algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameters, 
                                            f'algorithm_parameter_{sensor.lower()}')
 
         algorithm_sns = wrap_namespace(algorithm_cfg['runconfig']['processing'])

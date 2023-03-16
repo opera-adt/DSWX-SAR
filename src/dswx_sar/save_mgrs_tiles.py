@@ -338,17 +338,13 @@ def run(cfg):
     unique_mgrs_tile_list = list(set(mgrs_tile_list))
     # [TODO]
 
-    if product_version:
-        version = product_version
-    else:
-        version = software_version
     processing_time = datetime.datetime.now().strftime("%Y%m%dT%H%M%SZ")
     if dswx_workflow == 'opera_dswx_s1':
 
         for mgrs_tile_id in unique_mgrs_tile_list:
             #[TODO] specify file name
             print('mgrs tile', mgrs_tile_id)
-            dswx_name_format_prefix = f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_v{version}'
+            dswx_name_format_prefix = f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_v{product_version}'
             output_mgrs_wtr = f'{dswx_name_format_prefix}_B01_WTR.tif'
 
             # bbox and epsg extract from MGRS tile

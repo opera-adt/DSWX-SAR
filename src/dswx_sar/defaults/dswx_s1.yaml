@@ -46,7 +46,7 @@ runconfig:
             shoreline_shapefile_description:
 
             # algorithm parameter 
-            algorithm_parameter: 
+            algorithm_parameters: 
 
         primary_executable:
             product_type: DSWX_S1

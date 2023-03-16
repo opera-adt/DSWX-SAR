@@ -42,7 +42,7 @@ runconfig:
             shoreline_shapefile_description: str(required=False)
 
             # algorithm parameter 
-            algorithm_parameter: str(required=True)
+            algorithm_parameters: str(required=True)
 
         primary_executable:
             product_type: enum('dswx_s1', 'twele')

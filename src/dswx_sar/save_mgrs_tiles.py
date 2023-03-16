@@ -10,7 +10,7 @@ import h5py
 import glob
 import mgrs
 import datetime
-
+from dswx_sar.version import VERSION as software_version 
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
@@ -139,6 +139,7 @@ def run(cfg):
     pol_str = '_'.join(pol_list)
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
+    product_version = cfg.groups.product_path_group.product_version 
 
     os.makedirs(sas_outputdir, exist_ok=True)
     
@@ -154,7 +155,7 @@ def run(cfg):
         else:
             err_str = f'unable to process more than 1 images.'
             logger.error(err_str)
-            raise ValueError(err_str)
+            raise ValueError(err_str)   
 
     if mosaic_flag:
         print('Number of bursts to process:', num_input_path)
@@ -181,7 +182,6 @@ def run(cfg):
         date_str_id_temp = date_str_list[0][:19]
         date_str_id = datetime.datetime.strptime(date_str_id_temp, input_date_format).strftime(output_date_format)
 
-        print(date_str_id)
     else:
         date_str_id = 'unknown'
 
@@ -336,14 +336,20 @@ def run(cfg):
             mgrs_tile_list.append(mgrs_tile[0:5])
 
     unique_mgrs_tile_list = list(set(mgrs_tile_list))
+    # [TODO]
 
+    if product_version:
+        version = product_version
+    else:
+        version = software_version
+    processing_time = datetime.datetime.now().strftime("%Y%m%dT%H%M%SZ")
     if dswx_workflow == 'opera_dswx_s1':
 
         for mgrs_tile_id in unique_mgrs_tile_list:
             #[TODO] specify file name
             print('mgrs tile', mgrs_tile_id)
-
-            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_WTR.tif'
+            dswx_name_format_prefix = f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_v{version}'
+            output_mgrs_wtr = f'{dswx_name_format_prefix}_B01_WTR.tif'
 
             # bbox and epsg extract from MGRS tile
             save_mgrs_tile(source_tif_path=full_wtr1_water_set_path,
@@ -352,14 +358,14 @@ def run(cfg):
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_BWTR.tif'
+            output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_BWTR.tif'
             save_mgrs_tile(source_tif_path=full_wtr_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,
                         output_mgrs_id=mgrs_tile_id,
                         method='nearest')
 
-            output_mgrs_wtr = f'dswx_s1_{date_str_id}_{mgrs_tile_id}_CONF.tif'
+            output_mgrs_wtr = f'{dswx_name_format_prefix}_B03_CONF.tif'
             save_mgrs_tile(source_tif_path=full_conf_water_set_path,
                         output_dir_path=sas_outputdir,
                         output_tif_name=output_mgrs_wtr,

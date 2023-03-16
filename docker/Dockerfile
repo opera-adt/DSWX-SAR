@@ -51,5 +51,6 @@ ENV GDAL_DATA $GDAL_DIR/share/gdal
 
 ENV PYTHONPATH /home/conda/dswx-s1-0.1.0/src/:$PYTHONPATH
 ENV PATH /home/conda/dswx-s1-0.1.0/bin/:$PATH
+ENV PATH /home/conda/dswx-s1-0.1.0/src/dswx_sar:$PATH
 
 CMD [ "/bin/bash" ]

@@ -57,7 +57,9 @@ long_description = open('README.md').read()
 package_data_dict = {}
 
 package_data_dict['dswx_sar'] = [
+    os.path.join('defaults', 'algorithm_parameter_s1.yaml'),
     os.path.join('defaults', 'dswx_s1.yaml'),
+    os.path.join('schemas', 'algorithm_parameter_s1.yaml'),
     os.path.join('schemas', 'dswx_s1.yaml')]
 
 setup(

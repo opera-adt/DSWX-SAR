@@ -187,7 +187,7 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions
     product_group = group_cfg['product_path_group']
-    check_write_dir(product_group['product_path'])
+    check_write_dir(product_group['sas_output_path'])
     check_write_dir(product_group['scratch_path'])
 
 def check_geocode_dict(geocode_cfg: dict) -> None:

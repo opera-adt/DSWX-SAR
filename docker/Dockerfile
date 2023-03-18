@@ -33,12 +33,12 @@ RUN set -ex \
 
 # set default user and workdir
 WORKDIR /home/conda
-ADD dist/dswx-s1-0.1.0.tar.gz .
+ADD dist/dswx-s1-v0.1.tar.gz .
 
 USER root
-RUN mkdir -p dswx-s1-0.1.0/build
+RUN mkdir -p dswx-s1-v0.1/build
 RUN export PATH=/opt/conda/bin:$PATH
-WORKDIR /home/conda/dswx-s1-0.1.0
+WORKDIR /home/conda/dswx-s1-v0.1
 RUN python3 setup.py install
 WORKDIR /home/conda
 
@@ -49,8 +49,8 @@ ENV GDAL_DIR /opt/conda
 ENV PATH $GDAL_DIR/bin:$PATH
 ENV GDAL_DATA $GDAL_DIR/share/gdal
 
-ENV PYTHONPATH /home/conda/dswx-s1-0.1.0/src/:$PYTHONPATH
-ENV PATH /home/conda/dswx-s1-0.1.0/bin/:$PATH
-ENV PATH /home/conda/dswx-s1-0.1.0/src/dswx_sar:$PATH
+ENV PYTHONPATH /home/conda/dswx-s1-v0.1/src/:$PYTHONPATH
+ENV PATH /home/conda/dswx-s1-v0.1/bin/:$PATH
+ENV PATH /home/conda/dswx-s1-v0.1/src/dswx_sar:$PATH
 
 CMD [ "/bin/bash" ]

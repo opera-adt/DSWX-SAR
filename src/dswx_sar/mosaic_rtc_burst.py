@@ -14,7 +14,7 @@ import mimetypes
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import dswx_sar_util
 
-logger = logging.getLogger('dswx_S1')
+logger = logging.getLogger('dswx_s1')
 
 def check_reprojection(geogrid_mosaic,
                        rtc_image: str,

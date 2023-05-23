@@ -4,7 +4,9 @@ import mimetypes
 import time
 from datetime import datetime
 
-from dswx_sar import mosaic_rtc_burst, save_mgrs_tiles, dummy_dswx_s1
+from dswx_sar import mosaic_rtc_burst, save_mgrs_tiles, dummy_dswx_s1,\
+                     pre_processing
+                     
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 logger = logging.getLogger('dswx_s1')
@@ -24,6 +26,9 @@ def dswx_s1_workflow(cfg):
 
     # Create mosaic burst RTCs
     mosaic_rtc_burst.run(cfg)
+
+    # preprocessing (relocating ancillary data and filtering)
+    pre_processing.run(cfg)
 
     # create dummpy water map. 
     dummy_dswx_s1.run(cfg)

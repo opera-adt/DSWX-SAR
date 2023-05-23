@@ -4,12 +4,10 @@ import numpy as np
 import os, sys
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-import h5py
 import shutil
 import tempfile
 import logging
 from dataclasses import dataclass
-
 
 
 np2gdal_conversion = {
@@ -341,3 +339,11 @@ def get_meta_from_tif(tif_file_name):
     tif_gdal = None
 
     return meta_dict
+
+def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
+
+    fig = plt.figure(figsize=(20,20))
+    fig, ax = plt.subplots(1,1,figsize=(15,15))
+    im = ax.imshow(10*np.log10(intensity), cmap = plt.get_cmap('gray'), vmin=immin,vmax=immax)
+    plt.title('RTC')
+    plt.savefig(os.path.join(outputdir, 'RTC_intensity_{}'.format(pol)) )

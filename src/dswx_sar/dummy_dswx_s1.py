@@ -1,20 +1,14 @@
 import os
 import time
 import numpy as np
-import mgrs
 import logging
 import mimetypes
-from osgeo import gdal, osr
-from pyproj import CRS
-import h5py
-import glob
-import mgrs
 
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 
-logger = logging.getLogger('dswx_S1')
+logger = logging.getLogger('dswx_s1')
 
 def run(cfg):
 

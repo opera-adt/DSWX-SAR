@@ -182,7 +182,12 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     # Check 'dynamic_ancillary_file_groups' section of runconfig
     # Check that DEM file exists and is GDAL-compatible
     dem_path = group_cfg['dynamic_ancillary_file_group']['dem_file']
-    check_file_path(dem_path)
+    landcover_path = group_cfg['dynamic_ancillary_file_group']['worldcover_file']
+    ref_water_path = group_cfg['dynamic_ancillary_file_group']['reference_water_file']
+    hand_path = group_cfg['dynamic_ancillary_file_group']['hand_file']
+    file_paths = [dem_path, landcover_path, ref_water_path, hand_path]
+    for path in file_paths:
+        check_file_path(path)
 
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions

@@ -7,161 +7,15 @@ import time
 import glob
 import numpy as np
 import logging
-import h5py
 from osgeo import osr, gdal
 import mimetypes
+import tempfile
+from scipy import ndimage
 
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import dswx_sar_util
 
 logger = logging.getLogger('dswx_s1')
-
-def check_reprojection(geogrid_mosaic,
-                       rtc_image: str,
-                       nlooks_image: str = None) -> bool:
-    '''
-    Check if the reprojection is required to mosaic input raster
-    Parameters:
-    -----------
-    geogrid_mosaic: isce3.product.GeoGridParameters
-        Mosaic geogrid
-    rtc_image: str
-        Path to the geocoded RTC image
-    nlooks_image: str (optional)
-        Path to the nlooks raster
-    Returns:
-    flag_requires_reprojection: bool
-        True if reprojection is necessary to mosaic inputs
-        False if the images are aligned, so that no reprojection is necessary.
-    '''
-
-    # Accepted error in the coordinates as floating number
-    maxerr_coord = 1.0e-6
-
-    raster_rtc_image = gdal.Open(rtc_image, gdal.GA_ReadOnly)
-    if nlooks_image is not None:
-        raster_nlooks = gdal.Open(nlooks_image, gdal.GA_ReadOnly)
-
-    # Compare geotransforms of RTC image and nlooks (if provided)
-    if (nlooks_image is not None and
-            raster_rtc_image.GetGeoTransform() !=
-            raster_nlooks.GetGeoTransform()):
-        error_str = (f'ERROR geolocations of {raster_rtc_image} and'
-                     f' {raster_nlooks} do not match')
-        raise ValueError(error_str)
-
-    # Compare dimension - between RTC imagery and corresponding nlooks
-    if (nlooks_image is not None and
-        (raster_rtc_image.RasterXSize != raster_nlooks.RasterXSize or
-            raster_rtc_image.RasterYSize != raster_nlooks.RasterYSize)):
-        error_str = (f'ERROR dimensions of {raster_rtc_image} and'
-                     f' {raster_nlooks} do not match')
-        raise ValueError(error_str)
-
-    rasters_to_check = [raster_rtc_image]
-    if raster_nlooks is not None:
-        rasters_to_check += [raster_nlooks]
-
-    for raster in rasters_to_check:
-        geotransform = raster.GetGeoTransform()
-        projection = raster.GetProjection()
-
-        x0 = geotransform[0]
-        dx = geotransform[1]
-        y0 = geotransform[3]
-        dy = geotransform[5]
-
-        # check spacing
-        if dx != geogrid_mosaic.spacing_x:
-            flag_requires_reprojection = True
-            return flag_requires_reprojection
-
-        if dy != geogrid_mosaic.spacing_y:
-            flag_requires_reprojection = True
-            return flag_requires_reprojection
-
-        # check projection
-        srs_mosaic = osr.SpatialReference()
-        srs_mosaic.ImportFromEPSG(geogrid_mosaic.epsg)
-
-        if projection != srs_mosaic.ExportToWkt():
-            srs_1 = osr.SpatialReference()
-            srs_1.SetWellKnownGeogCS(projection)
-
-            srs_2 = osr.SpatialReference()
-            srs_2.SetWellKnownGeogCS(projection)
-
-            if not srs_1.IsSame(srs_2):
-                flag_requires_reprojection = True
-                return flag_requires_reprojection
-
-        # check the coordinates
-        if (abs((x0 - geogrid_mosaic.start_x) % geogrid_mosaic.spacing_x) >
-                maxerr_coord):
-            flag_requires_reprojection = True
-            return flag_requires_reprojection
-
-        if (abs((y0 - geogrid_mosaic.start_y) % geogrid_mosaic.spacing_y) >
-                maxerr_coord):
-            flag_requires_reprojection = True
-            return flag_requires_reprojection
-
-    flag_requires_reprojection = False
-    return flag_requires_reprojection
-
-def check_consistency_metadata(list_metadata_hdf5, cfg):
-    '''
-    Check RTC metadata if they have same polarizations
-    paremeters:
-    -----------
-        list_metadata_hdf5: list
-            List of the path to the rtc metadata
-        cfg: RunConfig
-            Input runconfig
-    '''
-    input_pol_list = cfg.groups.processing.polarizations
-    # [TODO] currently, input polarizations are 4 characters (e.g. VHVH)
-    re_input_pol_list = []
-    for input_pol in input_pol_list:
-        if len(input_pol) > 3:
-            if input_pol[0:2] == input_pol[2:4]:
-                re_input_pol_list.append(input_pol[0:2])
-
-    common_parent_path = '/science/SENTINEL1/'
-    grid_path = f'{common_parent_path}/RTC/grids/'
-    freqA_path = f'{grid_path}/frequencyA'
-    id_path  = f'{common_parent_path}/identification/'
-
-    track_number_list = []
-    orbit_directs = []
-    number_pol = []
-
-    for h5_file_path in list_metadata_hdf5:
-
-        with h5py.File(h5_file_path, 'r') as src_h5:
-            temp_pols = list(src_h5[f'{freqA_path}/listOfPolarizations'])
-            burst_pols = [x.decode() for x in temp_pols]
-            number_pol.append(len(burst_pols))
-
-            for input_pol in re_input_pol_list:
-                if input_pol not in burst_pols:
-                    raise ValueError(f'User-given polarizations are not found in metadata'
-                             f' file: {os.path.basename(h5_file_path)}')
-
-            orbit_direction = src_h5[f'{id_path}/orbitPassDirection'][()]
-            orbit_directs.append(orbit_direction.decode())
-
-            track_number =  src_h5[f'{id_path}/trackNumber'][()]
-            track_number_list.append(track_number)
-
-    if len(set(orbit_directs)) > 1:
-        # for track_ind, orbit_cand in enumerate(orbit_directs):
-        raise ValueError(f'different orbit directions are found in input metadata')
-
-    if len(set(track_number_list)) > 1:
-        # for track_ind, track_cand in enumerate(track_number_list):
-        raise ValueError(f'different track numbers are found in input metadata')
-
 def save_h5_metadata_to_tif(h5_meta_path, 
                             data_path, 
                             output_tif_path, 
@@ -230,76 +84,217 @@ def save_h5_metadata_to_tif(h5_meta_path,
 
         os.remove(output_tif_temp_path)
 
-def compute_weighted_mosaic_array(list_rtc_images, list_nlooks,
-                     geogrid_in=None, verbose = True):
+def requires_reprojection(geogrid_mosaic,
+                          rtc_image: str,
+                          nlooks_image: str = None) -> bool:
+    '''
+    Check if the reprojection is required to mosaic input raster
+
+    Parameters
+    -----------
+    geogrid_mosaic: isce3.product.GeoGridParameters
+        Mosaic geogrid
+    rtc_image: str
+        Path to the geocoded RTC image
+    nlooks_image: str (optional)
+        Path to the nlooks raster
+
+    Returns
+    flag_requires_reprojection: bool
+        True if reprojection is necessary to mosaic inputs
+        False if the images are aligned, so that no reprojection is necessary.
+    '''
+
+    # Accepted error in the coordinates as floating number
+    maxerr_coord = 1.0e-6
+
+    raster_rtc_image = gdal.Open(rtc_image, gdal.GA_ReadOnly)
+    if nlooks_image is not None:
+        raster_nlooks = gdal.Open(nlooks_image, gdal.GA_ReadOnly)
+
+    # Compare geotransforms of RTC image and nlooks (if provided)
+    if (nlooks_image is not None and
+            raster_rtc_image.GetGeoTransform() !=
+            raster_nlooks.GetGeoTransform()):
+        error_str = (f'ERROR geolocations of {raster_rtc_image} and'
+                     f' {raster_nlooks} do not match')
+        raise ValueError(error_str)
+
+    # Compare dimension - between RTC imagery and corresponding nlooks
+    if (nlooks_image is not None and
+        (raster_rtc_image.RasterXSize != raster_nlooks.RasterXSize or
+            raster_rtc_image.RasterYSize != raster_nlooks.RasterYSize)):
+        error_str = (f'ERROR dimensions of {raster_rtc_image} and'
+                     f' {raster_nlooks} do not match')
+        raise ValueError(error_str)
+
+    rasters_to_check = [raster_rtc_image]
+    if nlooks_image is not None:
+        rasters_to_check += [raster_nlooks]
+
+    srs_mosaic = osr.SpatialReference()
+    srs_mosaic.ImportFromEPSG(geogrid_mosaic.epsg)
+
+    proj_mosaic = osr.SpatialReference(wkt=srs_mosaic.ExportToWkt())
+    epsg_mosaic = proj_mosaic.GetAttrValue('AUTHORITY', 1)
+
+    for raster in rasters_to_check:
+        x0, dx, _, y0, _, dy = raster.GetGeoTransform()
+        projection = raster.GetProjection()
+
+        # check spacing
+        if dx != geogrid_mosaic.spacing_x:
+            flag_requires_reprojection = True
+            return flag_requires_reprojection
+
+        if dy != geogrid_mosaic.spacing_y:
+            flag_requires_reprojection = True
+            return flag_requires_reprojection
+
+        # check projection
+        if projection != srs_mosaic.ExportToWkt():
+            proj_raster = osr.SpatialReference(wkt=projection)
+            epsg_raster = proj_raster.GetAttrValue('AUTHORITY', 1)
+
+            if epsg_raster != epsg_mosaic:
+                flag_requires_reprojection = True
+                return flag_requires_reprojection
+
+        # check the coordinates
+        if (abs((x0 - geogrid_mosaic.start_x) % geogrid_mosaic.spacing_x) >
+                maxerr_coord):
+            flag_requires_reprojection = True
+            return flag_requires_reprojection
+
+        if (abs((y0 - geogrid_mosaic.start_y) % geogrid_mosaic.spacing_y) >
+                maxerr_coord):
+            flag_requires_reprojection = True
+            return flag_requires_reprojection
+
+    flag_requires_reprojection = False
+    return flag_requires_reprojection
+
+
+def _compute_distance_to_burst_center(image, geotransform):
+    '''
+    Compute distance from burst center
+
+    Parameters
+    -----------
+       image: np.ndarray
+           Input image
+       geotransform: list(float)
+           Data geotransform
+
+    Returns
+        distance_image: np.ndarray
+            Distance image
+    '''
+
+    length, width = image.shape
+    center_of_mass = ndimage.center_of_mass(np.isfinite(image))
+
+    x_vector = np.arange(width, dtype=np.float32)
+    y_vector = np.arange(length, dtype=np.float32)
+
+    _, dx, _, _, _, dy = geotransform
+
+    x_distance_image, y_distance_image = np.meshgrid(x_vector, y_vector)
+    distance = np.sqrt((dy * (y_distance_image - center_of_mass[0])) ** 2 +
+                       (dx * (x_distance_image - center_of_mass[1])) ** 2 )
+
+    return distance
+
+
+def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir='',
+                         geogrid_in=None, temp_files_list=None, verbose=True):
     '''
     Mosaic S-1 geobursts and return the mosaic as dictionary
-    paremeters:
+
+    Parameters
     -----------
-        list_rtc: list
-            List of the path to the rtc geobursts
-        list_nlooks: list
-            List of the nlooks raster that corresponds to list_rtc
-        geogrid_in: isce3.product.GeoGridParameters, default: None
+       list_rtc: list
+           List of the path to the rtc geobursts
+       list_nlooks: list
+           List of the nlooks raster that corresponds to list_rtc
+       mosaic_mode: str
+            Mosaic mode. Choices: "average", "first", and "bursts_center"
+       scratch_dir: str (optional)
+            Directory for temporary files
+       geogrid_in: isce3.product.GeoGridParameters, default: None
             Geogrid information to determine the output mosaic's shape and projection
             The geogrid of the output mosaic will automatically determined when it is None
-    Returns:
+       temp_files_list: list (optional)
+            Mutable list of temporary files. If provided,
+            paths to the temporary files generated will be
+            appended to this list
+       verbose: flag (optional)
+            Flag to enable (True) or disable (False) the verbose mode
+    Returns
         mosaic_dict: dict
             Mosaic dictionary
     '''
 
-    num_raster = len(list_rtc_images)
+    mosaic_mode_choices_list = ['average', 'first', 'bursts_center']
+    if mosaic_mode.lower() not in mosaic_mode_choices_list:
+        raise ValueError(f'ERROR invalid mosaic mode: {mosaic_mode}.'
+                         f' Choices: {", ".join(mosaic_mode_choices_list)}')
 
+    num_raster = len(list_rtc_images)
+    description_list = []
     num_bands = None
     posting_x = None
     posting_y = None
 
     list_geo_transform = np.zeros((num_raster, 6))
     list_dimension = np.zeros((num_raster, 2), dtype=np.int32)
-    list_epsg = []
-    for i, path_rtc in enumerate(list_rtc_images):
 
-        if verbose:
-            print(f'loading geocoding info: {i+1} of {num_raster}')
+    for i, path_rtc in enumerate(list_rtc_images):
 
         raster_in = gdal.Open(path_rtc, gdal.GA_ReadOnly)
         list_geo_transform[i, :] = raster_in.GetGeoTransform()
         list_dimension[i, :] = (raster_in.RasterYSize, raster_in.RasterXSize)
-        list_epsg.append(raster_in.GetProjectionRef())
+
         # Check if the number of bands are consistent over the input RTC rasters
         if num_bands is None:
             num_bands = raster_in.RasterCount
-            continue
+
         elif num_bands != raster_in.RasterCount:
-            raise ValueError(f'Anomaly detected on # of bands from source'
-                             f' file: {os.path.basename(path_rtc)}')
+            raise ValueError(f'ERROR: the file "{os.path.basename(path_rtc)}"'
+                             f' has {raster_in.RasterCount} bands. Expected:'
+                             f' {num_bands}.') 
 
+        if len(description_list) == 0:
+            for i_band in range(num_bands):
+                description_list.append(
+                    raster_in.GetRasterBand(i_band+1).GetDescription())
+
+        # Close GDAL dataset
         raster_in = None
-
 
     if geogrid_in is None:
         # determine GeoTransformation, posting, dimension, and projection from the input raster
         for i in range(num_raster):
             if list_geo_transform[:, 1].max() == list_geo_transform[:, 1].min():
                 posting_x = list_geo_transform[0,1]
-            else:
-                print(list_geo_transform[:, 1].max(), list_geo_transform[:, 1].min())
+
             if list_geo_transform[:, 5].max() == list_geo_transform[:, 5].min():
                 posting_y = list_geo_transform[0,5]
 
         # determine the dimension and the upper left corner of the output mosaic
         xmin_mosaic = list_geo_transform[:, 0].min()
         ymax_mosaic = list_geo_transform[:, 3].max()
-        xmax_mosaic = (list_geo_transform[:, 0] + list_geo_transform[:, 1]*list_dimension[:, 1]).max()
-        ymin_mosaic = (list_geo_transform[:, 3] + list_geo_transform[:, 5]*list_dimension[:, 0]).min()
+        xmax_mosaic = (list_geo_transform[:, 0] +
+                       list_geo_transform[:, 1]*list_dimension[:, 1]).max()
+        ymin_mosaic = (list_geo_transform[:, 3] +
+                       list_geo_transform[:, 5]*list_dimension[:, 0]).min()
 
         dim_mosaic = (int(np.ceil((ymin_mosaic - ymax_mosaic) / posting_y)),
                       int(np.ceil((xmax_mosaic - xmin_mosaic) / posting_x)))
 
-        wkt_obj = gdal.Open(list_rtc_images[0], gdal.GA_ReadOnly)
-        wkt_projection = wkt_obj.GetProjectionRef()
-        wkt_obj = None
-        del wkt_obj
+        gdal_ds_raster_in = gdal.Open(list_rtc_images[0], gdal.GA_ReadOnly)
+        wkt_projection = gdal_ds_raster_in.GetProjectionRef()
+        del gdal_ds_raster_in
 
     else:
         # Directly bring the geogrid information from the input parameter
@@ -310,84 +305,203 @@ def compute_weighted_mosaic_array(list_rtc_images, list_nlooks,
 
         dim_mosaic = (geogrid_in.length, geogrid_in.width)
 
-        xmax_mosaic = xmin_mosaic + posting_x*dim_mosaic[1]
-        ymin_mosaic = ymax_mosaic + posting_y*dim_mosaic[0]
-        dim_mosaic = (geogrid_in.length, geogrid_in.width)
+        xmax_mosaic = xmin_mosaic + posting_x * dim_mosaic[1]
+        ymin_mosaic = ymax_mosaic + posting_y * dim_mosaic[0]
 
         srs_mosaic = osr.SpatialReference()
         srs_mosaic.ImportFromEPSG(geogrid_in.epsg)
         wkt_projection = srs_mosaic.ExportToWkt()
 
     if verbose:
-        print(f'mosaic dimension: {dim_mosaic}, #bands: {num_bands}')
+        print(f'    mosaic geogrid:')
+        print(f'        start X:', xmin_mosaic)
+        print(f'        end X:', xmax_mosaic)
+        print(f'        start Y:', ymax_mosaic)
+        print(f'        end Y:', ymin_mosaic)
+        print(f'        spacing X:', posting_x)
+        print(f'        spacing Y:', posting_y)
+        print(f'        width:', dim_mosaic[1])
+        print(f'        length:', dim_mosaic[0])
+        print(f'        projection:', wkt_projection)
+        print(f'        number of bands: {num_bands}')
 
-    arr_numerator = np.zeros((num_bands, dim_mosaic[0], dim_mosaic[1]))
-    arr_denominator = np.zeros(dim_mosaic)
+    if mosaic_mode.lower() == 'average':
+        arr_numerator = np.zeros((num_bands, dim_mosaic[0], dim_mosaic[1]),
+                                 dtype=float)
+        arr_denominator = np.zeros(dim_mosaic, dtype=float)
+    else:
+        arr_numerator = np.full((num_bands, dim_mosaic[0], dim_mosaic[1]),
+                                np.nan, dtype=float)
+        if mosaic_mode.lower() == 'bursts_center':
+            arr_distance = np.full(dim_mosaic, np.nan, dtype=float)
 
     for i, path_rtc in enumerate(list_rtc_images):
-        path_nlooks = list_nlooks[i]
-
-        if not path_nlooks:
+        if i < len(list_nlooks):
+            path_nlooks = list_nlooks[i]
+        else:
             path_nlooks = None
 
         if verbose:
-            print(f'mosaicking: {i+1} of {num_raster}: {os.path.basename(path_rtc)}')
+            print(f'    mosaicking ({i+1}/{num_raster}): {os.path.basename(path_rtc)}')
 
-        if geogrid_in is not None and check_reprojection(
+        if geogrid_in is not None and requires_reprojection(
                 geogrid_in, path_rtc, path_nlooks):
-            # reprojection not implemented
-            raise NotImplementedError
+            if verbose:
+                print('        the image requires reprojection/relocation')
 
-        # TODO: if geogrid_in is None, check reprojection
+                relocated_file = tempfile.NamedTemporaryFile(
+                    dir=scratch_dir, suffix='.tif').name
 
-        # calculate the burst RTC's offset wrt. the output mosaic in the image coordinate
-        offset_imgx = int((list_geo_transform[i,0] - xmin_mosaic) / posting_x + 0.5)
-        offset_imgy = int((list_geo_transform[i,3] - ymax_mosaic) / posting_y + 0.5)
+                print('        reprojecting image to temporary file:',
+                      relocated_file)
+
+                if temp_files_list is not None:
+                    temp_files_list.append(relocated_file)
+
+                gdal.Warp(relocated_file, path_rtc,
+                          format='GTiff',
+                          dstSRS=wkt_projection,
+                          outputBounds=[
+                              geogrid_in.start_x,
+                              geogrid_in.start_y +
+                                geogrid_in.length * geogrid_in.spacing_y,
+                              geogrid_in.start_x +
+                                geogrid_in.width * geogrid_in.spacing_x,
+                              geogrid_in.start_y],
+                          multithread=True,
+                          xRes=geogrid_in.spacing_x,
+                          yRes=abs(geogrid_in.spacing_y),
+                          resampleAlg='average',
+                          errorThreshold=0,
+                          dstNodata=np.nan)
+                path_rtc = relocated_file
+
+                if path_nlooks is not None:
+                    relocated_file_nlooks = tempfile.NamedTemporaryFile(
+                        dir=scratch_dir, suffix='.tif').name
+
+                    print('        reprojecting number of looks layer to temporary'
+                          ' file:', relocated_file_nlooks)
+
+                    if temp_files_list is not None:
+                        temp_files_list.append(relocated_file_nlooks)
+
+                    gdal.Warp(relocated_file_nlooks, path_nlooks,
+                            format='GTiff',
+                            dstSRS=wkt_projection,
+                            outputBounds=[
+                                geogrid_in.start_x,
+                                geogrid_in.start_y +
+                                    geogrid_in.length * geogrid_in.spacing_y,
+                                geogrid_in.start_x +
+                                    geogrid_in.width * geogrid_in.spacing_x,
+                                geogrid_in.start_y],
+                            multithread=True,
+                            xRes=geogrid_in.spacing_x,
+                            yRes=abs(geogrid_in.spacing_y),
+                            resampleAlg='cubic',
+                            errorThreshold=0,
+                          dstNodata=np.nan)
+                    path_nlooks = relocated_file_nlooks
+
+            offset_imgx = 0
+            offset_imgy = 0
+        else:
+
+            # calculate the burst RTC's offset wrt. the output mosaic in the image coordinate
+            offset_imgx = int((list_geo_transform[i, 0] - xmin_mosaic) / posting_x + 0.5)
+            offset_imgy = int((list_geo_transform[i, 3] - ymax_mosaic) / posting_y + 0.5)
 
         if verbose:
-            print(f'image offset [x, y] = [{offset_imgx}, {offset_imgy}]')
-        raster_rtc = gdal.Open(path_rtc,0)
-        arr_rtc = raster_rtc.ReadAsArray()
+            print(f'        image offset (x, y): ({offset_imgx}, {offset_imgy})')
 
-        #reshape arr_rtc when it is a singleband raster: to make it compatible in the for loop below
-        if num_bands==1:
-            arr_rtc=arr_rtc.reshape((1, arr_rtc.shape[0], arr_rtc.shape[1]))
-
-        # Replace NaN values with 0
-        arr_rtc[np.isnan(arr_rtc)] = 0.0
-        if not path_nlooks or path_nlooks == None:
-            arr_nlooks = np.ones([arr_rtc.shape[1], arr_rtc.shape[2]])
-            arr_nlooks[arr_rtc[0,:,:]==0] = 0
+        if path_nlooks is not None:
+            nlooks_gdal_ds = gdal.Open(path_nlooks, gdal.GA_ReadOnly)
+            arr_nlooks = nlooks_gdal_ds.ReadAsArray()
+            invalid_ind = np.isnan(arr_nlooks)
+            arr_nlooks[invalid_ind] = 0.0
         else:
-            raster_nlooks = gdal.Open(path_nlooks, 0)
-            arr_nlooks = raster_nlooks.ReadAsArray()
+            arr_nlooks = 1
 
-        invalid_ind = np.isnan(arr_nlooks)
-        arr_nlooks[invalid_ind] = 0.0
+        rtc_image_gdal_ds = gdal.Open(path_rtc, gdal.GA_ReadOnly)
 
         for i_band in range(num_bands):
+
+            band_ds = rtc_image_gdal_ds.GetRasterBand(i_band + 1)
+            arr_rtc = band_ds.ReadAsArray()
+
+            if i_band == 0:
+                length = min(arr_rtc.shape[0], dim_mosaic[0] - offset_imgy)
+                width = min( arr_rtc.shape[1], dim_mosaic[1] - offset_imgx)
+
+            if (length != arr_rtc.shape[0] or
+                    width != arr_rtc.shape[1]):
+                # Image needs to be cropped to fit in the mosaic
+                arr_rtc = arr_rtc[0:length, 0:width]
+
+            if mosaic_mode.lower() == 'average':
+                # Replace NaN values with 0
+                arr_rtc[np.isnan(arr_rtc)] = 0.0
+
+                arr_numerator[i_band,
+                              offset_imgy: offset_imgy + length,
+                              offset_imgx: offset_imgx + width] += \
+                    arr_rtc * arr_nlooks
+
+                if path_nlooks is not None:
+                    arr_denominator[offset_imgy: offset_imgy + length,
+                                    offset_imgx: offset_imgx + width] += arr_nlooks
+                else:
+                    arr_denominator[offset_imgy: offset_imgy + length,
+                                    offset_imgx: offset_imgx + width] += np.asarray(
+                        arr_rtc > 0, dtype=np.byte)
+
+                continue
+
+            arr_temp = arr_numerator[i_band, offset_imgy: offset_imgy + length,
+                                     offset_imgx: offset_imgx + width].copy()
+
+            if i_band == 0 and mosaic_mode.lower() == 'first':
+                ind = np.isnan(arr_temp)
+            elif i_band == 0 and mosaic_mode.lower() == 'bursts_center':
+                geotransform = rtc_image_gdal_ds.GetGeoTransform()
+
+                arr_new_distance = _compute_distance_to_burst_center(
+                    arr_rtc, geotransform)
+
+                arr_distance_temp = arr_distance[offset_imgy: offset_imgy + length,
+                                                 offset_imgx: offset_imgx + width]
+                ind = np.logical_or(np.isnan(arr_distance_temp),
+                                    arr_new_distance <= arr_distance_temp)
+
+                arr_distance_temp[ind] = arr_new_distance[ind]
+                arr_distance[offset_imgy: offset_imgy + length,
+                             offset_imgx: offset_imgx + width] = arr_distance_temp
+
+                del arr_distance_temp
+
+            arr_temp[ind] = arr_rtc[ind]
             arr_numerator[i_band,
-                          offset_imgy:offset_imgy+list_dimension[i, 0],
-                          offset_imgx:offset_imgx+list_dimension[i, 1]] += \
-                            arr_rtc[i_band, :, :] * arr_nlooks
+                          offset_imgy: offset_imgy + length,
+                          offset_imgx: offset_imgx + width] = arr_temp
 
-        arr_denominator[offset_imgy:offset_imgy + list_dimension[i, 0],
-                        offset_imgx:offset_imgx + list_dimension[i, 1]] += \
-                            arr_nlooks
+        rtc_image_gdal_ds = None
+        nlooks_gdal_ds = None
+ 
+    if mosaic_mode.lower() == 'average':
+        # Mode: average
+        # `arr_numerator` holds the accumulated sum. Now, we divide it
+        # by `arr_denominator` to get the average value
+        for i_band in range(num_bands):
+            valid_ind = arr_denominator > 0
+            arr_numerator[i_band][valid_ind] = \
+                arr_numerator[i_band][valid_ind] / arr_denominator[valid_ind]
 
-        raster_rtc = None
-        raster_nlooks = None
-
-    for i_band in range(num_bands):
-        valid_ind = np.where(arr_denominator > 0)
-        arr_numerator[i_band][valid_ind] = \
-            arr_numerator[i_band][valid_ind] / arr_denominator[valid_ind]
-
-        invalid_ind = np.where(arr_denominator == 0)
-        arr_numerator[i_band][invalid_ind] = np.nan
+            arr_numerator[i_band][arr_denominator == 0] = np.nan
 
     mosaic_dict = {
         'mosaic_array': arr_numerator,
+        'description_list': description_list,
         'length': dim_mosaic[0],
         'width': dim_mosaic[1],
         'num_bands': num_bands,
@@ -395,241 +509,44 @@ def compute_weighted_mosaic_array(list_rtc_images, list_nlooks,
         'xmin_mosaic': xmin_mosaic,
         'ymax_mosaic': ymax_mosaic,
         'posting_x': posting_x,
-        'posting_y': posting_y,
-        'epsg_set': list_epsg,
+        'posting_y': posting_y
     }
     return mosaic_dict
 
 
-def get_point_epsg(lat, lon):
+def mosaic_single_output_file(list_rtc_images, list_nlooks, mosaic_filename,
+                              mosaic_mode, scratch_dir='', geogrid_in=None,
+                              temp_files_list=None, verbose=True):
     '''
-    Get EPSG code based on latitude and longitude
-    coordinates of a point
+    Mosaic RTC images saving the output into a single multi-band file
+
     Parameters
-    ----------
-    lat: float
-        Latitude coordinate of the point
-    lon: float
-        Longitude coordinate of the point
-    Returns
-    -------
-    epsg: int
-        UTM zone, Polar stereographic (North / South)
-    '''
-
-    # "Warp" longitude value into [-180.0, 180.0]
-    if (lon >= 180.0) or (lon <= -180.0):
-        lon = (lon + 180.0) % 360.0 - 180.0
-
-    if lat >= 75.0:
-        return 3413
-    elif lat <= -75.0:
-        return 3031
-    elif lat > 0:
-        return 32601 + int(np.round((lon + 177) / 6.0))
-    elif lat < 0:
-        return 32701 + int(np.round((lon + 177) / 6.0))
-    else:
-        err_str = "'Could not determine EPSG for {0}, {1}'.format(lon, lat))"
-        logger.error(err_str)
-        raise ValueError(err_str)
-
-def majority_element(num_list):
-        idx, ctr = 0, 1
-        
-        for i in range(1, len(num_list)):
-            if num_list[idx] == num_list[i]:
-                ctr += 1
-            else:
-                ctr -= 1
-                if ctr == 0:
-                    idx = i
-                    ctr = 1
-        
-        return num_list[idx]
-
-def generate_geogrids(bursts, geo_dict, dem):
-    '''
-    Compute frame and bursts geogrids
-    Parameters
-    ----------
-    bursts: list[s1reader.s1_burst_slc.Sentinel1BurstSlc]
-        List of S-1 burst SLC objects
-    geo_dict: dict
-        Dictionary containing runconfig processing.geocoding
-        parameters
-    dem_file: str
-        Dem file
-    Returns
-    -------
-    geogrid_all: isce3.product.GeoGridParameters
-        Frame geogrid
-    geogrids_dict: dict
-        Dict containing bursts geogrids indexed by burst_id
-    '''
-
-    # TODO use `dem_raster` to update `epsg`, if not provided in the runconfig
-    # dem_raster = isce3.io.Raster(dem)
-
-    # Unpack values from geocoding dictionary
-    # epsg = geo_dict['output_epsg']
-    # xmin = geo_dict['top_left']['x']
-    # ymax = geo_dict['top_left']['y']
-    # x_spacing = geo_dict['x_posting']
-    # y_spacing_positive = geo_dict['y_posting']
-    # xmax = geo_dict['bottom_right']['x']
-    # ymin = geo_dict['bottom_right']['y']
-    # x_snap = geo_dict['x_snap']
-    # y_snap = geo_dict['y_snap']
-
-    xmin_all_bursts = np.inf
-    ymax_all_bursts = -np.inf
-    xmax_all_bursts = -np.inf
-    ymin_all_bursts = np.inf
-
-    # Compute burst EPSG
-    y_list = []
-    x_list = []
-    for burst_pol in bursts.values():
-        pol_list = list(burst_pol.keys())
-        burst = burst_pol[pol_list[0]]
-        y_list.append(burst.center.y)
-        x_list.append(burst.center.x)
-    y_mean = np.nanmean(y_list)
-    x_mean = np.nanmean(x_list)
-    epsg = get_point_epsg(y_mean, x_mean)
-    assert 1024 <= epsg <= 32767
-
-    # Check spacing in X direction
-    if x_spacing is not None and x_spacing <= 0:
-        err_str = 'Pixel spacing in X/longitude direction needs to be positive'
-        err_str += f' (x_spacing: {x_spacing})'
-        logger.error(err_str)
-        raise ValueError(err_str)
-    elif x_spacing is None and epsg == 4326:
-        x_spacing = -0.00027
-    elif x_spacing is None:
-        x_spacing = -30
-
-    # Check spacing in Y direction
-    if y_spacing_positive is not None and y_spacing_positive <= 0:
-        err_str = 'Pixel spacing in Y/latitude direction needs to be positive'
-        err_str += f'(y_spacing: {y_spacing_positive})'
-        logger.error(err_str)
-        raise ValueError(err_str)
-    elif y_spacing_positive is None and epsg == 4326:
-        y_spacing = -0.00027
-    elif y_spacing_positive is None:
-        y_spacing = -30
-    else:
-        y_spacing = - y_spacing_positive
-
-    geogrids_dict = {}
-    for burst_id, burst_pol in bursts.items():
-        pol_list = list(burst_pol.keys())
-        burst = burst_pol[pol_list[0]]
-        if burst_id in geogrids_dict.keys():
-            continue
-
-        radar_grid = burst.as_isce3_radargrid()
-        orbit = burst.orbit
-
-        geogrid_burst = None
-        if len(bursts) > 1 or None in [xmin, ymax, xmax, ymin]:
-            # Initialize geogrid with estimated boundaries
-            geogrid_burst = isce3.product.bbox_to_geogrid(
-                radar_grid, orbit, isce3.core.LUT2d(), x_spacing, y_spacing,
-                epsg)
-
-            if len(bursts) == 1 and None in [xmin, ymax, xmax, ymin]:
-                # Check and further initialize geogrid
-                geogrid_burst = assign_check_geogrid(
-                    geogrid_burst, xmin, ymax, xmax, ymin)
-            geogrid_burst = intersect_geogrid(
-                geogrid_burst, xmin, ymax, xmax, ymin)
-        else:
-            # If all the start/end coordinates have been assigned,
-            # initialize the geogrid with them
-            width = _grid_size(xmax, xmin, x_spacing)
-            length = _grid_size(ymin, ymax, y_spacing)
-            geogrid_burst = isce3.product.GeoGridParameters(
-                xmin, ymax, x_spacing, y_spacing, width, length,
-                epsg)
-
-        # Check snap values
-        check_snap_values(x_snap, y_snap, x_spacing, y_spacing)
-        # Snap coordinates
-        geogrid = snap_geogrid(geogrid_burst, x_snap, y_snap)
-
-        xmin_all_bursts = min([xmin_all_bursts, geogrid.start_x])
-        ymax_all_bursts = max([ymax_all_bursts, geogrid.start_y])
-        xmax_all_bursts = max([xmax_all_bursts,
-                                geogrid.start_x + geogrid.spacing_x *
-                                geogrid.width])
-        ymin_all_bursts = min([ymin_all_bursts,
-                                geogrid.start_y + geogrid.spacing_y *
-                                geogrid.length])
-
-        geogrids_dict[burst_id] = geogrid
-
-    if xmin is None:
-        xmin = xmin_all_bursts
-    if ymax is None:
-        ymax = ymax_all_bursts
-    if xmax is None:
-        xmax = xmax_all_bursts
-    if ymin is None:
-        ymin = ymin_all_bursts
-
-    width = _grid_size(xmax, xmin, x_spacing)
-    length = _grid_size(ymin, ymax, y_spacing)
-    geogrid_all = isce3.product.GeoGridParameters(
-        xmin, ymax, x_spacing, y_spacing, width, length, epsg)
-
-    # Check snap values
-    check_snap_values(x_snap, y_snap, x_spacing, y_spacing)
-
-    # Snap coordinates
-    geogrid_all = snap_geogrid(geogrid_all, x_snap, y_snap)
-    return geogrid_all, geogrids_dict
-
-
-def read_metadata_epsg(h5_meta_path):
-    freqA_path = '/science/SENTINEL1/RTC/grids/frequencyA'
-    with h5py.File(h5_meta_path, 'r') as src_h5:
-        xcoord = np.array(src_h5[f'{freqA_path}/xCoordinates'])
-        ycoord = np.array(src_h5[f'{freqA_path}/yCoordinates'])
-        xres = np.array(src_h5[f'{freqA_path}/xCoordinateSpacing'])
-        yres = np.array(src_h5[f'{freqA_path}/yCoordinateSpacing'])
-        epsg = np.array(src_h5[f'{freqA_path}/projection'])
-
-    meta_dict = dict()
-    meta_dict['xspacing'] = xres
-    meta_dict['yspacing'] = yres
-    meta_dict['epsg'] = epsg
-    return meta_dict
-
-
-def compute_weighted_mosaic_raster(list_rtc_images, list_nlooks, geo_filename,
-                    geogrid_in=None, verbose = True):
-    '''
-    Mosaic the snapped S1 geobursts
-    paremeters:
     -----------
         list_rtc: list
             List of the path to the rtc geobursts
         list_nlooks: list
             List of the nlooks raster that corresponds to list_rtc
-        geo_filename: str
+        mosaic_filename: str
             Path to the output mosaic
+        scratch_dir: str (optional)
+            Directory for temporary files
         geogrid_in: isce3.product.GeoGridParameters, default: None
             Geogrid information to determine the output mosaic's shape and projection
             The geogrid of the output mosaic will automatically determined when it is None
+        temp_files_list: list (optional)
+            Mutable list of temporary files. If provided,
+            paths to the temporary files generated will be
+            appended to this list
+        verbose : bool
+            Flag to enable/disable the verbose mode
     '''
-    mosaic_dict = compute_weighted_mosaic_array(list_rtc_images, list_nlooks,
-                                   geogrid_in=geogrid_in, verbose = verbose)
+    mosaic_dict = compute_mosaic_array(
+        list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=scratch_dir,
+        geogrid_in=geogrid_in, temp_files_list=temp_files_list,
+        verbose=verbose)
 
     arr_numerator = mosaic_dict['mosaic_array']
+    description_list = mosaic_dict['description_list']
     length = mosaic_dict['length']
     width = mosaic_dict['width']
     num_bands = mosaic_dict['num_bands']
@@ -638,6 +555,7 @@ def compute_weighted_mosaic_raster(list_rtc_images, list_nlooks, geo_filename,
     ymax_mosaic = mosaic_dict['ymax_mosaic']
     posting_x = mosaic_dict['posting_x']
     posting_y = mosaic_dict['posting_y']
+
     # Retrieve the datatype information from the first input image
     reference_raster = gdal.Open(list_rtc_images[0], gdal.GA_ReadOnly)
     datatype_mosaic = reference_raster.GetRasterBand(1).DataType
@@ -645,40 +563,52 @@ def compute_weighted_mosaic_raster(list_rtc_images, list_nlooks, geo_filename,
 
     # Write out the array
     drv_out = gdal.GetDriverByName('Gtiff')
-    raster_out = drv_out.Create(geo_filename,
+    raster_out = drv_out.Create(mosaic_filename,
                                 width, length, num_bands,
                                 datatype_mosaic)
 
     raster_out.SetGeoTransform((xmin_mosaic, posting_x, 0, ymax_mosaic, 0, posting_y))
-    
-    # srs = osr.SpatialReference()            # establish encoding
-    # srs.ImportFromEPSG(int(epsg))               # WGS84 lat/long
     raster_out.SetProjection(wkt_projection)
-    # raster_out.SetProjection(wkt_projection_input)
 
     for i_band in range(num_bands):
-        raster_out.GetRasterBand(i_band+1).WriteArray(arr_numerator[i_band])
+        gdal_band = raster_out.GetRasterBand(i_band+1)
+        gdal_band.WriteArray(arr_numerator[i_band])
+        gdal_band.SetDescription(description_list[i_band])
 
 
-def compute_weighted_mosaic_raster_single_band(list_rtc_images, list_nlooks,
-                                output_file_list,
-                                geogrid_in=None, verbose = True):
+def mosaic_multiple_output_files(
+        list_rtc_images, list_nlooks, output_file_list, mosaic_mode,
+        scratch_dir='', geogrid_in=None, temp_files_list=None, verbose=True):
     '''
-    Mosaic the snapped S1 geobursts
-    paremeters:
+    Mosaic RTC images saving each mosaicked band into a separate file
+
+    Paremeters:
     -----------
-        list_rtc: list
+        list_rtc_images: list
             List of the path to the rtc geobursts
         list_nlooks: list
             List of the nlooks raster that corresponds to list_rtc
         output_file_list: list
             Output file list
+        mosaic_mode: str
+            Mosaic mode. Choices: "average", "first", and "bursts_center"
+        scratch_dir: str (optional)
+            Directory for temporary files
         geogrid_in: isce3.product.GeoGridParameters, default: None
             Geogrid information to determine the output mosaic's shape and projection
             The geogrid of the output mosaic will automatically determined when it is None
+        temp_files_list: list (optional)
+            Mutable list of temporary files. If provided,
+            paths to the temporary files generated will be
+            appended to this list
+        verbose : bool
+            Flag to enable/disable the verbose mode
+            
     '''
-    mosaic_dict = compute_weighted_mosaic_array(list_rtc_images, list_nlooks,
-                                     geogrid_in=geogrid_in, verbose = verbose)
+    mosaic_dict = compute_mosaic_array(
+        list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=scratch_dir,
+        geogrid_in=geogrid_in, temp_files_list=temp_files_list,
+        verbose = verbose)
 
     arr_numerator = mosaic_dict['mosaic_array']
     length = mosaic_dict['length']
@@ -705,17 +635,17 @@ def compute_weighted_mosaic_raster_single_band(list_rtc_images, list_nlooks,
 
         # Write out the array
         drv_out = gdal.GetDriverByName('Gtiff')
+        nbands = 1
         raster_out = drv_out.Create(output_file,
-                                    width, length, num_bands,
+                                    width, length, nbands,
                                     datatype_mosaic)
 
         raster_out.SetGeoTransform((xmin_mosaic, posting_x, 0, ymax_mosaic, 0, posting_y))
 
         raster_out.SetProjection(wkt_projection)
 
-        for i_band in range(num_bands):
-            raster_out.GetRasterBand(i_band+1).WriteArray(arr_numerator[i_band])
-
+        # for i_band in range(num_bands):
+        raster_out.GetRasterBand(1).WriteArray(arr_numerator[i_band])
 def run(cfg):
     '''
     Run mosaic burst workflow with user-defined
@@ -812,7 +742,7 @@ def run(cfg):
 
         # Check if metadata have common values on
         # poliarzation /track number/ direction fields
-        check_consistency_metadata(metadata_list, cfg)
+        # check_consistency_metadata(metadata_list, cfg)
 
         output_dir_mosaic_raster = scratch_path
         product_prefix = processing_cfg.mosaic.mosaic_prefix
@@ -820,126 +750,81 @@ def run(cfg):
         output_metadata_dict = {}
         mosaic_geogrid_dict = {}
         logger.info(f'mosaicking files:')
+        mosaic_mode = 'average'
+        # Mosaic sub-bursts imagery
+        logger.info(f'mosaicking files:')
+        output_imagery_filename_list = []
+        rtc_burst_imagery_list = []
+        for input_ind, input_dir in enumerate(input_list):
+            for pol in pol_list:
 
-        # mosaic dual polarization RTCs separately. 
+                rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
+                # if epsg_output != epsg_list[input_ind]:
+                #     rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
+                #     dswx_sar_util.change_epsg_tif(rtc_path_input, rtc_path_temp, epsg_output)
+                #     rtc_burst_imagery_list.append(rtc_path_temp)
+                # else:
+                rtc_burst_imagery_list.append(rtc_path_input)
+
         for pol in pol_list:
-
-            # Mosaic output file name that will be stored
             geo_pol_filename = \
                 (f'{output_dir_mosaic_raster}/{product_prefix}_{pol}.'
                  f'{imagery_extension}')
             logger.info(f'    {geo_pol_filename}')
-            output_file_list.append(geo_pol_filename)
+            output_imagery_filename_list.append(geo_pol_filename)
 
-            # list the rtc files
-            rtc_burst_imagery_list = []
-            for input_ind, input_dir in enumerate(input_list):
-                rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
-                if epsg_output != epsg_list[input_ind]:
-                    rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
-                    dswx_sar_util.change_epsg_tif(rtc_path_input, rtc_path_temp, epsg_output)
-                    rtc_burst_imagery_list.append(rtc_path_temp)
-                else:
-                    rtc_burst_imagery_list.append(rtc_path_input)
+        nlooks_list = []
 
-            # mosaic burst RTCs 
-            compute_weighted_mosaic_raster_single_band(
+        if len(rtc_burst_imagery_list) > 0:
+
+            mosaic_multiple_output_files(
                 rtc_burst_imagery_list, nlooks_list,
-                list([geo_pol_filename]), None, verbose=False)
+                output_imagery_filename_list, mosaic_mode,
+                scratch_dir=scratch_path, geogrid_in=cfg.geogrid,
+                temp_files_list=temp_files_list)
 
-        # mosaic layover/shadow mask
-        geo_mask_filename = \
-            (f'{output_dir_mosaic_raster}/{product_prefix}_layovershadow_mask.'
-                f'{imagery_extension}')
-        logger.info(f'    {geo_mask_filename}')
-        output_file_list.append(geo_mask_filename)
-        compute_weighted_mosaic_raster(
-            mask_list, nlooks_list,
-            geo_mask_filename, None, verbose=False)
+        # if save_imagery_as_hdf5:
+        #     temp_files_list += output_imagery_filename_list
+        # else:
+        #     output_file_list += output_imagery_filename_list
+        #     mosaic_output_file_list += output_imagery_filename_list
 
-        if inundated_vege_cfg.enabled and inundated_vege_cfg.mode =='time_series':
+        # # Mosaic other bands
+        # for key, (output_file, input_files) in output_metadata_dict.items():
+        #     logger.info(f'mosaicking file: {output_file}')
+        #     if len(input_files) == 0:
+        #         continue
 
-            # mosaic dual polarization RTCs separately. 
-            # [TODO]
-            for pol in ['VV']:
-                print(f'{rtc_stack_dir}/rtc_*')
-                rtc_scenes_dir = glob.glob(f'{rtc_stack_dir}/rtc_*')
-                for rtc_scene_dir in rtc_scenes_dir:
-                    print('rtc_scene', rtc_scene_dir)
-                    rtc_scene_base = os.path.basename(rtc_scene_dir)
-
-                    # Mosaic output file name that will be stored
-                    geo_pol_filename = \
-                        (f'{output_dir_mosaic_raster}/{rtc_scene_base}_{pol}.'
-                        f'{imagery_extension}')
-                    logger.info(f'    {geo_pol_filename} hahah')
-                    output_file_list.append(geo_pol_filename)
-
-                    # list the rtc 
-                    rtc_bursts_dir = glob.glob(f'{rtc_scene_dir}/t*iw*')
-
-                    epsg_list = []
-                    for ind, input_dir in enumerate(rtc_bursts_dir):
-                        # find HDF5 metadata
-                        metadata_path = glob.glob(f'{input_dir}/*h5')[0]
-                        epsg_list.append(read_metadata_epsg(metadata_path)['epsg'])
-                        epsg_output = majority_element(epsg_list)
-
-                    rtc_burst_imagery_list = []
-                    nlooks_list = []
-                    if os.path.exists(f'{scratch_path}/rtc_stack_nLooks_*.tif'):
-                        os.remove(f'{scratch_path}/rtc_stack_nLooks_*.tif')
-
-                    for input_ind, rtc_burst_dir in enumerate(rtc_bursts_dir):
-                        rtc_path_input = glob.glob(f'{rtc_burst_dir}/*_{pol}.tif')[0]
-                        rtc_basename = os.path.basename(rtc_burst_dir)
-                        if epsg_output != epsg_list[input_ind]:
-                            os.makedirs(f'{scratch_path}/reprojected/', exist_ok=True)
-                            rtc_path_temp = f'{scratch_path}/reprojected/{rtc_basename}_reprojected_{pol}_{input_ind}.tif'
-                            dswx_sar_util.change_epsg_tif(rtc_path_input, rtc_path_temp, epsg_output)
-                            rtc_burst_imagery_list.append(rtc_path_temp)
-                        else:
-                            rtc_burst_imagery_list.append(rtc_path_input)
-
-                        # find HDF5 metadata
-                        metadata_path = glob.glob(f'{rtc_burst_dir}/*h5')[0]
-
-                        temp_nlook_path = glob.glob(f'{rtc_burst_dir}/*_nlooks.tif')
-                        # if nlook file is not found, nlook in metadata is saveed.
-                        if not temp_nlook_path:
-                            temp_nlook_path = f'{scratch_path}/rtc_stack_nLooks_{input_ind}.tif'
-                            # try:
-                            save_h5_metadata_to_tif(metadata_path,
-                                                    data_path=f'{freqA_path}/numberOfLooks',
-                                                    output_tif_path=temp_nlook_path, 
-                                                    epsg_output=epsg_output)
-                            nlooks_list.append(temp_nlook_path)
-                            # except:
-                            #     nlooks_list.append(None)
-                        else:
-                            nlooks_list.append(temp_nlook_path[0])
-                    print(len(nlooks_list), len(rtc_burst_imagery_list))
-                    # mosaic burst RTCs 
-                    compute_weighted_mosaic_raster_single_band(
-                        rtc_burst_imagery_list, nlooks_list,
-                        list([geo_pol_filename]), None, verbose=False)
+        #     mosaic_single_output_file(
+        #         input_files, nlooks_list, output_file,
+        #         mosaic_mode, scratch_dir=scratch_path,
+        #         geogrid_in=cfg.geogrid, temp_files_list=temp_files_list)
 
 
-        # save files as COG format. 
-        if processing_cfg.mosaic.mosaic_cog_enable:
-            logger.info(f'Saving files as Cloud-Optimized GeoTIFFs (COGs)')
-            for filename in output_file_list:
-                if not filename.endswith('.tif'):
-                    continue
-                logger.info(f'    processing file: {filename}')
-                dswx_sar_util._save_as_cog(filename, scratch_path, logger,
-                            compression='ZSTD',
-                            nbits=16)
-            for rmfile in mask_list:
-                os.remove(rmfile)
-            nlook_files = glob.glob(f'{scratch_path}/*nLooks_*.tif')
-            for rmfile in nlook_files:
-                os.remove(rmfile)
+        #     # TODO: Remove nlooks exception below
+        #     if (save_secondary_layers_as_hdf5 or
+        #             (key == 'nlooks' and not save_nlooks)):
+        #         temp_files_list.append(output_file)
+        #     else:
+        #         output_file_list.append(output_file)
+        #         mosaic_output_file_list.append(output_file)
+
+
+        # # save files as COG format. 
+        # if processing_cfg.mosaic.mosaic_cog_enable:
+        #     logger.info(f'Saving files as Cloud-Optimized GeoTIFFs (COGs)')
+        #     for filename in output_file_list:
+        #         if not filename.endswith('.tif'):
+        #             continue
+        #         logger.info(f'    processing file: {filename}')
+        #         dswx_sar_util._save_as_cog(filename, scratch_path, logger,
+        #                     compression='ZSTD',
+        #                     nbits=16)
+        #     for rmfile in mask_list:
+        #         os.remove(rmfile)
+        #     nlook_files = glob.glob(f'{scratch_path}/*nLooks_*.tif')
+        #     for rmfile in nlook_files:
+        #         os.remove(rmfile)
 
     t_time_end =time.time()
     logger.info(f'total processing time: {t_time_end - t_start} sec')

@@ -1,8 +1,7 @@
 import os
 import pathlib
 import time
-import glob
-import numpy as np 
+import numpy as np
 import logging
 import h5py
 import mimetypes
@@ -10,7 +9,7 @@ import mimetypes
 from osgeo import osr, gdal
 from pathlib import Path
 
-from dswx_sar import filter_SAR 
+from dswx_sar import filter_SAR
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
@@ -18,7 +17,7 @@ logger = logging.getLogger('dswx_s1')
 
 def pol_ratio(array1, array2):
     '''
-    Compute polarimetric coherence from two co-pol and one cross-pol
+    Compute ratio between two arrays
     '''
     array1 = np.asarray(array1, dtype='float32')
     array2 = np.asarray(array2, dtype='float32')
@@ -26,7 +25,8 @@ def pol_ratio(array1, array2):
     return array1 / array2
 
 def pol_coherence(array1, array2, array3):
-    '''Compute polarimetric coherence from two co-pol and one cross-pol
+    '''
+    Compute polarimetric coherence from two co-pol and one cross-pol
     '''
     array1 = np.asarray(array1, dtype='float32') # VVVV
     array2 = np.asarray(array2, dtype='float32') # VHVH
@@ -35,22 +35,27 @@ def pol_coherence(array1, array2, array3):
     return np.abs(array3 / np.sqrt(array1 * array2))
 
 class AncillaryRelocation:
-
+    '''
+    Relocate the ancillary file to have same geographic extents and 
+    spacing as the given rtc file.
+    '''
     def __init__(self, rtc_file_name, scratch_dir):
         """Initialized AncillaryRelocation Class with rtc_file_name
-        
+
         Parameters
         ----------
         rtc_file_name : str
             file name of RTC input HDF5
-        """       
+        scratch_dir : str
+            scratch directory to save the relocated file
+        """
 
         self.rtc_file_name = rtc_file_name
         if  h5py.is_hdf5(rtc_file_name):
             self.xcoord_rtc, self.ycoord_rtc = dswx_sar_util.read_rtc_lat_lon(rtc_file_name)
             with h5py.File(rtc_file_name, 'r') as f4:
                 self.epsg = int(np.array(f4['/science/LSAR/GCOV/grids/frequencyA/projection']))
-        else: 
+        else:
             self.ycoord_rtc, self.xcoord_rtc = self.read_x_y_array_geotiff(rtc_file_name)
             reftif = gdal.Open(rtc_file_name)
             proj = osr.SpatialReference(wkt=reftif.GetProjection())
@@ -65,34 +70,36 @@ class AncillaryRelocation:
                   method='near'):
 
         """ resample image
-        
+
         Parameters
         ----------
         ancillary_file_name : str
             file name of ancilary data
+        relocated_file_str : str
+            file name of output
         method : str
             interpolation method
 
         Returns
         -------
-        resampled_slc or slc_demodulate: numpy.ndarray 
+        resampled_slc or slc_demodulate: numpy.ndarray
             numpy array of bandpassed slc
-            if resampling is True, return resampled slc with bandpass and demodulation 
+            if resampling is True, return resampled slc with bandpass and demodulation
             if resampling is False, return slc with bandpass and demodulation without resampling
-        meta : dict 
+        meta : dict
             dict containing meta data of bandpassed slc
             center_frequency, rg_bandwidth, range_spacing, slant_range
         """
 
-        output = self.interpolate_gdal(str(self.rtc_file_name),
-                         ancillary_file_name, 
+        self.interpolate_gdal(str(self.rtc_file_name),
+                         ancillary_file_name,
                          os.path.join(self.scratch_dir, relocated_file_str),
                          method)
 
     def interpolate_gdal(self, ref_file, input_tif_str, output_tif_str, method, epsg=None):
-        print(f"> gdalwarp {input_tif_str} -> {output_tif_str}")   
+        print(f"> gdalwarp {input_tif_str} -> {output_tif_str}")
 
-        # get reference coordinate and projection 
+        # get reference coordinate and projection
         if  h5py.is_hdf5(ref_file):
             with h5py.File(ref_file, 'r') as f4:
                 try:
@@ -119,9 +126,9 @@ class AncillaryRelocation:
 
         if ( len(lat0) != ysize ) and ( len(lon0) != xsize ):
 
-            N, S, W, E = [np.max(lat0)-yspacing/2, 
-                        np.min(lat0)+yspacing/2, 
-                        np.min(lon0)+xspacing/2, 
+            N, S, W, E = [np.max(lat0)-yspacing/2,
+                        np.min(lat0)+yspacing/2,
+                        np.min(lon0)+xspacing/2,
                         np.max(lon0)-yspacing/2]
 
             print('Note: latitude shape is not same as image shape')
@@ -132,16 +139,16 @@ class AncillaryRelocation:
 
         # Crop (gdalwarp)image based on geo infomation of reference image
         if yspacing < 0: yspacing = -1 * yspacing
-    
+
         opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
-                        xRes=xspacing, 
+                        xRes=xspacing,
                         yRes=yspacing,
                         outputBounds=[W,S,E,N],
                         resampleAlg=method,
                         format='ENVI')
 
         ds = gdal.Warp(output_tif_str, input_tif_str, options=opt)
-        ds = None         
+        del ds
 
     def read_x_y_array_geotiff(self, intput_tif_str):
 
@@ -152,9 +159,9 @@ class AncillaryRelocation:
         height = ds.RasterYSize
         gt = ds.GetGeoTransform()
         minx = gt[0]
-        miny = gt[3] + width*gt[4] + height*gt[5] 
+        miny = gt[3] + width*gt[4] + height*gt[5]
         maxx = gt[0] + width*gt[1] + height*gt[2]
-        maxy = gt[3] 
+        maxy = gt[3]
 
         xres = (maxx - minx) / float(width)
         yres = (maxy - miny) / float(height)
@@ -162,11 +169,11 @@ class AncillaryRelocation:
         #get the coordinates in lat long
         ycoord = np.linspace(maxy, miny, height)
         xcoord = np.linspace(minx, maxx, width)
-        
+
         ds = None
         del ds  # close the dataset (Python object and pointers)
 
-        return ycoord, xcoord 
+        return ycoord, xcoord
 
 def run(cfg):
 
@@ -192,7 +199,7 @@ def run(cfg):
     mosaic_prefix =processing_cfg.mosaic.mosaic_prefix
     if mosaic_prefix == None:
         mosaic_prefix = 'mosaic'
-    
+
     # configure if input is single/multi directory/file
     num_input_path = len(input_list)
     if os.path.isdir(input_list[0]):
@@ -210,7 +217,7 @@ def run(cfg):
             mosaic_flag = False
             ref_filename = input_list
             ref_filename = f'{ref_filename[:]}'
-    
+
         else:
             err_str = f'unable to process more than 1 images.'
             logger.error(err_str)
@@ -221,19 +228,19 @@ def run(cfg):
     pathlib.Path(scratch_dir).mkdir(parents=True, exist_ok=True)
     filtered_images_str = f"filtered_image_{pol_all_str}.tif"
 
-    # read metadata from Geotiff File. 
+    # read metadata from Geotiff File.
     im_meta = dswx_sar_util.get_meta_from_tif(ref_filename)
 
     # create instance to relocate ancillary data
     ancillary_reloc = AncillaryRelocation(ref_filename, scratch_dir)
-    
+
     # Check if the interpolated water body file exists
     wbd_interpolated_path = Path(os.path.join(scratch_dir,'interpolated_wbd'))
     if not wbd_interpolated_path.is_file():
         logger.info('interpolated wbd file was not found')
         ancillary_reloc._relocate(wbd_file, 'interpolated_wbd', method='near')
-    
-    # Check if the interpolated DEM exists 
+
+    # Check if the interpolated DEM exists
     dem_interpolated_path = Path(os.path.join(scratch_dir,'interpolated_DEM'))
     dem_reprocessing_flag = False
     if not dem_interpolated_path.is_file():
@@ -245,20 +252,20 @@ def run(cfg):
         else:
             raise FileNotFoundError
 
-    # check if interpolated DEM has valid values 
+    # check if interpolated DEM has valid values
     if not dem_reprocessing_flag:
         dem_subset = dswx_sar_util.read_geotiff(
                         os.path.join(scratch_dir,'interpolated_DEM'))
         dem_mean = np.nanmean(dem_subset)
         if (dem_mean == 0) | np.isnan(dem_mean):
             raise ValueError
-    
+
     # check if the interpolated landcover exists ###
     landcover_interpolated_path = Path(os.path.join(scratch_dir,'interpolated_landcover'))
     if not landcover_interpolated_path.is_file():
         ancillary_reloc._relocate(landcover_file, 'interpolated_landcover', method='near')
 
-    # Check if the interpolated HAND exists 
+    # Check if the interpolated HAND exists
     hand_interpolated_path = os.path.join(scratch_dir,'interpolated_hand')
     if not os.path.isfile(hand_interpolated_path):
 
@@ -267,25 +274,25 @@ def run(cfg):
             logger.info('>> HAND file is not found, so will be computed.')
             # hand_calc.hand(dem_interpolated_path, args.scratch_dir)
             # args.hand_file = os.path.join(args.scratch_dir, 'temp_hand.tif')
-        
+
         ancillary_reloc._relocate(hand_file, 'interpolated_hand', method='near')
 
     intensity = []
     for polind, pol in enumerate(pol_list):
         if pol in ['ratio', 'coherence', 'span']:
 
-            # If ratio/span is in the list, 
+            # If ratio/span is in the list,
             # then compute the ratio from VVVV and VHVH
             if pol in ['ratio', 'span']:
                 temp_pol_list = ['VV', 'VH']
                 logger.info(f'>> computing {pol} {temp_pol_list}')
 
-            # If coherence is in the list, 
+            # If coherence is in the list,
             # then compute the coherence from VVVV, VHVH, VVVH
             if pol in ['coherence']:
                 temp_pol_list = ['VV', 'VH', 'VVVH']
                 logger.info(f'>> computing coherence {temp_pol_list}')
-            
+
             temp_raster_set = []
             for temp_pol in temp_pol_list:
                 filename = \
@@ -293,14 +300,14 @@ def run(cfg):
                 temp_raster_set.append(dswx_sar_util.read_geotiff(filename))
 
             if pol in ['ratio']:
-                ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]), 
+                ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
                                   np.squeeze(temp_raster_set[1, :, :]))
                 intensity.append(ratio)
                 logger.info('computing ratio VV/VH')
 
             if pol in ['coherence']:
                 coherence = pol_coherence(
-                    np.squeeze(temp_raster_set[0, :, :]), 
+                    np.squeeze(temp_raster_set[0, :, :]),
                     np.squeeze(temp_raster_set[1, :, :]),
                     np.squeeze(temp_raster_set[2, :, :]))
                 intensity.append(coherence)
@@ -311,7 +318,7 @@ def run(cfg):
                                   2 * np.squeeze(temp_raster_set[1,:,:]))
                 intensity.append(span)
 
-        else: 
+        else:
             logger.info(f'opening {pol}')
             if mosaic_flag:
                 filename = \
@@ -350,29 +357,29 @@ def run(cfg):
 
             if pol == 'ratio' or pol == 'coherence':
 
-                dswx_sar_util.save_raster_gdal(data=temp_filt, 
-                    output_file=os.path.join(scratch_dir,'intensity_{}.tif'.format(pol)), 
-                    geotransform=im_meta['geotransform'], 
+                dswx_sar_util.save_raster_gdal(data=temp_filt,
+                    output_file=os.path.join(scratch_dir,'intensity_{}.tif'.format(pol)),
+                    geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=scratch_dir)
-            else:  
+            else:
 
-                dswx_sar_util.save_raster_gdal(data=10*np.log10(temp_filt), 
-                    output_file=os.path.join(scratch_dir,'intensity_{}_db.tif'.format(pol)), 
-                    geotransform=im_meta['geotransform'], 
+                dswx_sar_util.save_raster_gdal(data=10*np.log10(temp_filt),
+                    output_file=os.path.join(scratch_dir,'intensity_{}_db.tif'.format(pol)),
+                    geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=scratch_dir)
 
     intensity_filt = np.array(intensity_filt)
-    
+
     # Save filtered image to geotiff
     filtered_images_str = f"filtered_image_{pol_all_str}.tif"
 
-    dswx_sar_util.save_raster_gdal(data=intensity_filt, 
-        output_file=os.path.join(scratch_dir,filtered_images_str), 
-        geotransform=im_meta['geotransform'], 
+    dswx_sar_util.save_raster_gdal(data=intensity_filt,
+        output_file=os.path.join(scratch_dir,filtered_images_str),
+        geotransform=im_meta['geotransform'],
         projection=im_meta['projection'],
-        scratch_dir=scratch_dir)   
+        scratch_dir=scratch_dir)
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran pre-processing in {t_all_elapsed:.3f} seconds")
@@ -390,9 +397,9 @@ def main():
     if len(args.input_yaml) > 1 and flag_first_file_is_text:
         logger.info('ERROR only one runconfig file is allowed')
         return
- 
+
     if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)    
+        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
     run(cfg)
 

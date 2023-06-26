@@ -44,6 +44,14 @@ runconfig:
             # algorithm parameter 
             algorithm_parameters: str(required=True)
 
+        static_ancillary_file_group:
+
+            # MGRS database sqlite file
+            mgrs_database_file: str(required=False)
+
+            # MGRS collection database sqlite file
+            mgrs_collection_database_file: str(required=False)
+
         primary_executable:
             product_type: enum('dswx_s1', 'twele')
 

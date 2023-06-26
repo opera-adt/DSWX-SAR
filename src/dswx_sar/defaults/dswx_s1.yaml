@@ -48,6 +48,14 @@ runconfig:
             # algorithm parameter 
             algorithm_parameters: 
 
+        static_ancillary_file_group:
+
+            # MGRS database sqlite file
+            mgrs_database_file:
+
+            # MGRS collection database sqlite file
+            mgrs_collection_database_file: 
+
         primary_executable:
             product_type: DSWX_S1
 

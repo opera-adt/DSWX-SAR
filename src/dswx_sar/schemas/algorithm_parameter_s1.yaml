@@ -50,7 +50,35 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
-        
+
+        fuzzy_value:
+            # hand value to mask out
+            hand_maximum: num(required=False)
+            # membership bound for slope angle
+            slope:
+                member_min: num(required=False)
+                member_max: num(required=False)
+            # membership bound for reference water                
+            reference_water:
+                # Minimum reference water value for membership
+                member_min: num(required=False)
+                # Maximum reference water value for membership
+                member_max: num(required=False)
+            # Dark area is defined where cross-pol is lower than cross_land
+            # Water is defined where cross-pol is lower than cross_water
+            dark_area:
+                # Threshold for land in the dark area definition
+                cross_land: num(required=False)
+                # Threshold for water in the dark area definition
+                cross_water: num(required=False)
+            # High frequent water is defined based on two values
+            # water_min_value < high_frequent_water < water_max_value
+            high_frequent_water:
+                # Minimum value for high frequent water
+                water_min_value: num(required=False)
+                # Maximum value for high frequent water
+                water_max_value: num(required=False)
+                        
         region_growing:
             # seed value for region growing start
             seed: num(min=0, max=1, required=False)

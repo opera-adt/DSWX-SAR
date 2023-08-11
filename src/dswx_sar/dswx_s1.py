@@ -25,6 +25,7 @@ def dswx_s1_workflow(cfg):
     # Create mosaic burst RTCs
     mosaic_rtc_burst.run(cfg)
 
+
     # create dummpy water map. 
     dummy_dswx_s1.run(cfg)
 

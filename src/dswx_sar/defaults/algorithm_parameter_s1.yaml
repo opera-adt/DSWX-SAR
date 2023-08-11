@@ -50,6 +50,34 @@ runconfig:
             # the lowest threshold is estimated.
             multi_threshold: True
 
+        fuzzy_value:
+            # hand value to mask out
+            hand_maximum: 200
+            # membership bound for slope angle
+            slope:
+                member_min: 0.5
+                member_max: 15
+            # membership bound for reference water                
+            reference_water:
+                # Minimum reference water value for membership
+                member_min: 0.8
+                # Maximum reference water value for membership
+                member_max: 0.95
+            # Dark area is defined where cross-pol is lower than cross_land
+            # Water is defined where cross-pol is lower than cross_water
+            dark_area:
+                # Threshold for land in the dark area definition
+                cross_land: -18
+                # Threshold for water in the dark area definition
+                cross_water: -24
+            # High frequent water is defined based on two values
+            # water_min_value < high_frequent_water < water_max_value
+            high_frequent_water:
+                # Minimum value for high frequent water
+                water_min_value: 0.1
+                # Maximum value for high frequent water
+                water_max_value: 0.9
+
         # Region growing options
         region_growing:
             # seed value for region growing start
@@ -57,7 +85,6 @@ runconfig:
             # end value for region growing
             tolerance: 0.51
             line_per_block: 400
-
 
         inundated_vegetation:
             enabled: True

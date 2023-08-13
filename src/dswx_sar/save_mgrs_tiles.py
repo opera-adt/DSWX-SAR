@@ -119,8 +119,7 @@ def save_mgrs_tile(source_tif_path,
                      resampleAlg=method,
                      dstNodata=no_data_value,
                      format='GTIFF')
-    ds = gdal.Warp(output_tif_file_path, source_tif_path, options=opt)
-    ds = None
+    gdal.Warp(output_tif_file_path, source_tif_path, options=opt)
     dswx_sar_util._save_as_cog(output_tif_file_path, output_dir_path, logger,
                 compression='ZSTD',
                 nbits=16)
@@ -162,9 +161,8 @@ def run(cfg):
 
         input_pol_list = pol_list
 
-        common_parent_path = '/science/SENTINEL1/'
-        grid_path = f'{common_parent_path}/RTC/grids/'
-        freqA_path = f'{grid_path}/frequencyA'
+        common_parent_path = ''
+
         id_path  = f'{common_parent_path}/identification/'
 
         date_str_list = []

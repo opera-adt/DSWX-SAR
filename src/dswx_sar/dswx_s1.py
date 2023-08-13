@@ -13,7 +13,6 @@ def dswx_s1_workflow(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
     input_list = cfg.groups.input_file_group.input_file_path
-    dswx_workflow = processing_cfg.dswx_workflow
 
     logger.info("")
     logger.info(f"Starting DSWx-S1 algorithm")

@@ -7,6 +7,7 @@ import time
 import glob
 import numpy as np
 import logging
+import h5py
 from osgeo import osr, gdal
 import mimetypes
 import tempfile
@@ -16,9 +17,72 @@ from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import dswx_sar_util
 
 logger = logging.getLogger('dswx_s1')
-def save_h5_metadata_to_tif(h5_meta_path, 
-                            data_path, 
-                            output_tif_path, 
+
+
+def majority_element(num_list):
+
+    """
+    Determine the majority element in a list using the
+    Boyer-Moore Voting Algorithm.
+
+    Parameters:
+    -----------
+    num_list : List[int]
+        A list of integers where the majority element needs to be determined.
+
+    Returns:
+    -----------
+    int:
+        The majority element in the list. If no majority exists,
+        it may return any element from the list.
+    """
+    idx, ctr = 0, 1
+
+    for i in range(1, len(num_list)):
+        if num_list[idx] == num_list[i]:
+            ctr += 1
+        else:
+            ctr -= 1
+            if ctr == 0:
+                idx = i
+                ctr = 1
+
+    return num_list[idx]
+
+
+def read_metadata_epsg(h5_meta_path):
+    '''
+    Extract metadata regarding coordinate spacing and projection from an HDF5 file.
+
+    parameters:
+    -----------
+    h5_meta_path: str
+        The path to the HDF5 file containing the metadata.
+
+    returns:
+    -------
+    meta_dict : dict
+        A dictionary containing:
+        - 'xspacing': Spacing along the x-coordinate.
+        - 'yspacing': Spacing along the y-coordinate.
+        - 'epsg': The EPSG code for the data projection.
+
+    '''
+    freqA_path = '/data/'
+    with h5py.File(h5_meta_path, 'r') as src_h5:
+        xres = np.array(src_h5[f'{freqA_path}/xCoordinateSpacing'])
+        yres = np.array(src_h5[f'{freqA_path}/yCoordinateSpacing'])
+        epsg = np.array(src_h5[f'{freqA_path}/projection'])
+
+    meta_dict = {}
+    meta_dict['xspacing'] = xres
+    meta_dict['yspacing'] = yres
+    meta_dict['epsg'] = epsg
+    return meta_dict
+
+def save_h5_metadata_to_tif(h5_meta_path,
+                            data_path,
+                            output_tif_path,
                             epsg_output):
     '''
     extract data from RTC metadata and store it as geotiff
@@ -29,11 +93,10 @@ def save_h5_metadata_to_tif(h5_meta_path,
     data_path: str
         the hdf5 path to the data to be extracted
     output_tif_path: str
-        output tif path 
+        output tif path
     '''
-    print(f'{data_path} - > {output_tif_path}')
-    freqA_path = '/science/SENTINEL1/RTC/grids/frequencyA'
-    
+    freqA_path = '/data/'
+
     with h5py.File(h5_meta_path, 'r') as src_h5:
         data = np.array(src_h5[data_path])
         xcoord = np.array(src_h5[f'{freqA_path}/xCoordinates'])
@@ -41,47 +104,44 @@ def save_h5_metadata_to_tif(h5_meta_path,
         xres = np.array(src_h5[f'{freqA_path}/xCoordinateSpacing'])
         yres = np.array(src_h5[f'{freqA_path}/yCoordinateSpacing'])
         epsg = np.array(src_h5[f'{freqA_path}/projection'])
-    
+
     dtype = data.dtype
-    gdal_dtype = dswx_sar_util.np2gdal_conversion[str(dtype)]
-    
-    geotransform = [xcoord[0], float(xres), 0, 
+
+    geotransform = [xcoord[0], float(xres), 0,
                     ycoord[0], 0, float(yres)]
-    print(geotransform)
+
     srs = osr.SpatialReference()            # establish encoding
     srs.ImportFromEPSG(int(epsg))               # WGS84 lat/long
     projection = srs.ExportToWkt()
-    output_filename = os.path.basename(output_tif_path)
     output_dirname = os.path.dirname(output_tif_path)
 
     if epsg == epsg_output:
-        
-        dswx_sar_util.save_raster_gdal(data, 
-                    output_tif_path, 
-                    geotransform,
-                    projection, 
-                    scratch_dir=output_dirname,
-                    DataType=dtype)
+        dswx_sar_util.save_raster_gdal(
+            data,
+            output_tif_path,
+            geotransform,
+            projection,
+            scratch_dir=output_dirname,
+            DataType=dtype)
     else:
         output_tif_temp_dir_path = os.path.dirname(output_tif_path)
-        output_tif_temp_base_path = f'{os.path.basename(output_tif_path)}_temp.tif'
-        output_tif_temp_path = os.path.join(output_tif_temp_dir_path, 
+        output_tif_temp_base_path = \
+            f'{os.path.basename(output_tif_path)}_temp.tif'
+        output_tif_temp_path = os.path.join(output_tif_temp_dir_path,
                                             output_tif_temp_base_path)
-        dswx_sar_util.save_raster_gdal(data, 
-            output_tif_temp_path, 
+        dswx_sar_util.save_raster_gdal(data,
+            output_tif_temp_path,
             geotransform,
-            projection, 
+            projection,
             scratch_dir=output_tif_temp_dir_path,
             DataType=dtype)
 
         opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
-                     xRes=xres, 
+                     xRes=xres,
                      yRes=xres,
                      resampleAlg='nearest',
                      format='GTIFF')
-        ds = gdal.Warp(output_tif_path, output_tif_temp_path, options=opt)   
-        ds = None 
-
+        gdal.Warp(output_tif_path, output_tif_temp_path, options=opt)
         os.remove(output_tif_temp_path)
 
 def requires_reprojection(geogrid_mosaic,
@@ -207,7 +267,8 @@ def _compute_distance_to_burst_center(image, geotransform):
 
 
 def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir='',
-                         geogrid_in=None, temp_files_list=None, verbose=True):
+                         geogrid_in=None, temp_files_list=None, no_data_value=np.isnan,
+                         verbose=True):
     '''
     Mosaic S-1 geobursts and return the mosaic as dictionary
 
@@ -262,7 +323,7 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
         elif num_bands != raster_in.RasterCount:
             raise ValueError(f'ERROR: the file "{os.path.basename(path_rtc)}"'
                              f' has {raster_in.RasterCount} bands. Expected:'
-                             f' {num_bands}.') 
+                             f' {num_bands}.')
 
         if len(description_list) == 0:
             for i_band in range(num_bands):
@@ -343,7 +404,6 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
 
         if verbose:
             print(f'    mosaicking ({i+1}/{num_raster}): {os.path.basename(path_rtc)}')
-
         if geogrid_in is not None and requires_reprojection(
                 geogrid_in, path_rtc, path_nlooks):
             if verbose:
@@ -355,54 +415,54 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
                 print('        reprojecting image to temporary file:',
                       relocated_file)
 
+            if temp_files_list is not None:
+                temp_files_list.append(relocated_file)
+
+            gdal.Warp(relocated_file, path_rtc,
+                        format='GTiff',
+                        dstSRS=wkt_projection,
+                        outputBounds=[
+                            geogrid_in.start_x,
+                            geogrid_in.start_y +
+                            geogrid_in.length * geogrid_in.spacing_y,
+                            geogrid_in.start_x +
+                            geogrid_in.width * geogrid_in.spacing_x,
+                            geogrid_in.start_y],
+                        multithread=True,
+                        xRes=geogrid_in.spacing_x,
+                        yRes=abs(geogrid_in.spacing_y),
+                        resampleAlg='average',
+                        errorThreshold=0,
+                        dstNodata=np.nan)
+            path_rtc = relocated_file
+
+            if path_nlooks is not None:
+                relocated_file_nlooks = tempfile.NamedTemporaryFile(
+                    dir=scratch_dir, suffix='.tif').name
+
+                print('        reprojecting number of looks layer to temporary'
+                        ' file:', relocated_file_nlooks)
+
                 if temp_files_list is not None:
-                    temp_files_list.append(relocated_file)
+                    temp_files_list.append(relocated_file_nlooks)
 
-                gdal.Warp(relocated_file, path_rtc,
-                          format='GTiff',
-                          dstSRS=wkt_projection,
-                          outputBounds=[
-                              geogrid_in.start_x,
-                              geogrid_in.start_y +
+                gdal.Warp(relocated_file_nlooks, path_nlooks,
+                        format='GTiff',
+                        dstSRS=wkt_projection,
+                        outputBounds=[
+                            geogrid_in.start_x,
+                            geogrid_in.start_y +
                                 geogrid_in.length * geogrid_in.spacing_y,
-                              geogrid_in.start_x +
+                            geogrid_in.start_x +
                                 geogrid_in.width * geogrid_in.spacing_x,
-                              geogrid_in.start_y],
-                          multithread=True,
-                          xRes=geogrid_in.spacing_x,
-                          yRes=abs(geogrid_in.spacing_y),
-                          resampleAlg='average',
-                          errorThreshold=0,
-                          dstNodata=np.nan)
-                path_rtc = relocated_file
-
-                if path_nlooks is not None:
-                    relocated_file_nlooks = tempfile.NamedTemporaryFile(
-                        dir=scratch_dir, suffix='.tif').name
-
-                    print('        reprojecting number of looks layer to temporary'
-                          ' file:', relocated_file_nlooks)
-
-                    if temp_files_list is not None:
-                        temp_files_list.append(relocated_file_nlooks)
-
-                    gdal.Warp(relocated_file_nlooks, path_nlooks,
-                            format='GTiff',
-                            dstSRS=wkt_projection,
-                            outputBounds=[
-                                geogrid_in.start_x,
-                                geogrid_in.start_y +
-                                    geogrid_in.length * geogrid_in.spacing_y,
-                                geogrid_in.start_x +
-                                    geogrid_in.width * geogrid_in.spacing_x,
-                                geogrid_in.start_y],
-                            multithread=True,
-                            xRes=geogrid_in.spacing_x,
-                            yRes=abs(geogrid_in.spacing_y),
-                            resampleAlg='cubic',
-                            errorThreshold=0,
-                          dstNodata=np.nan)
-                    path_nlooks = relocated_file_nlooks
+                            geogrid_in.start_y],
+                        multithread=True,
+                        xRes=geogrid_in.spacing_x,
+                        yRes=abs(geogrid_in.spacing_y),
+                        resampleAlg='cubic',
+                        errorThreshold=0,
+                        dstNodata=np.nan)
+                path_nlooks = relocated_file_nlooks
 
             offset_imgx = 0
             offset_imgy = 0
@@ -460,6 +520,8 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
 
             arr_temp = arr_numerator[i_band, offset_imgy: offset_imgy + length,
                                      offset_imgx: offset_imgx + width].copy()
+            if not np.isnan(no_data_value):
+                arr_temp[arr_temp==no_data_value] = np.nan
 
             if i_band == 0 and mosaic_mode.lower() == 'first':
                 ind = np.isnan(arr_temp)
@@ -487,7 +549,7 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
 
         rtc_image_gdal_ds = None
         nlooks_gdal_ds = None
- 
+
     if mosaic_mode.lower() == 'average':
         # Mode: average
         # `arr_numerator` holds the accumulated sum. Now, we divide it
@@ -516,7 +578,8 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
 
 def mosaic_single_output_file(list_rtc_images, list_nlooks, mosaic_filename,
                               mosaic_mode, scratch_dir='', geogrid_in=None,
-                              temp_files_list=None, verbose=True):
+                              temp_files_list=None, no_data_value=np.nan,
+                              verbose=True):
     '''
     Mosaic RTC images saving the output into a single multi-band file
 
@@ -543,7 +606,7 @@ def mosaic_single_output_file(list_rtc_images, list_nlooks, mosaic_filename,
     mosaic_dict = compute_mosaic_array(
         list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=scratch_dir,
         geogrid_in=geogrid_in, temp_files_list=temp_files_list,
-        verbose=verbose)
+        verbose=verbose, no_data_value=no_data_value)
 
     arr_numerator = mosaic_dict['mosaic_array']
     description_list = mosaic_dict['description_list']
@@ -603,7 +666,7 @@ def mosaic_multiple_output_files(
             appended to this list
         verbose : bool
             Flag to enable/disable the verbose mode
-            
+
     '''
     mosaic_dict = compute_mosaic_array(
         list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=scratch_dir,
@@ -619,7 +682,8 @@ def mosaic_multiple_output_files(
     ymax_mosaic = mosaic_dict['ymax_mosaic']
     posting_x = mosaic_dict['posting_x']
     posting_y = mosaic_dict['posting_y']
-
+    print(num_bands, '0-00')
+    print(len(output_file_list), '0-00')
     if num_bands != len(output_file_list):
         error_str = (f'ERROR number of output files ({len(output_file_list)})'
                     f' does not match with the number'
@@ -646,6 +710,8 @@ def mosaic_multiple_output_files(
 
         # for i_band in range(num_bands):
         raster_out.GetRasterBand(1).WriteArray(arr_numerator[i_band])
+
+
 def run(cfg):
     '''
     Run mosaic burst workflow with user-defined
@@ -660,7 +726,6 @@ def run(cfg):
     logger.info("Starting the mosaic burst RTC products")
 
     processing_cfg = cfg.groups.processing
-    inundated_vege_cfg = processing_cfg.inundated_vegetation
 
     scratch_path = cfg.groups.product_path_group.scratch_path
     input_list = cfg.groups.input_file_group.input_file_path
@@ -693,12 +758,9 @@ def run(cfg):
 
         pol_list = cfg.groups.processing.polarizations
 
-        common_parent_path = '/science/SENTINEL1/'
-        grid_path = f'{common_parent_path}/RTC/grids/'
-        freqA_path = f'{grid_path}/frequencyA'
-        id_path  = f'{common_parent_path}/identification/'
+        freqA_path = '/data/'
 
-        output_file_list = []   
+        output_file_list = []
         metadata_list = []
         nlooks_list = []
         mask_list = []
@@ -710,123 +772,100 @@ def run(cfg):
             epsg_list.append(read_metadata_epsg(metadata_path)['epsg'])
             epsg_output = majority_element(epsg_list)
 
-        # for each directory, find metadata, and RTC files. 
+        # for each directory, find metadata, and RTC files.
         for ind, input_dir in enumerate(input_list):
-    
+
             # find HDF5 metadata
             metadata_path = glob.glob(f'{input_dir}/*h5')[0]
             metadata_list.append(metadata_path)
 
-            temp_nlook_path = glob.glob(f'{input_dir}/*_nlooks.tif')
-            # if nlook file is not found, nlook in metadata is saveed.
-            if not temp_nlook_path:
-                temp_nlook_path = f'{scratch_path}/nLooks_{ind}.tif'
-                try:
-                    save_h5_metadata_to_tif(metadata_path,
-                                            data_path=f'{freqA_path}/numberOfLooks',
-                                            output_tif_path=temp_nlook_path, 
-                                            epsg_output=epsg_output)
-                    nlooks_list.append(temp_nlook_path)
-                except:
-                    nlooks_list.append(None)
+            layover_path = glob.glob(f'{input_dir}/*_layover_shadow_mask.tif')
+            if len(layover_path) > 0:
+                mask_list.append(layover_path[0])
+                print(layover_path[0])
             else:
-                nlooks_list.append(temp_nlook_path[0])
-
-            # layover/shadow mask is saveed from hdf5 metadata.
-            temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
-            save_h5_metadata_to_tif(metadata_path,
-                                        data_path=f'{freqA_path}/layoverShadowMask',
-                                        output_tif_path=temp_mask_path, 
-                                        epsg_output=epsg_output)
-            mask_list.append(temp_mask_path)
+            # layover/shadow mask is saved from hdf5 metadata.
+                temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
+                epsg_output = read_metadata_epsg(metadata_path)['epsg']
+                print(temp_mask_path)
+                save_h5_metadata_to_tif(metadata_path,
+                                            data_path=f'{freqA_path}/layoverShadowMask',
+                                            output_tif_path=temp_mask_path,
+                                            epsg_output=epsg_output)
+                mask_list.append(temp_mask_path)
 
         # Check if metadata have common values on
         # poliarzation /track number/ direction fields
-        # check_consistency_metadata(metadata_list, cfg)
 
         output_dir_mosaic_raster = scratch_path
         product_prefix = processing_cfg.mosaic.mosaic_prefix
         imagery_extension = 'tif'
-        output_metadata_dict = {}
-        mosaic_geogrid_dict = {}
-        logger.info(f'mosaicking files:')
-        mosaic_mode = 'average'
+
+        # mosaic_mode = 'bursts_center'
+        mosaic_mode = 'first'
+        # mosaic_mode = 'average'
         # Mosaic sub-bursts imagery
         logger.info(f'mosaicking files:')
-        output_imagery_filename_list = []
         rtc_burst_imagery_list = []
-        for input_ind, input_dir in enumerate(input_list):
-            for pol in pol_list:
-
-                rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
-                # if epsg_output != epsg_list[input_ind]:
-                #     rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
-                #     dswx_sar_util.change_epsg_tif(rtc_path_input, rtc_path_temp, epsg_output)
-                #     rtc_burst_imagery_list.append(rtc_path_temp)
-                # else:
-                rtc_burst_imagery_list.append(rtc_path_input)
 
         for pol in pol_list:
-            geo_pol_filename = \
-                (f'{output_dir_mosaic_raster}/{product_prefix}_{pol}.'
-                 f'{imagery_extension}')
-            logger.info(f'    {geo_pol_filename}')
-            output_imagery_filename_list.append(geo_pol_filename)
+            if pol in ['VV', 'VH', 'HV', 'HH']:
+                output_imagery_filename_list = []
+                rtc_burst_imagery_list = []
 
-        nlooks_list = []
+                for input_ind, input_dir in enumerate(input_list):
 
-        if len(rtc_burst_imagery_list) > 0:
+                    rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
+                    if epsg_output != epsg_list[input_ind]:
+                        rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
+                        dswx_sar_util.change_epsg_tif(rtc_path_input,
+                                                      rtc_path_temp,
+                                                      epsg_output)
+                        rtc_burst_imagery_list.append(rtc_path_temp)
+                    else:
+                        rtc_burst_imagery_list.append(rtc_path_input)
 
-            mosaic_multiple_output_files(
-                rtc_burst_imagery_list, nlooks_list,
-                output_imagery_filename_list, mosaic_mode,
-                scratch_dir=scratch_path, geogrid_in=cfg.geogrid,
-                temp_files_list=temp_files_list)
+                nlooks_list = []
 
-        # if save_imagery_as_hdf5:
-        #     temp_files_list += output_imagery_filename_list
-        # else:
-        #     output_file_list += output_imagery_filename_list
-        #     mosaic_output_file_list += output_imagery_filename_list
+                if len(rtc_burst_imagery_list) > 0:
+                    geo_pol_filename = \
+                        (f'{output_dir_mosaic_raster}/{product_prefix}_{pol}.'
+                        f'{imagery_extension}')
+                    logger.info(f'    {geo_pol_filename}')
+                    output_imagery_filename_list.append(geo_pol_filename)
 
-        # # Mosaic other bands
-        # for key, (output_file, input_files) in output_metadata_dict.items():
-        #     logger.info(f'mosaicking file: {output_file}')
-        #     if len(input_files) == 0:
-        #         continue
+                    mosaic_single_output_file(
+                        rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
+                        mosaic_mode, scratch_dir=scratch_path,
+                        geogrid_in=None, temp_files_list=None)
 
-        #     mosaic_single_output_file(
-        #         input_files, nlooks_list, output_file,
-        #         mosaic_mode, scratch_dir=scratch_path,
-        #         geogrid_in=cfg.geogrid, temp_files_list=temp_files_list)
+        geo_mask_filename = \
+            (f'{output_dir_mosaic_raster}/{product_prefix}_layovershadow_mask.'
+                f'{imagery_extension}')
+        logger.info(f'    {geo_mask_filename}')
 
+        mosaic_single_output_file(
+            mask_list, nlooks_list, geo_mask_filename,
+            mosaic_mode, scratch_dir=scratch_path,
+            geogrid_in=None, temp_files_list=None,
+            no_data_value=255)
 
-        #     # TODO: Remove nlooks exception below
-        #     if (save_secondary_layers_as_hdf5 or
-        #             (key == 'nlooks' and not save_nlooks)):
-        #         temp_files_list.append(output_file)
-        #     else:
-        #         output_file_list.append(output_file)
-        #         mosaic_output_file_list.append(output_file)
+        # save files as COG format.
+        if processing_cfg.mosaic.mosaic_cog_enable:
+            logger.info(f'Saving files as Cloud-Optimized GeoTIFFs (COGs)')
+            for filename in output_file_list:
+                if not filename.endswith('.tif'):
+                    continue
+                logger.info(f'    processing file: {filename}')
+                dswx_sar_util._save_as_cog(filename, scratch_path, logger,
+                            compression='ZSTD',
+                            nbits=16)
 
+            nlook_files = glob.glob(f'{scratch_path}/*nLooks_*.tif')
+            for rmfile in nlook_files:
+                os.remove(rmfile)
 
-        # # save files as COG format. 
-        # if processing_cfg.mosaic.mosaic_cog_enable:
-        #     logger.info(f'Saving files as Cloud-Optimized GeoTIFFs (COGs)')
-        #     for filename in output_file_list:
-        #         if not filename.endswith('.tif'):
-        #             continue
-        #         logger.info(f'    processing file: {filename}')
-        #         dswx_sar_util._save_as_cog(filename, scratch_path, logger,
-        #                     compression='ZSTD',
-        #                     nbits=16)
-        #     for rmfile in mask_list:
-        #         os.remove(rmfile)
-        #     nlook_files = glob.glob(f'{scratch_path}/*nLooks_*.tif')
-        #     for rmfile in nlook_files:
-        #         os.remove(rmfile)
-
-    t_time_end =time.time()
+    t_time_end = time.time()
     logger.info(f'total processing time: {t_time_end - t_start} sec')
 
 if __name__ == "__main__":
@@ -842,7 +881,7 @@ if __name__ == "__main__":
         args.input_yaml[0])[0]
 
     if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)    
+        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
     # Run mosaic burst RTC workflow
     run(cfg)

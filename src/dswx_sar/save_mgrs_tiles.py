@@ -139,17 +139,20 @@ def save_mgrs_tile_db(mgrs_db_path,
     # create MGRS tiles for products.
     output_tif_file_path = f'{output_dir_path}/{output_tif_name}'
     opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
-                     outputType=band.DataType,
-                     xRes=xspacing,
-                     yRes=yspacing,
-                     outputBounds=bbox,
-                     resampleAlg=method,
-                     format='GTIFF')
+                           outputType=band.DataType,
+                           xRes=xspacing,
+                           yRes=yspacing,
+                           outputBounds=bbox,
+                           resampleAlg=method,
+                           format='GTIFF')
     gdal.Warp(output_tif_file_path, source_tif_path, options=opt)
     input_tif_obj = None
-    dswx_sar_util._save_as_cog(output_tif_file_path, output_dir_path, logger,
-                compression='ZSTD',
-                nbits=16)
+    dswx_sar_util._save_as_cog(output_tif_file_path,
+                               output_dir_path,
+                               logger,
+                               compression='ZSTD',
+                               nbits=16)
+
 
 def find_mgrs_collection(image_tif,
                          mgrs_collection_file=None):
@@ -241,22 +244,22 @@ def find_mgrs_collection(image_tif,
                                     water_meta['geotransform'][3],
                                     0)
             x_ur, y_ur, _ = transformation.TransformPoint(
-                                    water_meta['geotransform'][0] + \
-                                    water_meta['width'] * \
+                                    water_meta['geotransform'][0] +
+                                    water_meta['width'] *
                                     water_meta['geotransform'][1],
                                     water_meta['geotransform'][3], 0)
             x_ll, y_ll, _ = transformation.TransformPoint(
                                     water_meta['geotransform'][0],
-                                    water_meta['geotransform'][3] + \
-                                    water_meta['length'] * \
+                                    water_meta['geotransform'][3] +
+                                    water_meta['length'] *
                                     water_meta['geotransform'][5], 0)
 
             x_lr, y_lr, _ = transformation.TransformPoint(
-                                    water_meta['geotransform'][0] + \
-                                    water_meta['width'] * \
+                                    water_meta['geotransform'][0] +
+                                    water_meta['width'] *
                                     water_meta['geotransform'][1],
-                                    water_meta['geotransform'][3] + \
-                                    water_meta['length'] * \
+                                    water_meta['geotransform'][3] +
+                                    water_meta['length'] *
                                     water_meta['geotransform'][5],
                                     0)
             x_extent = [x_ul, x_ur, x_ll, x_lr]
@@ -264,12 +267,12 @@ def find_mgrs_collection(image_tif,
 
         else:
             x_extent = [water_meta['geotransform'][0],
-                        water_meta['geotransform'][0] + \
-                        water_meta['width'] * \
+                        water_meta['geotransform'][0] +
+                        water_meta['width'] *
                         water_meta['geotransform'][1]]
             y_extent = [water_meta['geotransform'][3],
-                        water_meta['geotransform'][3] + \
-                        water_meta['length'] * \
+                        water_meta['geotransform'][3] +
+                        water_meta['length'] *
                         water_meta['geotransform'][5]]
 
         # figure out norther or southern hemisphere
@@ -287,13 +290,16 @@ def find_mgrs_collection(image_tif,
         mgrs_obj = mgrs.MGRS()
 
         for x_cand in range(int(x_extent[0]), int(x_extent[1]), int(109800/4)):
-            for y_cand in range(int(y_extent[0]), int(y_extent[1]), -int(109800/4)):
+            for y_cand in range(int(y_extent[0]),
+                                int(y_extent[1]),
+                                -int(109800/4)):
                 # extract MGRS tile
                 lat, lon, _ = transformation.TransformPoint(x_cand, y_cand, 0)
                 mgrs_tile = mgrs_obj.toMGRS(lat, lon)
                 mgrs_list.append(mgrs_tile[0:5])
 
-    return  mgrs_list
+    return mgrs_list
+
 
 def run(cfg):
     '''
@@ -324,23 +330,19 @@ def run(cfg):
     os.makedirs(sas_outputdir, exist_ok=True)
 
     num_input_path = len(input_list)
-    if os.path.isdir(input_list[0]):
-        if num_input_path > 1:
-            mosaic_flag = True
-        else:
-            mosaic_flag = False
-    else:
-        if num_input_path == 1:
-            mosaic_flag = False
-        else:
-            err_str = f'unable to process more than 1 images.'
-            logger.error(err_str)
-            raise ValueError(err_str)
+    mosaic_flag = num_input_path > 1
 
+    # [TODO] need to check all
+    if not os.path.isdir(input_list[0]):
+        err_str = 'unable to process more than 1 images.'
+        logger.error(err_str)
+        raise ValueError(err_str)
+
+    #[TODO]
     if mosaic_flag:
         print('Number of bursts to process:', num_input_path)
 
-        id_path  = '/identification/'
+        id_path = '/identification/'
 
         date_str_list = []
         for input_dir in input_list:
@@ -355,15 +357,19 @@ def run(cfg):
         output_date_format = "%Y%m%dT%H%M%SZ"
 
         date_str_id_temp = date_str_list[0][:19]
-        date_str_id = datetime.datetime.strptime(date_str_id_temp, input_date_format).strftime(output_date_format)
+        date_str_id = datetime.datetime.strptime(date_str_id_temp,
+                                                 input_date_format).strftime(
+                        output_date_format)
 
     else:
         date_str_id = 'unknown'
 
     # [TODO] Final product has different name depending on the workflow
     if dswx_workflow == 'opera_dswx_s1':
+        # os.path.join
         final_water_path = \
             f'{outputdir}/bimodality_output_binary_{pol_str}.tif'
+    # twele's workflow
     else:
         final_water_path = \
             f'{outputdir}/region_growing_output_binary_{pol_str}.tif'
@@ -384,10 +390,13 @@ def run(cfg):
             dswx_sar_util.read_geotiff(layover_shadow_mask_path)
     else:
         layover_shadow_mask = np.zeros(np.shape(water_map), dtype='byte')
+        logger.warning('No layover/shadow mask found')
 
     # 3) hand
-    hand = dswx_sar_util.read_geotiff(os.path.join(outputdir, 'interpolated_hand'))
-    hand_mask = hand >200
+    hand = dswx_sar_util.read_geotiff(os.path.join(outputdir,
+                                                   'interpolated_hand'))
+    # 200 m : need to populate the value from runconfig.
+    hand_mask = hand > 200
 
     full_wtr1_water_set_path = f'{outputdir}/full_water_binary_WTR1_set.tif'
     full_wtr_water_set_path = f'{outputdir}/full_water_binary_WTR_set.tif'
@@ -398,21 +407,24 @@ def run(cfg):
         inundated_vegetation = dswx_sar_util.read_geotiff(
             f"{outputdir}/temp_inundated_vegetation.tif")
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
-                                    (water_map==1)
+                                    (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
     else:
         inundated_vegetation = None
 
     if dswx_workflow == 'opera_dswx_s1':
         region_grow_map = \
-            dswx_sar_util.read_geotiff(f'{outputdir}/region_growing_output_binary_{pol_str}.tif')
+            dswx_sar_util.read_geotiff(
+                f'{outputdir}/region_growing_output_binary_{pol_str}.tif')
         landcover_map =\
-            dswx_sar_util.read_geotiff(f'{outputdir}/refine_landcover_binary_{pol_str}.tif')
-        landcover_mask = (region_grow_map == 1) & (landcover_map!=1)
-        dark_land_mask = (landcover_map == 1) & (water_map==0)
-        bright_water_mask = (landcover_map == 0) & (water_map==1)
+            dswx_sar_util.read_geotiff(
+                f'{outputdir}/refine_landcover_binary_{pol_str}.tif')
+        landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
+        dark_land_mask = (landcover_map == 1) & (water_map == 0)
+        bright_water_mask = (landcover_map == 0) & (water_map == 1)
 
-        dswx_sar_util.save_dswx_product(water_map==1,
+        dswx_sar_util.save_dswx_product(
+            water_map == 1,
             full_wtr1_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
@@ -421,36 +433,39 @@ def run(cfg):
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
-            layover_shadow_mask=layover_shadow_mask>0,
+            layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
-            inundated_vegetation=inundated_vegetation==2,
+            inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
             )
 
-        dswx_sar_util.save_dswx_product(water_map==1,
+        dswx_sar_util.save_dswx_product(
+            water_map == 1,
             full_wtr_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Water classification (WTR)',
             scratch_dir=outputdir,
-            inundated_vegetation=inundated_vegetation==2,
-            layover_shadow_mask=layover_shadow_mask>0,
+            inundated_vegetation=inundated_vegetation == 2,
+            layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             no_data=no_data_raster)
     else:
-        dswx_sar_util.save_dswx_product(water_map==1,
-                    full_wtr1_water_set_path,
-                    geotransform=water_meta['geotransform'],
-                    projection=water_meta['projection'],
-                    description='Water classification (WTR)',
-                    scratch_dir=outputdir,
-                    layover_shadow_mask=layover_shadow_mask>0,
-                    hand_mask=hand_mask,
-                    no_data=no_data_raster)
+        dswx_sar_util.save_dswx_product(
+                water_map == 1,
+                full_wtr1_water_set_path,
+                geotransform=water_meta['geotransform'],
+                projection=water_meta['projection'],
+                description='Water classification (WTR)',
+                scratch_dir=outputdir,
+                layover_shadow_mask=layover_shadow_mask > 0,
+                hand_mask=hand_mask,
+                no_data=no_data_raster)
 
     # get MGRS tile list
-    mgrs_tile_list = find_mgrs_collection(mgrs_collection_file=mgrs_collection_db_path,
-                                          image_tif=final_water_path)
+    mgrs_tile_list = find_mgrs_collection(
+        mgrs_collection_file=mgrs_collection_db_path,
+        image_tif=final_water_path)
     unique_mgrs_tile_list = list(set(mgrs_tile_list))
     logger.info('MGRS tiles:', unique_mgrs_tile_list)
 
@@ -458,27 +473,27 @@ def run(cfg):
     if dswx_workflow == 'opera_dswx_s1':
 
         for mgrs_tile_id in unique_mgrs_tile_list:
-            #[TODO] specify file name
+            # [TODO] specify file name
             logger.info('mgrs tile', mgrs_tile_id)
             dswx_name_format_prefix = \
                 f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_v{product_version}'
 
             # bbox and epsg extract from MGRS tile
-            output_mgrs_wtr = f'{dswx_name_format_prefix}_B01_WTR.tif'
-            save_mgrs_tile_db(
-                mgrs_db_path=mgrs_db_path,
-                source_tif_path=full_wtr1_water_set_path,
-                output_dir_path=sas_outputdir,
-                output_tif_name=output_mgrs_wtr,
-                output_mgrs_id=mgrs_tile_id,
-                method='nearest')
-
-            output_mgrs_bwtr = f'{dswx_name_format_prefix}_B02_BWTR.tif'
+            output_mgrs_bwtr = f'{dswx_name_format_prefix}_B01_BWTR.tif'
             save_mgrs_tile_db(
                 mgrs_db_path=mgrs_db_path,
                 source_tif_path=full_wtr_water_set_path,
                 output_dir_path=sas_outputdir,
                 output_tif_name=output_mgrs_bwtr,
+                output_mgrs_id=mgrs_tile_id,
+                method='nearest')
+
+            output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_WTR.tif'
+            save_mgrs_tile_db(
+                mgrs_db_path=mgrs_db_path,
+                source_tif_path=full_wtr1_water_set_path,
+                output_dir_path=sas_outputdir,
+                output_tif_name=output_mgrs_wtr,
                 output_mgrs_id=mgrs_tile_id,
                 method='nearest')
 

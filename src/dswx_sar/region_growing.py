@@ -16,7 +16,7 @@ from dswx_sar.dswx_runconfig import RunConfig, _get_parser
 logger = logging.getLogger('dswx_s1')
 
 
-def region_growing(defuzz,
+def region_growing(fuzz_image,
                    initial_seed=0.6,
                    tolerance=0.45,
                    maxiter=200):
@@ -25,15 +25,16 @@ def region_growing(defuzz,
 
     Parameters
     ----------
-    defuzz : numpy.ndarray
-        fuzzy image
+    fuzz_image : numpy.ndarray
+        fuzzy image with values [0, 1] where 0 is non-water and 1 is water
     initial_seed : float
         Threshold used for the seed of water body [0 ~ 1]
     tolerance : float
         relaxed threshold to be used for transient area
         between water and non-water
     maxiter : integer
-        maximum iteration for region growing
+        maximum iteration for region growing. 
+        Defaults to 0 which translates to infinite iterations.
 
     Returns
     ----------
@@ -44,13 +45,12 @@ def region_growing(defuzz,
     """
 
     # Create initial binary image using seed value
-    water_binary = defuzz > initial_seed
+    water_binary = fuzz_image > initial_seed
 
     # Create another layer with uint8
-    thresh = np.zeros(defuzz.shape, dtype=np.uint8)
-    thresh[water_binary] = 1
+    thresh = water_binary.astype(np.uint8)
 
-    nb_components, _, _, _ = cv2.connectedComponentsWithStats(
+    nb_components, *_ = cv2.connectedComponentsWithStats(
                                                     thresh,
                                                     connectivity=8)
     nb_components = nb_components - 1
@@ -59,9 +59,8 @@ def region_growing(defuzz,
     itercount = 0
     number_added = 20
 
-    # Maximum iteration 0 is assumed as that
-    # region growing should be carried out
-    # until all pixels are included.
+    # Maximum iteration 0 is assumed as that region growing
+    # should be carried out until all pixels are included.
     if maxiter == 0:
         maxiter = np.inf
 
@@ -69,21 +68,18 @@ def region_growing(defuzz,
     # and no more pixels are found
     while (itercount < maxiter) and (number_added > newpixelmin):
 
-        # apply binary dilation
-        buffer_binary = ndimage.binary_dilation(water_binary)
-
         # exclude the original binary pixels from buffer binary
         buffer_binary = np.logical_xor(
             ndimage.binary_dilation(water_binary), water_binary)
 
         # define new_water for the pixels higher than tolerance
-        # new_water = np.logical_and(buffer_binary, defuzz > tolerance)
-        new_water = defuzz[buffer_binary] > tolerance
+        # new_water = np.logical_and(buffer_binary, fuzz_image > tolerance)
+        new_water = fuzz_image[buffer_binary] > tolerance
 
         # add new pixels to water_binary
         water_binary[buffer_binary] = new_water
         number_added = np.sum(new_water)
-        itercount = itercount + 1
+        itercount += 1
         logger.info(f"iteration {itercount}: {number_added:.3f} pixels added")
 
     return water_binary
@@ -131,13 +127,12 @@ def process_region_growing_block(block_param,
     # At first loop, read block from intial fuzzy value geotiff
     # Otherwise, read block from previous loop
     if loopind == 0:
-        data_block = dswx_sar_util.get_raster_block(
-            input_tif_path, block_param)
+        fuzzy_map_temp = input_tif_path
     else:
         fuzzy_map_temp = \
             f'{base_dir}/{fuzzy_base_name}_temp_loop_{loopind}.tif'
-        data_block = dswx_sar_util.get_raster_block(
-            fuzzy_map_temp, block_param)
+    data_block = dswx_sar_util.get_raster_block(
+        fuzzy_map_temp, block_param)
 
     # Run region growing for fuzzy values
     region_grow_sub = region_growing(data_block,
@@ -180,6 +175,8 @@ def run_parallel_region_growing(input_tif_path,
     data_shape = [data_length, data_width]
 
     # Process fast region-growing with blocks
+    # In each iteration, the block size will increase to cover 
+    # more areas
     lines_per_block_list = [lines_per_block,
                             2*lines_per_block,
                             3*lines_per_block]
@@ -249,25 +246,25 @@ def run(cfg):
     region_growing_tolerance = region_growing_cfg.tolerance
     region_growing_line_per_block = region_growing_cfg.line_per_block
 
-    fuzzy_tif_str = os.path.join(outputdir,
+    fuzzy_tif_path = os.path.join(outputdir,
                                  f'fuzzy_image_{pol_str}.tif')
-    water_meta = dswx_sar_util.get_meta_from_tif(fuzzy_tif_str)
-    water_tif_str = os.path.join(outputdir,
+    water_meta = dswx_sar_util.get_meta_from_tif(fuzzy_tif_path)
+    water_tif_path = os.path.join(outputdir,
                                  f"region_growing_output_binary_{pol_str}.tif")
-    temp_rg_tif_str = os.path.join(outputdir,
+    temp_rg_tif_path = os.path.join(outputdir,
                                    f'temp_region_growing_{pol_str}.tif')
 
     # First, run region-growing algorithm for blocks
     # to avoid to repeatly run with large image.
-    run_parallel_region_growing(fuzzy_tif_str,
-                                temp_rg_tif_str,
+    run_parallel_region_growing(fuzzy_tif_path,
+                                temp_rg_tif_path,
                                 lines_per_block=region_growing_line_per_block,
                                 initial_seed=region_growing_seed,
                                 tolerance=region_growing_tolerance,
                                 maxiter=0)
 
-    fuzzy_map = dswx_sar_util.read_geotiff(fuzzy_tif_str)
-    temp_rg = dswx_sar_util.read_geotiff(temp_rg_tif_str)
+    fuzzy_map = dswx_sar_util.read_geotiff(fuzzy_tif_path)
+    temp_rg = dswx_sar_util.read_geotiff(temp_rg_tif_path)
 
     # replace the fuzzy values with 1 for the pixels
     # where the region-growing already applied
@@ -282,7 +279,7 @@ def run(cfg):
 
     dswx_sar_util.save_dswx_product(
                 region_grow_map,
-                water_tif_str,
+                water_tif_path,
                 geotransform=water_meta['geotransform'],
                 projection=water_meta['projection'],
                 description='Water classification (WTR)',

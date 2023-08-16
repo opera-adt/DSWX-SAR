@@ -26,7 +26,7 @@ def dswx_s1_workflow(cfg):
     # preprocessing (relocating ancillary data and filtering)
     pre_processing.run(cfg)
 
-    # create dummy water map.
+    # create dummy water map. This will be replaced or removed in future. 
     dummy_dswx_s1.run(cfg)
 
     # apply region-growing algorithm

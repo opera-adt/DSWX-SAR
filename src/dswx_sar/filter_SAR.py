@@ -60,7 +60,7 @@ def weightingarr(im, winsize, k=K_DEFAULT,
     w_t_arr = np.zeros(im.shape)
     w_t_arr[ci<=cu] = 1
     w_t_arr[ (ci > cu) & (ci < cmax) ] =\
-        np.exp((-k * (ci[( ci > cu) & (ci < cmax)] - cu)) 
+        np.exp((-k * (ci[( ci > cu) & (ci < cmax)] - cu))
                / (cmax - ci[( ci > cu) & (ci < cmax)]))
     w_t_arr[ci >= cmax] = 0
 
@@ -69,8 +69,13 @@ def weightingarr(im, winsize, k=K_DEFAULT,
 def lee_enhanced_filter(img, win_size=3, k=K_DEFAULT, cu=CU_DEFAULT,
                         cmax=CMAX_DEFAULT):
     """
-    Apply Enhanced Lee filter to a numpy matrix containing the image, with a
-    window of win_size x win_size.
+    Enhanced Lee filter for SAR image
+
+    Zhu, J., Wen, J., & Zhang, Y. (2013, December). A new algorithm for SAR
+    image despeckling using an enhanced Lee filter and median filter.
+    In 2013 6th International congress on image and signal processing
+    (CISP) (Vol. 1, pp. 224-228). IEEE. 10.1109/CISP.2013.6743991
+
     Parameters
     ----------
     img: numpy.ndarray

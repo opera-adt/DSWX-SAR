@@ -123,10 +123,10 @@ class AncillaryRelocation:
 
         if (len(lat0) != ysize) and (len(lon0) != xsize):
 
-            N, S, W, E = [np.max(lat0) - yspacing / 2,
-                          np.min(lat0) + yspacing / 2,
-                          np.min(lon0) + xspacing / 2,
-                          np.max(lon0) - yspacing / 2]
+            N, S, W, E = [np.max(lat0) + yspacing / 2,
+                          np.min(lat0) - yspacing / 2,
+                          np.min(lon0) - xspacing / 2,
+                          np.max(lon0) + yspacing / 2]
 
             print('Note: latitude shape is not same as image shape')
 

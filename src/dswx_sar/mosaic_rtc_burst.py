@@ -12,6 +12,7 @@ from osgeo import osr, gdal
 import mimetypes
 import tempfile
 from scipy import ndimage
+from collections import Counter
 
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import dswx_sar_util
@@ -20,11 +21,8 @@ logger = logging.getLogger('dswx_s1')
 
 
 def majority_element(num_list):
-
     """
-    Determine the majority element in a list using the
-    Boyer-Moore Voting Algorithm.
-
+    Determine the majority element in a list
     Parameters:
     -----------
     num_list : List[int]
@@ -36,18 +34,12 @@ def majority_element(num_list):
         The majority element in the list. If no majority exists,
         it may return any element from the list.
     """
-    idx, ctr = 0, 1
 
-    for i in range(1, len(num_list)):
-        if num_list[idx] == num_list[i]:
-            ctr += 1
-        else:
-            ctr -= 1
-            if ctr == 0:
-                idx = i
-                ctr = 1
+    counter = Counter(np.array(num_list))
+    most_common = counter.most_common()
+    most_freq_elem = most_common[0][0]
 
-    return num_list[idx]
+    return most_freq_elem
 
 
 def read_metadata_epsg(h5_meta_path):
@@ -106,10 +98,8 @@ def save_h5_metadata_to_tif(h5_meta_path,
         epsg = np.array(src_h5[f'{freqA_path}/projection'])
 
     dtype = data.dtype
-
-    geotransform = [xcoord[0], float(xres), 0,
-                    ycoord[0], 0, float(yres)]
-
+    geotransform = [xcoord[0] - xres / 2, float(xres), 0,
+                    ycoord[0] - yres / 2, 0, float(yres)]
     srs = osr.SpatialReference()            # establish encoding
     srs.ImportFromEPSG(int(epsg))               # WGS84 lat/long
     projection = srs.ExportToWkt()
@@ -138,7 +128,7 @@ def save_h5_metadata_to_tif(h5_meta_path,
 
         opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
                      xRes=xres,
-                     yRes=xres,
+                     yRes=abs(yres),
                      resampleAlg='nearest',
                      format='GTIFF')
         gdal.Warp(output_tif_path, output_tif_temp_path, options=opt)
@@ -682,8 +672,7 @@ def mosaic_multiple_output_files(
     ymax_mosaic = mosaic_dict['ymax_mosaic']
     posting_x = mosaic_dict['posting_x']
     posting_y = mosaic_dict['posting_y']
-    print(num_bands, '0-00')
-    print(len(output_file_list), '0-00')
+
     if num_bands != len(output_file_list):
         error_str = (f'ERROR number of output files ({len(output_file_list)})'
                     f' does not match with the number'
@@ -770,7 +759,8 @@ def run(cfg):
             # find HDF5 metadata
             metadata_path = glob.glob(f'{input_dir}/*h5')[0]
             epsg_list.append(read_metadata_epsg(metadata_path)['epsg'])
-            epsg_output = majority_element(epsg_list)
+
+        epsg_output = majority_element(epsg_list)
 
         # for each directory, find metadata, and RTC files.
         for ind, input_dir in enumerate(input_list):
@@ -782,12 +772,10 @@ def run(cfg):
             layover_path = glob.glob(f'{input_dir}/*_layover_shadow_mask.tif')
             if len(layover_path) > 0:
                 mask_list.append(layover_path[0])
-                print(layover_path[0])
             else:
             # layover/shadow mask is saved from hdf5 metadata.
                 temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
                 epsg_output = read_metadata_epsg(metadata_path)['epsg']
-                print(temp_mask_path)
                 save_h5_metadata_to_tif(metadata_path,
                                             data_path=f'{freqA_path}/layoverShadowMask',
                                             output_tif_path=temp_mask_path,

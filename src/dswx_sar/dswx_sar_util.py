@@ -58,10 +58,14 @@ def get_interpreted_dswx_s1_ctable():
 
 def read_geotiff(input_tif_str, band_ind=None):
     """Read band from geotiff
+
     Parameters
     ----------
     input_tif_str: str
         geotiff file path to read the band
+    band_ind: int
+        Index of the band to read, starts from 0
+
     Returns
     -------
     tifdata: numpy.ndarray
@@ -193,22 +197,23 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
                 flag_compress=True, ovr_resamp_algorithm=None,
                 compression='DEFLATE', nbits=None):
     """Save (overwrite) a GeoTIFF file as a cloud-optimized GeoTIFF.
-       Parameters
-       ----------
-       filename: str
-              GeoTIFF to be saved as a cloud-optimized GeoTIFF
-       scratch_dir: str (optional)
-              Temporary Directory
-       ovr_resamp_algorithm: str (optional)
-              Resampling algorithm for overviews.
-              Options: "AVERAGE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR",
-              "CUBIC", "CUBICSPLINE", "GAUSS", "LANCZOS", "MODE",
-              "NEAREST", or "NONE". Defaults to "NEAREST", if integer, and
-              "CUBICSPLINE", otherwise.
-        compression: str (optional)
-              Compression type.
-              Optional: "NONE", "LZW", "JPEG", "DEFLATE", "ZSTD", "WEBP",
-              "LERC", "LERC_DEFLATE", "LERC_ZSTD", "LZMA"
+
+    Parameters
+    ----------
+    filename: str
+            GeoTIFF to be saved as a cloud-optimized GeoTIFF
+    scratch_dir: str (optional)
+            Temporary Directory
+    ovr_resamp_algorithm: str (optional)
+            Resampling algorithm for overviews.
+            Options: "AVERAGE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR",
+            "CUBIC", "CUBICSPLINE", "GAUSS", "LANCZOS", "MODE",
+            "NEAREST", or "NONE". Defaults to "NEAREST", if integer, and
+            "CUBICSPLINE", otherwise.
+    compression: str (optional)
+            Compression type.
+            Optional: "NONE", "LZW", "JPEG", "DEFLATE", "ZSTD", "WEBP",
+            "LERC", "LERC_DEFLATE", "LERC_ZSTD", "LZMA"
     """
     if logger is None:
         logger = logging.getLogger('proteus')

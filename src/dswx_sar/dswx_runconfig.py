@@ -34,7 +34,7 @@ def _get_parser():
                         help='Log file')
 
     return parser
- 
+
 def _deep_update(original, update):
     """Update default runconfig dict with user-supplied dict.
     Parameters
@@ -159,10 +159,10 @@ def check_file_path(file_path: str) -> None:
 
 def check_polarizations(pol_list):
 
-    if 'VH' in pol_list: 
+    if 'VH' in pol_list:
         pol_list.remove('VH')
         pol_list = ['VH'] + pol_list
-        
+
     if 'VV' in pol_list:
         pol_list.remove('VV')
         pol_list = ['VV'] + pol_list
@@ -176,13 +176,20 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
         Dictionary storing runconfig options to validate
     """
 
-    # Check 'input_file_group' section of runconfig
-    input_group = group_cfg['input_file_group']
-
     # Check 'dynamic_ancillary_file_groups' section of runconfig
-    # Check that DEM file exists and is GDAL-compatible
+    # Check that ancillary file exist and is GDAL-compatible
     dem_path = group_cfg['dynamic_ancillary_file_group']['dem_file']
-    check_file_path(dem_path)
+    landcover_path = group_cfg[
+                    'dynamic_ancillary_file_group']['worldcover_file']
+    ref_water_path = group_cfg[
+                    'dynamic_ancillary_file_group']['reference_water_file']
+    hand_path = group_cfg[
+                    'dynamic_ancillary_file_group']['hand_file']
+    ancillary_file_paths = [dem_path, landcover_path,
+                            ref_water_path, hand_path]
+
+    for path in ancillary_file_paths:
+        check_file_path(path)
 
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions
@@ -252,7 +259,7 @@ class RunConfig:
     groups: SimpleNamespace
     # run config path
     run_config_path: str
-    
+
     @classmethod
     def load_from_yaml(cls, yaml_path: str, workflow_name: str, args):
         """Initialize RunConfig class with options from given yaml file.
@@ -273,7 +280,7 @@ class RunConfig:
         sensor = product.split('_')[-1]
         ancillary = sns.dynamic_ancillary_file_group
 
-        algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameters, 
+        algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameters,
                                            f'algorithm_parameter_{sensor.lower()}')
 
         algorithm_sns = wrap_namespace(algorithm_cfg['runconfig']['processing'])
@@ -292,7 +299,7 @@ class RunConfig:
             logger.warning(f'command line log file "{args.log_file}"'
                 f' has precedence over runconfig log file "{log_file}"')
             sns.log_file = args.log_file
-        
+
         return cls(cfg['runconfig']['name'], sns, yaml_path)
 
     @property
@@ -331,7 +338,7 @@ class RunConfig:
         for key, val in self.__dict__.items():
             if key == 'groups':
                 val = unwrap_to_dict(val)
-            
+
             self_as_dict[key] = val
         return self_as_dict
 

@@ -3,6 +3,7 @@ import time
 
 from dswx_sar import mosaic_rtc_burst, save_mgrs_tiles, dummy_dswx_s1,\
                      pre_processing, region_growing
+
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 logger = logging.getLogger('dswx_s1')
@@ -13,7 +14,6 @@ def dswx_s1_workflow(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
     input_list = cfg.groups.input_file_group.input_file_path
-    dswx_workflow = processing_cfg.dswx_workflow
 
     logger.info("")
     logger.info("Starting DSWx-S1 algorithm")

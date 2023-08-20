@@ -8,6 +8,7 @@ import tempfile
 import logging
 from dataclasses import dataclass
 
+
 np2gdal_conversion = {
   "uint8": 1,
   "int8": 1,
@@ -59,10 +60,14 @@ def get_interpreted_dswx_s1_ctable():
 
 def read_geotiff(input_tif_str, band_ind=None):
     """Read band from geotiff
+
     Parameters
     ----------
     input_tif_str: str
         geotiff file path to read the band
+    band_ind: int
+        Index of the band to read, starts from 0
+
     Returns
     -------
     tifdata: numpy.ndarray
@@ -73,7 +78,7 @@ def read_geotiff(input_tif_str, band_ind=None):
         tifdata = tif.ReadAsArray()
 
     else:
-        tifdata = tif.GetRasterBand(band_ind+1).ReadAsArray()
+        tifdata = tif.GetRasterBand(band_ind + 1).ReadAsArray()
 
     tif.FlushCache()
     tif = None
@@ -100,7 +105,7 @@ def save_raster_gdal(data, output_file, geotransform,
     DataType: str
         Data types to save the file.
     """
-    Gdal_type = np2gdal_conversion[str(DataType)]
+    gdal_type = np2gdal_conversion[str(DataType)]
     image_size = data.shape
     #  Set the Pixel Data (Create some boxes)
     # set geotransform
@@ -115,7 +120,7 @@ def save_raster_gdal(data, output_file, geotransform,
 
     driver = gdal.GetDriverByName("GTiff")
     output_file_path = os.path.join(output_file)
-    gdal_ds = driver.Create(output_file_path, nx, ny, nim, Gdal_type)
+    gdal_ds = driver.Create(output_file_path, nx, ny, nim, gdal_type)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
 
@@ -180,8 +185,6 @@ def save_dswx_product(wtr, output_file, geotransform,
 
     if description is not None:
         gdal_band.SetDescription(description)
-    else:
-        gdal_band.SetDescription(description_from_dict)
 
     gdal_band.FlushCache()
     gdal_band = None
@@ -196,22 +199,23 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
                 flag_compress=True, ovr_resamp_algorithm=None,
                 compression='DEFLATE', nbits=None):
     """Save (overwrite) a GeoTIFF file as a cloud-optimized GeoTIFF.
-       Parameters
-       ----------
-       filename: str
-              GeoTIFF to be saved as a cloud-optimized GeoTIFF
-       scratch_dir: str (optional)
-              Temporary Directory
-       ovr_resamp_algorithm: str (optional)
-              Resampling algorithm for overviews.
-              Options: "AVERAGE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR",
-              "CUBIC", "CUBICSPLINE", "GAUSS", "LANCZOS", "MODE",
-              "NEAREST", or "NONE". Defaults to "NEAREST", if integer, and
-              "CUBICSPLINE", otherwise.
-        compression: str (optional)
-              Compression type.
-              Optional: "NONE", "LZW", "JPEG", "DEFLATE", "ZSTD", "WEBP",
-              "LERC", "LERC_DEFLATE", "LERC_ZSTD", "LZMA"
+
+    Parameters
+    ----------
+    filename: str
+            GeoTIFF to be saved as a cloud-optimized GeoTIFF
+    scratch_dir: str (optional)
+            Temporary Directory
+    ovr_resamp_algorithm: str (optional)
+            Resampling algorithm for overviews.
+            Options: "AVERAGE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR",
+            "CUBIC", "CUBICSPLINE", "GAUSS", "LANCZOS", "MODE",
+            "NEAREST", or "NONE". Defaults to "NEAREST", if integer, and
+            "CUBICSPLINE", otherwise.
+    compression: str (optional)
+            Compression type.
+            Optional: "NONE", "LZW", "JPEG", "DEFLATE", "ZSTD", "WEBP",
+            "LERC", "LERC_DEFLATE", "LERC_ZSTD", "LZMA"
     """
     if logger is None:
         logger = logging.getLogger('proteus')
@@ -285,7 +289,6 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
         logger.warning(f'        file "{filename}" is NOT a valid cloud'
                        f' optimized GeoTIFF!')
 
-
 def change_epsg_tif(input_tif, output_tif, epsg_output):
     """Resample the input geotiff image to new EPSG code.
     Parameters
@@ -304,8 +307,8 @@ def change_epsg_tif(input_tif, output_tif, epsg_output):
                      xRes=metadata['geotransform'][1],
                      yRes=metadata['geotransform'][5],
                      format='GTIFF')
-    ds = gdal.Warp(output_tif, input_tif, options=opt)
-    del ds
+    gdal.Warp(output_tif, input_tif, options=opt)
+
 
 def get_meta_from_tif(tif_file_name):
     """Read metadata from geotiff
@@ -324,7 +327,7 @@ def get_meta_from_tif(tif_file_name):
     else:
         tif_name = tif_file_name
     tif_gdal = gdal.Open(tif_name)
-    meta_dict = dict()
+    meta_dict = {}
     meta_dict['geotransform'] = tif_gdal.GetGeoTransform()
     meta_dict['projection'] = tif_gdal.GetProjection()
     meta_dict['length'] = tif_gdal.RasterYSize
@@ -336,6 +339,7 @@ def get_meta_from_tif(tif_file_name):
     tif_gdal = None
 
     return meta_dict
+
 
 def get_raster_block(raster_path, block_param):
     ''' Get a block of data from raster.
@@ -529,6 +533,7 @@ class BlockParam:
 
     data_length: int
 
+
 def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     """save intensity images into png file
 
@@ -536,18 +541,19 @@ def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     ----------
     intensity: numpy.ndarray
         2 dimensional array containing linear intensity
-    outputdir: str 
-        path for output directory 
+    outputdir: str
+        path for output directory
     pol: str
         specific polarization added to the file name
     immin: float
         mininum dB value for displaying intensity
     immax: float
-        maximum dB value for displaying intensity        
+        maximum dB value for displaying intensity
     """
-    fig = plt.figure(figsize=(20, 20))
-    fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-    im = ax.imshow(10*np.log10(intensity), cmap = plt.get_cmap('gray'),
+    plt.figure(figsize=(20, 20))
+    _, ax = plt.subplots(1, 1, figsize=(15, 15))
+    ax.imshow(10*np.log10(intensity), cmap = plt.get_cmap('gray'),
+
                    vmin=immin,vmax=immax)
     plt.title('RTC')
     plt.savefig(os.path.join(outputdir, 'RTC_intensity_{}'.format(pol)))

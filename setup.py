@@ -6,7 +6,7 @@ from setuptools import Command
 
 def _get_version():
     """Returns the PROTEUS software version from the
-    file `src/proteus/version.py`
+    file `src/dswx_sar/version.py`
        Returns
        -------
        version : str

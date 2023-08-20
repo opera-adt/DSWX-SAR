@@ -67,9 +67,9 @@ runconfig:
             # Dark area is defined where cross-pol is lower than cross_land
             # Water is defined where cross-pol is lower than cross_water
             dark_area:
-                # Threshold for land in the dark area definition
+                # Threshold [dB] for land in the dark area definition
                 cross_land: num(required=False)
-                # Threshold for water in the dark area definition
+                # Threshold [dB] for water in the dark area definition
                 cross_water: num(required=False)
             # High frequent water is defined based on two values
             # water_min_value < high_frequent_water < water_max_value

@@ -37,8 +37,9 @@ def compute_slope_dem(dem):
     sobely = cv2.Sobel(dem, cv2.CV_64F, 0, 1, ksize=SOBEL_KERNEL_SIZE)  # y
 
     # Compute slope
-    slope_angle = np.arctan(np.sqrt((sobelx / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_X) ** 2 +
-                           (sobely / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_Y) ** 2)) * RAD_TO_DEG
+    slope_angle = np.arctan(np.sqrt(
+        (sobelx / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_X) ** 2 +
+        (sobely / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_Y) ** 2)) * RAD_TO_DEG
     return slope_angle
 
 
@@ -60,16 +61,14 @@ def smf(values, minv, maxv):
         rescaled value from s-shape membership function
     '''
     center_value = (minv + maxv) / 2
-    values = np.asarray(values, dtype='float32')
-    output= np.zeros(np.shape(values) ,dtype='float32')
+    output= np.zeros(np.shape(values), dtype='float32')
 
-    membership = 2 * (((values - minv) / (maxv - minv))**2)
+    membership_left = 2 * ((values - minv) / (maxv - minv))**2
     output[(values >= minv) & (values <= center_value)] = \
-        membership[(values >=minv) & (values <= center_value)]
-
-    membership = 1 - 2 * (((values - maxv) / (maxv-minv))**2)
+        membership_left[(values >=minv) & (values <= center_value)]
+    membership_right = 1 - 2 * ((values - maxv) / (maxv-minv))**2
     output[(values >= center_value) & (values <= maxv)] = \
-        membership[(values>=center_value) & (values <= maxv)]
+        membership_right[(values>=center_value) & (values <= maxv)]
 
     output[ values <= minv ] = 0
     output[ values >= maxv ] = 1
@@ -95,15 +94,16 @@ def zmf(values, minv, maxv):
     '''
     center_value = (minv + maxv) / 2
     output = np.zeros(np.shape(values))
-    
-    membership_left = 1 - 2 * (((values - minv) / (maxv - minv))**2)
+
+    membership_left = 1 - 2 * ((values - minv) / (maxv - minv))**2
     mask_left = (values >= minv) & (values <= center_value)
     output[mask_left] = membership_left[mask_left]
 
-    membership_right = 2 * (((values - maxv) / (maxv - minv))**2)
-    mask_right = (values >= minv) & (values <= center_value)
+    membership_right = 2 * ((values - maxv) / (maxv - minv))**2
+    mask_right = (values >= center_value) & (values <= maxv)
+
     output[mask_right] = membership_right[mask_right]
-    
+
     output[values >= maxv] = 0
     output[values <= minv] = 1
 
@@ -128,7 +128,7 @@ def calculate_water_area(binary_raster):
            = cv2.connectedComponentsWithStats(
                np.array(binary_raster, dtype=np.uint8),
                connectivity=8)
-
+    # Identify the labels of the areas not to provide the number of the pixels
     excluded_area_ind = np.unique(output[binary_raster==0])
     sizes = stats[:, -1]
     sizes = np.delete(sizes, excluded_area_ind)
@@ -152,29 +152,55 @@ def compute_fuzzy_value(intensity,
                         outputdir,
                         workflow,
                         fuzzy_option):
-    '''Compute fuzzy values from intensity, dem, reference water, and hand
+    '''Compute fuzzy values from intensity, dem,
+    reference water, and HAND
 
     Parameters
     ----------
     intensity : numpy.ndarray
-        The intensity or ratio layers. A number of layers could be arbitrary.
+        The intensity or ratio layers.
+        A number of layers could be arbitrary.
     slope : numpy.ndarray
         The slope angle raster
     hand : numpy.ndarray
         The Height Above Nearest Drainage (HAND) raster
-    hand_threshold : float
-        HAND threshold for masking
     landcover : numpy.ndarray
         landcover raster
     landcover_label : dict
         dict consisting of landcover label
     reference_water : numpy.ndarray
-        reference water map
+        reference water map.
+        The values are expected from 0 to 1.
+    pol_list : list
+        list of the input polarizations
+    outputdir : string
+        output directory
+    workflow : string
+        workflows i.e.twele or opera_dswx_s1
+    fuzzy_option : dictionary
+        fuzzy options to compute the fuzzy values containing
+        fllowing parameters
+            'hand_threshold': HAND value to mask out
+            'slope_min': minimum value for z membership function for slope
+            'slope_max': maximum value for z membership function for slope
+            'reference_water_min':
+                minimum value for s membership function for reference water
+            'reference_water_max':
+                maximum value for s membership function for reference water
+            'dark_area_water':
+                backscattering value in dB to define dark water
+            'high_frequent_water_min':
+                minimum value for the reference water to define
+                area where water extent changes frequently
+            'high_frequent_water_max':
+                maximum value for the reference water to define
+                area where water extent changes frequently
 
     Returns
     -------
     avgvalue : numpy.ndarray
-        fuzzy value layer considering the intensity and ancillary layers
+        fuzzy value layer considering
+        the intensity and ancillary layers
     intensity_z_set : numpy.ndarray
         z-membership for intensity layer
     hand_z : numpy.ndarray
@@ -185,6 +211,9 @@ def compute_fuzzy_value(intensity,
         s-membership for area
     reference_water_s : numpy.ndarray
         s-membership for reference water
+    copol_only : numpy.ndarray
+       binary image showing the area where
+       ony co-polization is used.
     '''
 
     band_number, rows, cols = intensity.shape
@@ -205,7 +234,11 @@ def compute_fuzzy_value(intensity,
 
         intensity_band = np.squeeze(intensity[int_id, :, :])
 
-        temp = zmf(intensity_band, peak_threshold_raster, valley_threshold_raster)
+        # Fuzzy membership computation from intensity
+        # lower intensity is more likely to be water -> zmf
+        temp = zmf(intensity_band,
+                   peak_threshold_raster,
+                   valley_threshold_raster)
         intensity_z_set.append(temp)
 
         intensity_mask_peak= intensity_band < peak_threshold_raster
@@ -223,22 +256,24 @@ def compute_fuzzy_value(intensity,
     intensity_z_set = np.array(intensity_z_set)
 
     # Co-polarization is effective to detect the dry/flat surface from water
-    # but water and dark lands are not distinguishable in co-polarization
+    # but water and dark lands are not distinguishable in cross-polarization
     # Here, we identify dry/flat area using slope/landcover/backscattering
     # and use only co-polarization instead of dual polarization.
 
     # darkland candidate from landcover
-    landcover_flat_area_cand = (landcover == landcover_label['Bare sparse vegetation']) | \
-                          (landcover == landcover_label['Shrubs'])| \
-                          (landcover == landcover_label['Grassland'])| \
-                          (landcover == landcover_label['Herbaceous wetland'])
+    landcover_flat_area_cand = \
+            (landcover == landcover_label['Bare sparse vegetation']) | \
+            (landcover == landcover_label['Shrubs'])| \
+            (landcover == landcover_label['Grassland'])| \
+            (landcover == landcover_label['Herbaceous wetland'])
 
     landcover_flat_area = (landcover_flat_area_cand) & \
                           (slope < 5) & \
                           (low_backscatter_cand)
-    high_frequent_water = (reference_water > fuzzy_option['high_frequent_water_min']) & \
-                          (reference_water < fuzzy_option['high_frequent_water_max']) & \
-                          (low_backscatter_cand)
+    high_frequent_water = \
+            (reference_water > fuzzy_option['high_frequent_water_min']) & \
+            (reference_water < fuzzy_option['high_frequent_water_max']) & \
+            (low_backscatter_cand)
 
     co_pol_ind = []
     cross_pol_ind = []
@@ -260,19 +295,20 @@ def compute_fuzzy_value(intensity,
             change_ind = co_pol_ind
 
         print('cross pol is replaced with co-pol and span over the controversial area')
-        # cross-polarization intensity is replaced with co- (or span-) polarizations 
+        # cross-polarization intensity is replaced with co- (or span-) polarizations
         # where water varation is high and areas are dark/flat.
         intensity_z_set[cross_pol_ind][high_frequent_water] = \
             intensity_z_set[change_ind][high_frequent_water]
         intensity_z_set[cross_pol_ind][landcover_flat_area] = \
             intensity_z_set[change_ind][landcover_flat_area]
 
-        # co-polarization intensity is replaced with cross polarizations 
+        # co-polarization intensity is replaced with cross polarizations
         # where very dark water exists.
         intensity_z_set[change_ind][dark_water_cand] = \
             intensity_z_set[cross_pol_ind][dark_water_cand]
 
-    copol_only = (high_frequent_water == 1) | (landcover_flat_area==1)
+    copol_only = (high_frequent_water == 1) | \
+                 (landcover_flat_area==1)
 
     # compute sum of intensities.
     nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
@@ -283,7 +319,7 @@ def compute_fuzzy_value(intensity,
     std_h = np.nanstd(hand[initial_map == 1])
     min_dem = mu_h
     max_dem = mu_h + (std_h + 2.5) * std_h
-    hand[np.isnan(hand)] == 0
+    hand[np.isnan(hand)] = 0
 
     if np.isnan(min_dem):
         min_dem = 0
@@ -320,7 +356,9 @@ def compute_fuzzy_value(intensity,
     mask = np.squeeze(np.nansum(intensity, axis=0)) == 0
     avgvalue[mask==1] = 0
 
-    return avgvalue, intensity_z_set, hand_z, slope_z, area_s, reference_water_s, copol_only
+    return avgvalue, intensity_z_set, hand_z, \
+        slope_z, area_s, reference_water_s, copol_only
+
 
 def run(cfg):
     '''
@@ -403,35 +441,43 @@ def run(cfg):
     fuzzy_avgvalue[no_data_raster] = -1
 
     # Output of Fuzzy_computation
-    fuzzy_output_str = os.path.join(outputdir, f"fuzzy_image_{pol_all_str}.tif")
+    fuzzy_output_str = os.path.join(outputdir,
+                                    f"fuzzy_image_{pol_all_str}.tif")
 
-    dswx_sar_util.save_raster_gdal(raster=fuzzy_avgvalue,
-                                output_file=fuzzy_output_str,
-                                geotransform=im_meta['geotransform'],
-                                projection=im_meta['projection'],
-                                scratch_dir=outputdir)
+    dswx_sar_util.save_raster_gdal(
+        data=fuzzy_avgvalue,
+        output_file=fuzzy_output_str,
+        geotransform=im_meta['geotransform'],
+        projection=im_meta['projection'],
+        scratch_dir=outputdir)
 
     if processing_cfg.debug_mode:
 
         vs.im_display(fuzzy_avgvalue, outputdir, 'fuzzy_image')
 
-        rasters_to_save = [('hand_z', hand_z), ('slope_z', slope_z), ('area_s', area_s),
-                           ('ref_water', ref_water), ('copol_only', copol_only)]
+        rasters_to_save = [('hand_z', hand_z),
+                           ('slope_z', slope_z),
+                           ('area_s', area_s),
+                           ('ref_water', ref_water),
+                           ('copol_only', copol_only)]
 
         for raster_name, raster in rasters_to_save:
             output_file_name = os.path.join(outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
-            dswx_sar_util.save_raster_gdal(raster=raster,
-                                        output_file=output_file_name,
-                                        geotransform=im_meta['geotransform'],
-                                        projection=im_meta['projection'],
-                                        scratch_dir=outputdir)
+            dswx_sar_util.save_raster_gdal(
+                data=raster,
+                output_file=output_file_name,
+                geotransform=im_meta['geotransform'],
+                projection=im_meta['projection'],
+                scratch_dir=outputdir)
 
         for polind, pol in enumerate(pol_list):
-            dswx_sar_util.save_raster_gdal(raster=np.squeeze(intensity_z[polind,:,:]),
-                                output_file=os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
-                                geotransform=im_meta['geotransform'],
-                                projection=im_meta['projection'],
-                                scratch_dir=outputdir)
+            dswx_sar_util.save_raster_gdal(
+                data=np.squeeze(intensity_z[polind,:,:]),
+                output_file=\
+                    os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
+                geotransform=im_meta['geotransform'],
+                projection=im_meta['projection'],
+                scratch_dir=outputdir)
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran fuzzy processing in {t_all_elapsed:.3f} seconds")

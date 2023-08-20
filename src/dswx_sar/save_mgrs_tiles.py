@@ -21,7 +21,7 @@ from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 
-logger = logging.getLogger('dswx_S1')
+logger = logging.getLogger('dswx_s1')
 
 def get_geographic_boundaries_from_mgrs_tile(mgrs_tile_name,
                                              mgrs_db_path=None):

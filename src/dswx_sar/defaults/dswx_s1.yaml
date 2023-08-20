@@ -67,12 +67,6 @@ runconfig:
             scratch_path:
 
             # SAS writes the output product to the following file.
-            # the scheme:
-            # {output_dir}/{product_id}_v{product_version}_B{layer_number}_{layer_name}.tif
-            # The default value for `product_id` is "dswx_hls".
-            # The default value for `product_version` is the PROTEUS software version.
-            # `layer_number` and `layer_name` are automatically set by the DSWx-HLS SAS
-            # The PGE should update `product_id` and `product_version`
             sas_output_path:
 
             product_version:

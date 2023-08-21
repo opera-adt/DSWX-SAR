@@ -53,9 +53,9 @@ runconfig:
         # Region growing options
         region_growing:
             # seed value for region growing start
-            seed: 0.83
+            initial_seed: 0.83
             # end value for region growing
-            tolerance: 0.51
+            relaxed_threshold: 0.51
             line_per_block: 400
 
 

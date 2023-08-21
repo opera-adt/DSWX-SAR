@@ -1,12 +1,11 @@
-import time
 import os
+import logging
+import time
+import mimetypes
+
+import cv2
 import numpy as np
 from scipy import ndimage
-import cv2
-
-import time
-import logging
-import mimetypes
 from joblib import Parallel, delayed
 
 from dswx_sar import dswx_sar_util
@@ -18,22 +17,29 @@ logger = logging.getLogger('dswx_s1')
 
 def region_growing(fuzz_image,
                    initial_seed=0.6,
-                   tolerance=0.45,
+                   relaxed_threshold=0.45,
                    maxiter=200):
-    """The regions are then grown from the seed points to adjacent points
-    since it covers the tolerance values.
+    """The regions are then grown from the seed points to adjacent
+    points since it covers the relaxed_threshold values.
 
     Parameters
     ----------
     fuzz_image : numpy.ndarray
-        fuzzy image with values [0, 1] where 0 is non-water and 1 is water
+        fuzzy image with values [0, 1] representing
+        likelihood of water where 0 is 0% and 1 is 100%
     initial_seed : float
-        Threshold used for the seed of water body [0 ~ 1]
-    tolerance : float
+        Initial threshold [0 - 1] used to classify
+        `fuzz_image` into water and non-water pixels.
+        If a pixel values exceeds `initial_seed`
+        then it is classified as water, otherwise it is
+        classified as non-water.
+    relaxed_threshold : float
         relaxed threshold to be used for transient area
-        between water and non-water
+        between water and non-water. Any pixel value
+        greater than threshold classified as water,
+        otherwise it's classified as non-water.
     maxiter : integer
-        maximum iteration for region growing. 
+        maximum iteration for region growing.
         Defaults to 0 which translates to infinite iterations.
 
     Returns
@@ -51,8 +57,8 @@ def region_growing(fuzz_image,
     thresh = water_binary.astype(np.uint8)
 
     nb_components, *_ = cv2.connectedComponentsWithStats(
-                                                    thresh,
-                                                    connectivity=8)
+        thresh,
+        connectivity=8)
     nb_components = nb_components - 1
 
     newpixelmin = 0
@@ -72,9 +78,8 @@ def region_growing(fuzz_image,
         buffer_binary = np.logical_xor(
             ndimage.binary_dilation(water_binary), water_binary)
 
-        # define new_water for the pixels higher than tolerance
-        # new_water = np.logical_and(buffer_binary, fuzz_image > tolerance)
-        new_water = fuzz_image[buffer_binary] > tolerance
+        # define new_water for the pixels higher than relaxed_threshold
+        new_water = fuzz_image[buffer_binary] > relaxed_threshold
 
         # add new pixels to water_binary
         water_binary[buffer_binary] = new_water
@@ -91,9 +96,8 @@ def process_region_growing_block(block_param,
                                  fuzzy_base_name,
                                  input_tif_path,
                                  initial_seed,
-                                 tolerance,
+                                 relaxed_threshold,
                                  maxiter):
-
     """Process region growing for blocks
 
     Parameters
@@ -109,10 +113,16 @@ def process_region_growing_block(block_param,
     input_tif_path: str
         path of initial fuzzy later
     initial_seed : float
-        Threshold used for the seed of water body [0 ~ 1]
-    tolerance : float
+        Initial threshold [0 - 1] used to classify
+        `fuzz_image` into water and non-water pixels.
+        If a pixel values exceeds `initial_seed`
+        then it is classified as water, otherwise it is
+        classified as non-water.
+    relaxed_threshold : float
         relaxed threshold to be used for transient area
-        between water and non-water
+        between water and non-water. Any pixel value
+        greater than threshold classified as water,
+        otherwise it's classified as non-water.
     maxiter : integer
         maximum iteration for region growing
 
@@ -137,7 +147,7 @@ def process_region_growing_block(block_param,
     # Run region growing for fuzzy values
     region_grow_sub = region_growing(data_block,
                                      initial_seed=initial_seed,
-                                     tolerance=tolerance,
+                                     relaxed_threshold=relaxed_threshold,
                                      maxiter=maxiter)
     # replace fuzzy values with 1 for the pixels included by region growing
     data_block[region_grow_sub == 1] = 1
@@ -149,7 +159,7 @@ def run_parallel_region_growing(input_tif_path,
                                 output_tif_path,
                                 lines_per_block=200,
                                 initial_seed=0.6,
-                                tolerance=0.45,
+                                relaxed_threshold=0.45,
                                 maxiter=200):
     """Process region growing using parallel
 
@@ -162,9 +172,18 @@ def run_parallel_region_growing(input_tif_path,
     lines_per_block: int
         lines per block
     initial_seed: float
-        initial seed values where region-growing starts
-    tolerance: float
-        value where region-growing stops
+        Initial seed values where region-growing starts.
+        Initial threshold [0 - 1] used to classify
+        `fuzz_image` into water and non-water pixels.
+        If a pixel values exceeds `initial_seed`
+        then it is classified as water, otherwise it is
+        classified as non-water.
+    relaxed_threshold: float
+        value where region-growing stops.
+        relaxed threshold to be used for transient area
+        between water and non-water. Any pixel value
+        greater than threshold classified as water,
+        otherwise it's classified as non-water.
     maxiter: integer
         maximum number of dilation
     """
@@ -175,8 +194,9 @@ def run_parallel_region_growing(input_tif_path,
     data_shape = [data_length, data_width]
 
     # Process fast region-growing with blocks
-    # In each iteration, the block size will increase to cover 
-    # more areas
+    # In each iteration, the block size will increase to cover
+    # more areas to accelerate processing in challenging
+    # areas after the initial iteration
     lines_per_block_list = [lines_per_block,
                             2*lines_per_block,
                             3*lines_per_block]
@@ -190,20 +210,20 @@ def run_parallel_region_growing(input_tif_path,
                                    lines_per_block_loop)
         pad_shape = (0, 0)
         block_params = dswx_sar_util.block_param_generator(
-                lines_per_block_loop,
-                data_shape,
-                pad_shape)
+            lines_per_block_loop,
+            data_shape,
+            pad_shape)
         # run region-growing for blocks in parallel
         result = Parallel(n_jobs=-1)(delayed(process_region_growing_block)(
-                                            block_param,
-                                            loopind,
-                                            base_dir,
-                                            fuzzy_base_name,
-                                            input_tif_path,
-                                            initial_seed,
-                                            tolerance,
-                                            maxiter)
-                                     for block_param in block_params)
+            block_param,
+            loopind,
+            base_dir,
+            fuzzy_base_name,
+            input_tif_path,
+            initial_seed,
+            relaxed_threshold,
+            maxiter)
+            for block_param in block_params)
 
         for block_param, region_grow_block in result:
             fuzzy_map_temp = \
@@ -237,31 +257,34 @@ def run(cfg):
 
     processing_cfg = cfg.groups.processing
     outputdir = cfg.groups.product_path_group.scratch_path
-    pol_list = processing_cfg.polarizations
-    pol_str = '_'.join(pol_list)
+    pol_str = '_'.join(processing_cfg.polarizations)
 
     # Region growing cfg
     region_growing_cfg = processing_cfg.region_growing
-    region_growing_seed = region_growing_cfg.seed
-    region_growing_tolerance = region_growing_cfg.tolerance
+    region_growing_seed = region_growing_cfg.initial_seed
+    region_growing_relaxed_threshold = region_growing_cfg.relaxed_threshold
     region_growing_line_per_block = region_growing_cfg.line_per_block
 
+    print(f'Region Growing Seed: {region_growing_seed}')
+    print(f'Region Growing relaxed threshold: {region_growing_relaxed_threshold}')
+
     fuzzy_tif_path = os.path.join(outputdir,
-                                 f'fuzzy_image_{pol_str}.tif')
+                                  f'fuzzy_image_{pol_str}.tif')
     water_meta = dswx_sar_util.get_meta_from_tif(fuzzy_tif_path)
     water_tif_path = os.path.join(outputdir,
-                                 f"region_growing_output_binary_{pol_str}.tif")
+                                  f"region_growing_output_binary_{pol_str}.tif")
     temp_rg_tif_path = os.path.join(outputdir,
-                                   f'temp_region_growing_{pol_str}.tif')
+                                    f'temp_region_growing_{pol_str}.tif')
 
     # First, run region-growing algorithm for blocks
     # to avoid to repeatly run with large image.
-    run_parallel_region_growing(fuzzy_tif_path,
-                                temp_rg_tif_path,
-                                lines_per_block=region_growing_line_per_block,
-                                initial_seed=region_growing_seed,
-                                tolerance=region_growing_tolerance,
-                                maxiter=0)
+    run_parallel_region_growing(
+        fuzzy_tif_path,
+        temp_rg_tif_path,
+        lines_per_block=region_growing_line_per_block,
+        initial_seed=region_growing_seed,
+        relaxed_threshold=region_growing_relaxed_threshold,
+        maxiter=0)
 
     fuzzy_map = dswx_sar_util.read_geotiff(fuzzy_tif_path)
     temp_rg = dswx_sar_util.read_geotiff(temp_rg_tif_path)
@@ -272,21 +295,22 @@ def run(cfg):
 
     # Run region-growing again for entire image
     region_grow_map = region_growing(
-                            fuzzy_map,
-                            initial_seed=region_growing_seed,
-                            tolerance=region_growing_tolerance,
-                            maxiter=0)
+        fuzzy_map,
+        initial_seed=region_growing_seed,
+        relaxed_threshold=region_growing_relaxed_threshold,
+        maxiter=0)
 
     dswx_sar_util.save_dswx_product(
-                region_grow_map,
-                water_tif_path,
-                geotransform=water_meta['geotransform'],
-                projection=water_meta['projection'],
-                description='Water classification (WTR)',
-                scratch_dir=outputdir)
+        region_grow_map,
+        water_tif_path,
+        geotransform=water_meta['geotransform'],
+        projection=water_meta['projection'],
+        description='Water classification (WTR)',
+        scratch_dir=outputdir)
 
     t_all_elapsed = time.time() - t_all
-    logger.info(f"successfully ran region growing in {t_all_elapsed:.3f} seconds")
+    logger.info(
+        f"successfully ran region growing in {t_all_elapsed:.3f} seconds")
 
 
 def main():
@@ -299,10 +323,16 @@ def main():
     flag_first_file_is_text = 'text' in mimetypes.guess_type(
         args.input_yaml[0])[0]
 
-    if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
-    run(cfg)
+    if not flag_first_file_is_text:
+        raise ValueError('input yaml file is not text')
 
+    if len(args.input_yaml) > 1 and flag_first_file_is_text:
+        logger.info('ERROR only one runconfig file is allowed')
+        return
+
+    cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+
+    run(cfg)
 
 if __name__ == '__main__':
     main()

@@ -49,6 +49,8 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: True
+            number_cpu: -1
+            tile_average: False
 
         fuzzy_value:
             # hand value to mask out
@@ -85,6 +87,19 @@ runconfig:
             # end value for region growing
             tolerance: 0.51
             line_per_block: 400
+
+        masking_ancillary:
+            vv_threshold: -14.6
+            vh_threshold: -22.8
+            water_threshold: 
+
+        refine_with_bimodality:
+            minimum_pixel: 4
+            thresholds:
+                ashman: 1.5
+                Bhattacharyya_coefficient: 0.97
+                bm_coefficient: 0.7
+                surface_ratio: 0.1
 
         inundated_vegetation:
             enabled: True

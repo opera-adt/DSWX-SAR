@@ -13,9 +13,8 @@ from joblib import Parallel, delayed
 from typing import List, Tuple
 
 from dswx_sar import dswx_sar_util
-from dswx_sar import visualization as vs
 from dswx_sar import generate_log
-from dswx_sar import bimodality_estimation
+from dswx_sar import refine_with_bimodality
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 
@@ -111,7 +110,8 @@ def extract_bbox_with_buffer(binary: np.ndarray,
     nb_components_water -= 1
 
     water_label_str = os.path.join(outputdir, labelname)
-    dswx_sar_util.save_raster_gdal(raster=output_water,
+    dswx_sar_util.save_raster_gdal(
+                    data=output_water,
                     output_file=water_label_str,
                     geotransform=meta_info['geotransform'],
                     projection=meta_info['projection'],
@@ -168,7 +168,7 @@ def check_water_land_mixture_parallel(args):
         invalid_mask = (np.isnan(intensity_array) | (intensity_array==0))
 
         # check if the area has bimodality
-        metric_obj = bimodality_estimation.histogramMetrics(intensity_array)
+        metric_obj = refine_with_bimodality.BimodalityMetrics(intensity_array)
         test_output = metric_obj.compute_metric()
 
         out_boundary = (np.isnan(int_linear) == 0) & (water_label == 0)
@@ -201,7 +201,7 @@ def check_water_land_mixture_parallel(args):
                 hist_min = np.percentile(10*np.log10(dark_water_linear), 1)
                 hist_max = np.percentile(10*np.log10(dark_water_linear), 99)
 
-                metric_obj_local = bimodality_estimation.histogramMetrics(
+                metric_obj_local = refine_with_bimodality.BimodalityMetrics(
                     dark_water_linear,
                     hist_min=hist_min,
                     hist_max=hist_max)
@@ -230,7 +230,7 @@ def check_water_land_mixture_parallel(args):
                 bright_water_linear[bright_water_linear==0] = np.nan
                 hist_min = np.percentile(10*np.log10(bright_water_linear), 2)
                 hist_max = np.percentile(10*np.log10(bright_water_linear), 98)
-                metric_obj_local = bimodality_estimation.histogramMetrics(
+                metric_obj_local = refine_with_bimodality.BimodalityMetrics(
                     bright_water_linear,
                     hist_min=hist_min,
                     hist_max=hist_max)
@@ -404,7 +404,7 @@ def run(cfg):
     ref_water_max = water_cfg.max_value
     ref_no_data = water_cfg.no_data_value
 
-    landcover_cfg = processing_cfg.landcove_masking
+    landcover_cfg = processing_cfg.masking_ancillary
 
     # Binary water map extracted from region growing
     water_map_tif_str = os.path.join(
@@ -450,7 +450,6 @@ def run(cfg):
             pol_threshold = landcover_cfg.vh_threshold
         else:
             continue  # Skip unknown polarizations
-
         low_backscatter = 10 * np.log10(band_set[pol_ind, :, :]) < pol_threshold
         low_backscatter_cand = np.logical_and(low_backscatter, low_backscatter_cand)
 
@@ -527,7 +526,7 @@ def run(cfg):
                     scratch_dir=outputdir
                     )
 
-        vs.binary_display(water_map, outputdir, 'landcover_mask_out')
+        dswx_sar_util.binary_display(water_map, outputdir, 'landcover_mask_out')
 
         output_str = os.path.join(
             outputdir, 'refine_landcover_comparison_{}.tif'.format(pol_str))

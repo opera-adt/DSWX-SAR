@@ -5,11 +5,11 @@ import numpy as np
 import cv2
 import mimetypes
 
-from dswx_sar import visualization as vs
+
 from dswx_sar import dswx_sar_util
 
-from dswx_sar import landcover_util
-from dswx_sar import generate_log
+from dswx_sar import masking_with_ancillary
+
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 logger = logging.getLogger('dswx_S1')
@@ -411,7 +411,7 @@ def run(cfg):
 
     landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover')
     landcover_map = dswx_sar_util.read_geotiff(landcover_gdal_str)
-    landcover_label = landcover_util.get_label_landcover_esa_10()
+    landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 
     reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
     wbd = dswx_sar_util.read_geotiff(reference_water_gdal_str)

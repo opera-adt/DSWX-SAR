@@ -50,6 +50,9 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
+            tile_average: bool(required=False)
+            number_iterations: num(required=False)
+            number_cpu: num(required=False)
 
         fuzzy_value:
             # hand value to mask out
@@ -85,7 +88,15 @@ runconfig:
             # value where region growing is stopped
             tolerance: num(min=0, max=1, required=False)
             line_per_block: num(min=1, required=False)
-    
+
+        masking_ancillary:
+            vv_threshold: num(min=-30, max=10, required=False)
+            vh_threshold: num(min=-30, max=10, required=False)
+            water_threshold: num(min=0, max=100, required=False)
+
+        refine_with_bimodality:
+            minimum_pixel: num(min=0, required=False)
+
         inundated_vegetation:
             enabled: bool(required=False)
             mode: enum('time_series', 'static_layer')

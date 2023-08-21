@@ -16,15 +16,13 @@ from joblib import Parallel, delayed
 from skimage.filters import threshold_multiotsu, threshold_otsu
 import mimetypes
 
-from dswx_sar import visualization as vs
 from dswx_sar import dswx_sar_util
-from dswx_sar import bimodality_estimation
-from dswx_sar import generate_log
-from dswx_sar import region_growing
+from dswx_sar import refine_with_bimodality
+# from dswx_sar import region_growing
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar import generate_log
 
-
-logger = logging.getLogger('dswx_S1')
+logger = logging.getLogger('dswx_s1')
 
 
 def convert_pow2db(intensity):
@@ -195,7 +193,7 @@ class TileSelection:
             Returns True if the tile's intensity distribution is bimodal,
             and False otherwise.
         """
-        metric_obj = bimodality_estimation.histogramMetrics(
+        metric_obj = refine_with_bimodality.BimodalityMetrics(
                     intensity)
         select_flag = metric_obj.compute_metric()
 
@@ -803,7 +801,7 @@ def determine_threshold(intensity,
         except:
             optimization = False
             modevalue = tau_mode_left
-
+        print(f'optimization {optimization}')
         try:
             expected = (tau_mode_left, .5, tau_amp_left,
                         tau_mode_right, .5, tau_amp_right,
@@ -878,6 +876,7 @@ def determine_threshold(intensity,
 
         except:
             tri_optimization = False
+        print(f'tri_optimization {tri_optimization}')
 
         if tri_optimization:
             intensity_sub2 = intensity_sub[intensity_sub < tri_second_mode[0]]
@@ -1110,10 +1109,11 @@ def fill_threshold_with_gdal(threshold_array,
                     -txe 0 {cols} -tye 0 {rows}  \
                     -a invdist:power=0.5000000:smoothing=1.000000:radius1={400*2}:radius2={400*2}:angle=0.000000:max_points=0:min_points=1:nodata=0.000 \
                         -outsize {cols} {rows}"
-
+            print(gdal_grid_str)
             os.system(gdal_grid_str)
             threshold_raster.append(dswx_sar_util.read_geotiff(tif_file_str))
         else:
+            print('threshold array is empty')
             threshold_raster.append(
                 np.ones([rows, cols], dtype=np.float64) * -50)
 
@@ -1551,7 +1551,7 @@ def run(cfg):
                 int_water_array = remove_invalid(int_water_array)
 
                 if len(int_water_array):
-                    metric_obj = bimodality_estimation.histogramMetrics(
+                    metric_obj = refine_with_bimodality.BimodalityMetrics(
                         int_water_array)
                     bimodal_bool = metric_obj.compute_metric()
                     if bimodal_bool:
@@ -1713,6 +1713,7 @@ def run(cfg):
             interp_thres_str_list = ['KI_tau_filled', 'mode_tau_filled']
             for dict_thres, thres_str in zip(dict_threshold_list,
                                              interp_thres_str_list):
+                print(dict_thres, 'threshold')
                 fill_threshold_with_gdal(
                     threshold_array=dict_thres,
                     rows=height,
@@ -1766,30 +1767,30 @@ def run(cfg):
                 no_data=no_data_raster)
 
             dswx_sar_util.save_raster_gdal(
-                raster=threshold_grid,
+                data=threshold_grid,
                 output_file=os.path.join(outputdir,
                                          f"KI_tau_filled_{pol}_georef.tif"),
                 geotransform=water_meta['geotransform'],
                 projection=water_meta['projection'],
                 scratch_dir=outputdir)
 
-        if processing_cfg.debug_mode:
+        # if processing_cfg.debug_mode:
 
-            if not average_threshold_flag:
-                vs.block_threshold_visulaization2(
-                    intensity_whole,
-                    threshold_tau_dict,
-                    outputdir=outputdir,
-                    figname=f'ki_tau_{iter_ind}iter_')
-            else:
-                for band_ind2 in range(band_number):
-                    vs.block_threshold_visulaization(
-                        np.squeeze(intensity[band_ind2, :, :]),
-                        block_row,
-                        block_col,
-                        threshold_tau_set[:, :, band_ind2],
-                        outputdir,
-                        f'ki_tau_{pol_list[band_ind2]}_{iter_ind}')
+        #     if not average_threshold_flag:
+        #         vs.block_threshold_visulaization2(
+        #             intensity_whole,
+        #             threshold_tau_dict,
+        #             outputdir=outputdir,
+        #             figname=f'ki_tau_{iter_ind}iter_')
+        #     else:
+        #         for band_ind2 in range(band_number):
+        #             vs.block_threshold_visulaization(
+        #                 np.squeeze(intensity[band_ind2, :, :]),
+        #                 block_row,
+        #                 block_col,
+        #                 threshold_tau_set[:, :, band_ind2],
+        #                 outputdir,
+        #                 f'ki_tau_{pol_list[band_ind2]}_{iter_ind}')
 
     filt_raster_tif.FlushCache()
     filt_raster_tif = None

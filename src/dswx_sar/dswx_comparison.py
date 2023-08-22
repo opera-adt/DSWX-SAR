@@ -23,6 +23,35 @@ def _get_prefix_str(flag_same, flag_all_ok):
     flag_all_ok[0] = flag_all_ok[0] and flag_same
     return '[OK]   ' if flag_same else '[FAIL] '
 
+def _print_first_value_diff(image_1, image_2, prefix):
+    """
+    Print first value difference between two images.
+
+       Parameters
+       ----------
+       image_1 : numpy.ndarray
+            First input image
+       image_2: numpy.ndarray
+            Second input image
+       prefix: str
+            Prefix to the message printed to the user
+    """
+    flag_error_found = False
+    for i in range(image_1.shape[0]):
+        for j in range(image_1.shape[1]):
+            if (abs(image_1[i, j] - image_2[i, j]) <=
+                    COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE):
+                continue
+            print(prefix + f'     * input 1 has value'
+                  f' "{image_1[i, j]}" in position'
+                  f' (x: {j}, y: {i})'
+                  f' whereas input 2 has value "{image_2[i, j]}"'
+                  ' in the same position.')
+            flag_error_found = True
+            break
+        if flag_error_found:
+            break
+
 def _compare_dswx_sar_metadata(metadata_1, metadata_2):
     """
     Compare DSWx-SAR products' metadata
@@ -91,11 +120,13 @@ def compare_dswx_sar_products(file_1, file_2):
     # TODO: compare projections ds.GetProjection()
     layer_gdal_dataset_1 = gdal.Open(file_1, gdal.GA_ReadOnly)
     geotransform_1 = layer_gdal_dataset_1.GetGeoTransform()
+    projection_1 = layer_gdal_dataset_1.GetProjection()
     metadata_1 = layer_gdal_dataset_1.GetMetadata()
     nbands_1 = layer_gdal_dataset_1.RasterCount
 
     layer_gdal_dataset_2 = gdal.Open(file_2, gdal.GA_ReadOnly)
     geotransform_2 = layer_gdal_dataset_2.GetGeoTransform()
+    projection_2 = layer_gdal_dataset_2.GetProjection()
     metadata_2 = layer_gdal_dataset_2.GetMetadata()
     nbands_2 = layer_gdal_dataset_2.RasterCount
 
@@ -135,6 +166,16 @@ def compare_dswx_sar_products(file_1, file_2):
         print(prefix + f'* input 1 geotransform with content "{geotransform_1}"'
               f' differs from input 2 geotransform with content'
               f' "{geotransform_2}".')
+
+    # compare projections
+    flag_same_projections = np.array_equal(projection_1, projection_2)
+    flag_same_projections_str = _get_prefix_str(flag_same_projections,
+                                                flag_all_ok)
+    print(f'{flag_same_projections_str}Comparing projection')
+    if not flag_same_projections:
+        print(prefix + f'* input 1 projection with content "{projection_1}"'
+              f' differs from input 2 projection with content'
+              f' "{projection_2}".')
 
     # compare metadata
     metadata_error_message, flag_same_metadata = \

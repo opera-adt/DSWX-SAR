@@ -46,11 +46,11 @@ class BimodalityMetrics:
             bound for threshold to fit the bimodal
             distribution
         """
-        self.intensity_array = intensity_array
+        self.intensity_array = intensity_array.flatten()
         bins_hist = np.linspace(hist_min,
                                 hist_max,
                                 hist_num+1)
-        int_db = 10 * np.log10(intensity_array)
+        int_db = 10 * np.log10(self.intensity_array)
         self.int_db = int_db
 
         self.counts, bins = np.histogram(int_db,

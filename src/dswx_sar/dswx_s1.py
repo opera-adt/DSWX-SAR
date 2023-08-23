@@ -32,6 +32,9 @@ def dswx_s1_workflow(cfg):
     # Create mosaic burst RTCs
     mosaic_rtc_burst.run(cfg)
 
+    # preprocessing (relocating ancillary data and filtering)
+    pre_processing.run(cfg)
+
     # Estimate threshold for given polarizations
     initial_threshold.run(cfg)
 

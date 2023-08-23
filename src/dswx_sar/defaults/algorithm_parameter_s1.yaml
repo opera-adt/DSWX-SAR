@@ -13,7 +13,12 @@ runconfig:
         reference_water:
             max_value: 100
             no_data_value: 255
-
+            # value assuming the permanent water [0-1]
+            permanent_water_value: 0.9
+            # number of pixel to apply erosion for drought case
+            drought_erosion_pixel: 10
+            # number of pixel to apply dilation for flood case
+            flood_dilation_pixel: 16 
         mosaic:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
@@ -37,9 +42,12 @@ runconfig:
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: 'combined'
+            tile_selection_twele: [0.09, 0.8, 0.97]
+            tile_selection_bimodality: 0.7
+
             # Stratey to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
-            interpolation_method: 'smoothed'
+            extending_method: 'gdal_grid'
             # Thresholding algorithm for initial thresholds.
             # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
             # ['otsu', 'ki']

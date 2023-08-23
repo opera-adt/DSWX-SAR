@@ -14,6 +14,9 @@ runconfig:
         reference_water:
             max_value: num(required=False)
             no_data_value: num(required=False)
+            permanent_water_value: num(required=False)
+            drought_erosion_pixel: int(required=False)
+            flood_dilation_pixel: int(required=False)
 
         mosaic:
             mosaic_prefix: str(required=False)
@@ -34,13 +37,17 @@ runconfig:
             minimum_tile_size:
                 x: num(required=False)
                 y: num(required=False)
+
             # tile selecting strategy to identify the boundary between water and nonwater
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: str(required=False)
             # Stratey to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
-            interpolation_method: str(required=False)
+            tile_selection_twele: list(required=False)
+            tile_selection_bimodality: num(required=False)
+
+            extending_method: str(required=False)
             # Thresholding algorithm for initial thresholds.
             # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.   
             # ['otsu', 'ki']
@@ -103,5 +110,6 @@ runconfig:
             temporal_avg_path: str(required=False)
             initial_class_path: str(required=False)
             line_per_block: num(min=1, required=False)
+
         # debug mode is true, intermeidate product is generated. 
         debug_mode: bool(required=False)

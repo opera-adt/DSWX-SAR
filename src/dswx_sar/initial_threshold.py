@@ -1,8 +1,5 @@
 import os
 import time
-import pickle
-import logging
-import mimetypes
 
 import numpy as np
 import scipy
@@ -13,8 +10,11 @@ from scipy.spatial import cKDTree
 from scipy.interpolate import Rbf
 from osgeo import gdal
 
+import pickle
+import logging
 from joblib import Parallel, delayed
 from skimage.filters import threshold_multiotsu, threshold_otsu
+import mimetypes
 
 from dswx_sar import dswx_sar_util
 from dswx_sar import refine_with_bimodality
@@ -399,7 +399,7 @@ class TileSelection:
 
                                 else:
                                     tile_selected_flag = \
-                                        self.select_tile_chini(intensity_sub[:])
+                                        self.select_tile_chini(intensity_sub)
 
                                     if tile_selected_flag:
                                         selected_tile_chini.append(True)
@@ -801,6 +801,7 @@ def determine_threshold(intensity,
         except:
             optimization = False
             modevalue = tau_mode_left
+        print(f'optimization {optimization}')
         try:
             expected = (tau_mode_left, .5, tau_amp_left,
                         tau_mode_right, .5, tau_amp_right,
@@ -875,6 +876,7 @@ def determine_threshold(intensity,
 
         except:
             tri_optimization = False
+        print(f'tri_optimization {tri_optimization}')
 
         if tri_optimization:
             intensity_sub2 = intensity_sub[intensity_sub < tri_second_mode[0]]
@@ -1032,7 +1034,7 @@ def fill_threshold_with_gdal(threshold_array,
             y_arr_tau_valid = y_tau[nan_mask]
 
         z_arr_tau_valid = z_tau[nan_mask]
-
+        
         if len(z_arr_tau_valid) > 1:
             try:
                 interp_tau = interpolate.griddata((x_arr_tau_valid,
@@ -1562,7 +1564,7 @@ def run(cfg):
                         sample_test = sample_test[~np.isnan(sample_test)]
 
                         thres_max[band_ind] = np.nanmax([
-                            threshold_otsu(sample_test),
+                            threshold_otsu(sample_test), 
                             int_sub_mean + int_sub_std * 2])
                     else:
                         int_water_array_db = convert_pow2db(int_water_array)
@@ -1608,11 +1610,15 @@ def run(cfg):
                                    n_rows_block, n_cols_block,
                                    m_rows_block, m_cols_block,
                                    block_row, block_col,
-                                   width, filt_im_str,
+                                   width, filt_im_str, 
                                    water_mask_tif_str, cfg,
                                    thres_max, average_threshold_flag)
             for ii in range(0, n_rows_block)
             for jj in range(0, n_cols_block)
+            # for ii in range(3, 5) #0, n_rows_block)
+            # for jj in range(4, 8) #n_cols_block)
+            # for ii in range(n_rows_block-2, n_rows_block)
+            # for jj in range(n_cols_block-2, n_cols_block)
             )
 
         if average_threshold_flag:
@@ -1707,6 +1713,7 @@ def run(cfg):
             interp_thres_str_list = ['KI_tau_filled', 'mode_tau_filled']
             for dict_thres, thres_str in zip(dict_threshold_list,
                                              interp_thres_str_list):
+                print(dict_thres, 'threshold')
                 fill_threshold_with_gdal(
                     threshold_array=dict_thres,
                     rows=height,

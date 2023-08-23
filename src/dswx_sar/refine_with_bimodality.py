@@ -46,11 +46,11 @@ class BimodalityMetrics:
             bound for threshold to fit the bimodal
             distribution
         """
-        self.intensity_array = intensity_array.flatten()
+        self.intensity_array = intensity_array
         bins_hist = np.linspace(hist_min,
                                 hist_max,
                                 hist_num+1)
-        int_db = 10 * np.log10(self.intensity_array)
+        int_db = 10 * np.log10(intensity_array)
         self.int_db = int_db
 
         self.counts, bins = np.histogram(int_db,
@@ -239,7 +239,6 @@ class BimodalityMetrics:
             float: The computed BC coefficient.
       """
         sample_size = len(self.int_db)
-
         skewness_sq = stats.skew(self.int_db,
                                  nan_policy='omit',
                                  bias=False) ** 2
@@ -249,7 +248,6 @@ class BimodalityMetrics:
         adjustment = 3 * ((sample_size - 1) ** 2) / (
             sample_size - 2) / (sample_size - 3)
         bc_coeff = (skewness_sq + 1) / (kurtosis + adjustment)
-
         return bc_coeff
 
     def compute_bimodality(self):

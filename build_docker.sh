@@ -1,7 +1,7 @@
 #!/bin/bash
 
 IMAGE=opera/dswx-s1
-t=IF_v1
+t=interface_v0.1
 echo "IMAGE is $IMAGE:$t"
 
 # fail on any non-zero exit codes

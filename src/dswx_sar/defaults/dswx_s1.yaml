@@ -12,11 +12,6 @@ runconfig:
             #            for open water 
             input_file_path:
 
-            # REQUIRED if inundated vegetation is true
-            #          - Directory containing time-series burst RTC 
-            #            
-            input_stack_path:
-
         dynamic_ancillary_file_group:
             # Digital elevation model (Required)
             dem_file:
@@ -50,6 +45,9 @@ runconfig:
             # NOAA GSHHS shapefile description
             shoreline_shapefile_description:
 
+            # algorithm parameter 
+            algorithm_parameters: 
+
         primary_executable:
             product_type: DSWX_S1
 
@@ -61,82 +59,8 @@ runconfig:
             scratch_path:
 
             # SAS writes the output product to the following file.
-            # the scheme:
-            # {output_dir}/{product_id}_v{product_version}_B{layer_number}_{layer_name}.tif
-            # The default value for `product_id` is "dswx_hls".
-            # The default value for `product_version` is the PROTEUS software version.
-            # `layer_number` and `layer_name` are automatically set by the DSWx-HLS SAS
-            # The PGE should update `product_id` and `product_version`
             sas_output_path:
 
             product_version:
-
-        processing:
-            # dswx_workflow 'opera_dswx_s1', 'twele', 'opera_dswx_s1_inundated_vegetation'
-            dswx_workflow: 'opera_dswx_s1'
-            # valid values for polarizations
-            # empty for all polarizations found in RSLC
-            # [polarizations] for list of specific frequency(s) e.g. [HH, HV] or [HH]
-            polarizations: ['VV', 'VH']
-
-            # Specifiy the max_value for permanent water and no_data_value for invalid pixels
-            reference_water:
-                max_value: 100
-                no_data_value: 255
-
-            mosaic:
-                mosaic_prefix: 'mosaic'
-                mosaic_cog_enable: True
-
-            # Flag to turn on/off the filtering for RTC image.
-            # The enhanced Lee filter is available.
-            filter:
-                enabled: True
-                # Window size for filtering.
-                window_size: 5
-
-            initial_threshold:
-                # Maximum tile size for initial threshold.
-                maximum_tile_size:
-                    x: 400
-                    y: 400
-                minimum_tile_size:
-                    x: 40
-                    y: 40
-                # tile selecting strategy to identify the boundary between water and nonwater
-                # ['twele', 'chini', 'bimodality', 'combined']
-                # 'combined' option applies all selection strategy
-                selection_method: 'combined'
-                # Stratey to interpolate the tile-based thresholds.
-                # Currently, only 'smoothed' is available.
-                interpolation_method: 'smoothed'
-                # Thresholding algorithm for initial thresholds.
-                # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
-                # ['otsu', 'ki']
-                threshold_method: 'ki'
-                # Flag to assume the trimodal distribution.
-                # If flag is false, the distribution is assumed to have bimodal distribution and
-                # estimate single threshold per tile. If True, the trimodal distribution is assumed,
-                # the lowest threshold is estimated.
-                multi_threshold: True
-
-            # Region growing options
-            region_growing:
-                # seed value for region growing start
-                seed: 0.83
-                # end value for region growing
-                tolerance: 0.51
-                line_per_block: 400
-
-
-            inundated_vegetation:
-                enabled: True
-                mode: 'static_layer'
-                temporal_avg_path: 
-                initial_class_path:
-                line_per_block: 300
-
-            # debug mode is true, intermeidate product is generated. 
-            debug_mode: False
 
         log_file: None

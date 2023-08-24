@@ -1,20 +1,18 @@
+'''
+ATTENTION
+This code will be removed and replaced with the new code in future release. 
+'''
 import os
 import time
 import numpy as np
-import mgrs
 import logging
 import mimetypes
-from osgeo import gdal, osr
-from pyproj import CRS
-import h5py
-import glob
-import mgrs
 
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 
-logger = logging.getLogger('dswx_S1')
+logger = logging.getLogger('dswx_s1')
 
 def run(cfg):
 
@@ -50,7 +48,8 @@ def run(cfg):
 
     for path, threshold in zip(water_tif_strs, thresholds):
 
-        dswx_sar_util.save_dswx_product(rtc_data_db < threshold,
+        dswx_sar_util.save_dswx_product(
+                    rtc_data_db < threshold,
                     path,
                     geotransform=water_meta['geotransform'],
                     projection=water_meta['projection'],
@@ -58,11 +57,13 @@ def run(cfg):
                     scratch_dir=outputdir,
                     no_data=no_data_raster)
 
-    dswx_sar_util.save_raster_gdal(dummy_conf_output,
+    dswx_sar_util.save_raster_gdal(
+                dummy_conf_output,
                 f'{outputdir}/fuzzy_image_{pol_str}.tif',
                 geotransform=water_meta['geotransform'],
                 projection=water_meta['projection'],
                 scratch_dir=outputdir)
+
 def main():
 
     parser = _get_parser()

@@ -5,6 +5,11 @@ import numpy as np
 from osgeo import gdal
 
 COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE = 1e-6
+COMPARISON_EXCEPTION_LIST = ['PROCESSING_DATETIME',
+                             'DEM_SOURCE',
+                             'WORLDCOVER_SOURCE',
+                             'REFERENCE_WATER_SOURCE',
+                             'SOFTWARE_VERSION']
 
 def _get_parser():
     parser = argparse.ArgumentParser(
@@ -69,7 +74,7 @@ def _compare_dswx_sar_metadata(metadata_1, metadata_2):
         metadata_error_message = (
             f'* input 1 metadata has {len(metadata_1.keys())} entries'
             f' whereas input 2 metadata has {len(metadata_2.keys())} entries.')
-
+        
         set_1_m_2 = set(metadata_1.keys()) - set(metadata_2.keys())
         if len(set_1_m_2) > 0:
             metadata_error_message += (' Input 1 metadata has extra entries'
@@ -89,8 +94,7 @@ def _compare_dswx_sar_metadata(metadata_1, metadata_2):
                     ' but it is not present in input 2')
                 break
             # Exclude metadata fields that are not required to be the same
-            if k1 in ['PROCESSING_DATETIME', 'DEM_SOURCE', 'WORLDCOVER_SOURCE',
-                      'REFERENCE_WATER_SOURCE', 'SOFTWARE_VERSION']:
+            if k1 in COMPARISON_EXCEPTION_LIST:
                 continue
             if metadata_2[k1] != v1:
                 flag_same_metadata = False
@@ -117,7 +121,6 @@ def compare_dswx_sar_products(file_1, file_2):
 
     flag_all_ok = [True]
 
-    # TODO: compare projections ds.GetProjection()
     layer_gdal_dataset_1 = gdal.Open(file_1, gdal.GA_ReadOnly)
     geotransform_1 = layer_gdal_dataset_1.GetGeoTransform()
     projection_1 = layer_gdal_dataset_1.GetProjection()

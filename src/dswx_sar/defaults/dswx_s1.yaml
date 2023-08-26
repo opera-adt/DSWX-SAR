@@ -9,7 +9,7 @@ runconfig:
             # REQUIRED - Single S1 RTC geotiff or
             #            multiple burst RTC directory containing
             #            hdf5 metadata and rtc geotiff (directory or files)
-            #            for open water 
+            #            for open water
             input_file_path:
 
         dynamic_ancillary_file_group:
@@ -19,7 +19,7 @@ runconfig:
             # Digital elevation model source description
             dem_file_description:
 
-            # ESA WorldCover map file 
+            # ESA WorldCover map file
             # (Required for opera_dswx_s1)
             worldcover_file:
 
@@ -45,16 +45,20 @@ runconfig:
             # NOAA GSHHS shapefile description
             shoreline_shapefile_description:
 
-            # algorithm parameter 
-            algorithm_parameters: 
+            # algorithm parameter
+            algorithm_parameters:
 
         static_ancillary_file_group:
+
+            # Static ancillary input should be given
+            # when flag is True. 
+            static_ancillary_inputs_flag: True
 
             # MGRS database sqlite file
             mgrs_database_file:
 
             # MGRS collection database sqlite file
-            mgrs_collection_database_file: 
+            mgrs_collection_database_file:
 
         primary_executable:
             product_type: DSWX_S1
@@ -70,5 +74,9 @@ runconfig:
             sas_output_path:
 
             product_version:
+
+            output_imagery_format: COG
+            output_imagery_compression: DEFLATE
+            output_imagery_nbits: 32
 
         log_file: None

@@ -1,2 +1,5 @@
 yamale
 mgrs
+rasterio
+geopandas
+shapely

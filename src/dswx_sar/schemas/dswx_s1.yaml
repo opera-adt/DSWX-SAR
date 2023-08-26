@@ -46,6 +46,8 @@ runconfig:
 
         static_ancillary_file_group:
 
+            static_ancillary_inputs_flag: bool(required=False)
+
             # MGRS database sqlite file
             mgrs_database_file: str(required=False)
 
@@ -68,5 +70,9 @@ runconfig:
             sas_output_path: str()
 
             product_version: num(required=False)
+
+            output_imagery_format: enum('GTiff', 'COG', 'ENVI', required=False)
+            output_imagery_compression: str(required=False)
+            output_imagery_nbits: int(min=1, required=False)
 
         log_file: str(required=False)

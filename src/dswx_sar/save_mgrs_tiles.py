@@ -428,13 +428,14 @@ def run(cfg):
 
     # [TODO] Final product has different name depending on the workflow
     if dswx_workflow == 'opera_dswx_s1':
-        # os.path.join
         final_water_path = \
-            f'{outputdir}/bimodality_output_binary_{pol_str}.tif'
-    # twele's workflow
+            os.path.join(outputdir,
+                         f'bimodality_output_binary_{pol_str}.tif')
     else:
+        # twele's workflow
         final_water_path = \
-            f'{outputdir}/region_growing_output_binary_{pol_str}.tif'
+            os.path.join(outputdir,
+                         f'region_growing_output_binary_{pol_str}.tif')
 
     # metadata for final product
     # e.g. geotransform, projection, length, width, utmzon, epsg
@@ -446,7 +447,9 @@ def run(cfg):
     no_data_raster = water_map == 255
 
     # 2) layover/shadow
-    layover_shadow_mask_path = f'{outputdir}/mosaic_layovershadow_mask.tif'
+    layover_shadow_mask_path = \
+        os.path.join(outputdir, 'mosaic_layovershadow_mask.tif')
+
     if os.path.exists(layover_shadow_mask_path):
         layover_shadow_mask = \
             dswx_sar_util.read_geotiff(layover_shadow_mask_path)
@@ -460,14 +463,17 @@ def run(cfg):
         os.path.join(outputdir, 'interpolated_hand'))
     hand_mask = hand > 200
 
-    full_wtr_water_set_path = f'{outputdir}/full_water_binary_WTR_set.tif'
-    full_bwtr_water_set_path = f'{outputdir}/full_water_binary_BWTR_set.tif'
-    full_conf_water_set_path = f'{outputdir}/fuzzy_image_{pol_str}.tif'
+    full_wtr_water_set_path = \
+        os.path.join(outputdir, 'full_water_binary_WTR_set.tif')
+    full_bwtr_water_set_path = \
+        os.path.join(outputdir, 'full_water_binary_BWTR_set.tif')
+    full_conf_water_set_path = \
+        os.path.join(outputdir, f'fuzzy_image_{pol_str}.tif')
 
     # 4) inundated_vegetation
     if processing_cfg.inundated_vegetation.enabled:
         inundated_vegetation = dswx_sar_util.read_geotiff(
-            f"{outputdir}/temp_inundated_vegetation.tif")
+            os.path.join(outputdir, "temp_inundated_vegetation.tif"))
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
@@ -481,10 +487,12 @@ def run(cfg):
 
         region_grow_map = \
             dswx_sar_util.read_geotiff(
-                f'{outputdir}/region_growing_output_binary_{pol_str}.tif')
+                os.path.join(outputdir,
+                             f'region_growing_output_binary_{pol_str}.tif'))
         landcover_map =\
             dswx_sar_util.read_geotiff(
-                f'{outputdir}/refine_landcover_binary_{pol_str}.tif')
+                os.path.join(outputdir,
+                             f'refine_landcover_binary_{pol_str}.tif'))
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
         bright_water_mask = (landcover_map == 0) & (water_map == 1)
@@ -554,7 +562,7 @@ def run(cfg):
 
             dswx_name_format_prefix = \
                 f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_v{product_version}'
-            logger.info('saving the file:')
+            logger.info('Saving the file:')
             logger.info(f'      {dswx_name_format_prefix}')
             # Output File names
             output_mgrs_bwtr = f'{dswx_name_format_prefix}_B01_BWTR.tif'

@@ -405,13 +405,15 @@ def run(cfg):
     if mosaic_flag:
         print('Number of bursts to process:', num_input_path)
         id_path = '/identification/'
-
+        data_path = '/data/'
         date_str_list = []
         for input_dir in input_list:
             # find HDF5 metadata
             metadata_path = glob.glob(f'{input_dir}/*h5')[0]
             with h5py.File(metadata_path) as meta_h5:
                 date_str = meta_h5[f'{id_path}/zeroDopplerStartTime'][()]
+                platform = meta_h5[f'{id_path}/platform'][()]
+                resolution = meta_h5[f'{data_path}/xCoordinateSpacing'][()]
             date_str_list.append(date_str)
         date_str_list = [x.decode() for x in date_str_list]
 
@@ -422,9 +424,12 @@ def run(cfg):
         date_str_id = datetime.datetime.strptime(
             date_str_id_temp, input_date_format).strftime(
                 output_date_format)
-
+        platform_str = 'S1A' if platform == 'Sentinel-1A' else 'S1B'
+        resolution_str = str(int(resolution))
     else:
         date_str_id = 'unknown'
+        platform_str = 'unknown'
+        resolution_str = 'unknown'
 
     # [TODO] Final product has different name depending on the workflow
     if dswx_workflow == 'opera_dswx_s1':
@@ -561,7 +566,7 @@ def run(cfg):
             logger.info(f'mgrs tile : {mgrs_tile_id}')
 
             dswx_name_format_prefix = \
-                f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_v{product_version}'
+                f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_{platform_str}_{resolution_str}_v{product_version}'
             logger.info('Saving the file:')
             logger.info(f'      {dswx_name_format_prefix}')
             # Output File names

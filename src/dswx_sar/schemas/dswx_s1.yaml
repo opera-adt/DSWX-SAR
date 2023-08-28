@@ -71,8 +71,13 @@ runconfig:
 
             product_version: num(required=False)
 
-            output_imagery_format: enum('GTiff', 'COG', 'ENVI', required=False)
+            # DSWx-S1 product format (default is 'COG')
+            output_imagery_format: enum('GTiff', 'COG', required=False)
+
+            # DSWx-S1 Compression Options for COG
             output_imagery_compression: str(required=False)
+
+            # DSWx-S1 Compression bits for COG
             output_imagery_nbits: int(min=1, required=False)
 
         log_file: str(required=False)

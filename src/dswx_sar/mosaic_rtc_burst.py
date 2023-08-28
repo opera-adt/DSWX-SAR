@@ -778,7 +778,7 @@ def run(cfg):
                 temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
                 epsg_output = read_metadata_epsg(metadata_path)['epsg']
                 save_h5_metadata_to_tif(metadata_path,
-                                            data_path=f'{freqA_path}/layoverShadowMask',
+                                            data_path=f'{freqA_path}/mask',
                                             output_tif_path=temp_mask_path,
                                             epsg_output=epsg_output)
                 mask_list.append(temp_mask_path)

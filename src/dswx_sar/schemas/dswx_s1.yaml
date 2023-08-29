@@ -44,6 +44,16 @@ runconfig:
             # algorithm parameter 
             algorithm_parameters: str(required=True)
 
+        static_ancillary_file_group:
+
+            static_ancillary_inputs_flag: bool(required=False)
+
+            # MGRS database sqlite file
+            mgrs_database_file: str(required=False)
+
+            # MGRS collection database sqlite file
+            mgrs_collection_database_file: str(required=False)
+
         primary_executable:
             product_type: enum('dswx_s1', 'twele')
 
@@ -60,5 +70,14 @@ runconfig:
             sas_output_path: str()
 
             product_version: num(required=False)
+
+            # DSWx-S1 product format (default is 'COG')
+            output_imagery_format: enum('GTiff', 'COG', required=False)
+
+            # DSWx-S1 Compression Options for COG
+            output_imagery_compression: str(required=False)
+
+            # DSWx-S1 Compression bits for COG
+            output_imagery_nbits: int(min=1, required=False)
 
         log_file: str(required=False)

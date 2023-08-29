@@ -81,7 +81,7 @@ def read_geotiff(input_tif_str, band_ind=None):
     tif.FlushCache()
     tif = None
     del tif
-    print(f"Reading {input_tif_str} ... {tifdata.shape}")
+    print(f" -- Reading {input_tif_str} ... {tifdata.shape}")
     return tifdata
 
 def save_raster_gdal(data, output_file, geotransform,
@@ -160,12 +160,13 @@ def save_dswx_product(wtr, output_file, geotransform,
     driver = gdal.GetDriverByName("GTiff")
     wtr = np.asarray(wtr, dtype=np.byte)
     dswx_processed_bands_keys = dswx_processed_bands.keys()
+    print(f'Saving dswx product : {output_file} ')
 
     for band_key in band_assign_value_dict.keys():
         if band_key.lower() in dswx_processed_bands_keys:
             dswx_product_value = band_assign_value_dict[band_key]
             wtr[dswx_processed_bands[band_key.lower()]==1] = dswx_product_value
-            print(band_key.lower(), 'found',dswx_product_value)
+            print(f'    {band_key.lower()} found {dswx_product_value}')
 
     gdal_ds = driver.Create(output_file, shape[1], shape[0], 1, gdal.GDT_Byte)
     gdal_ds.SetGeoTransform(geotransform)
@@ -271,21 +272,7 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
 
     shutil.move(temp_file, filename)
 
-    logger.info('        COG step 3: validate')
-    try:
-        from rtc.extern.validate_cloud_optimized_geotiff import main as validate_cog
-    except ModuleNotFoundError:
-        logger.info('WARNING could not import module validate_cloud_optimized_geotiff')
-        return
 
-    argv = ['--full-check=yes', filename]
-    validate_cog_ret = validate_cog(argv)
-    if validate_cog_ret == 0:
-        logger.info(f'        file "{filename}" is a valid cloud optimized'
-                    ' GeoTIFF')
-    else:
-        logger.warning(f'        file "{filename}" is NOT a valid cloud'
-                       f' optimized GeoTIFF!')
 
 def change_epsg_tif(input_tif, output_tif, epsg_output):
     """Resample the input geotiff image to new EPSG code.

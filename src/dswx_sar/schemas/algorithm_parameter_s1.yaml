@@ -38,7 +38,7 @@ runconfig:
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: str(required=False)
-            # Stratey to interpolate the tile-based thresholds.
+            # Strategy to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
             interpolation_method: str(required=False)
             # Thresholding algorithm for initial thresholds.
@@ -64,5 +64,6 @@ runconfig:
             temporal_avg_path: str(required=False)
             initial_class_path: str(required=False)
             line_per_block: num(min=1, required=False)
+
         # debug mode is true, intermeidate product is generated. 
         debug_mode: bool(required=False)

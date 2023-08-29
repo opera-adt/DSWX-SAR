@@ -10,7 +10,7 @@ from ruamel.yaml import YAML
 import dswx_sar
 
 
-logger = logging.getLogger('DSWx-S1')
+logger = logging.getLogger('dswx-s1')
 
 WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 
@@ -196,6 +196,24 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     product_group = group_cfg['product_path_group']
     check_write_dir(product_group['sas_output_path'])
     check_write_dir(product_group['scratch_path'])
+
+    static_ancillary_flag = group_cfg['static_ancillary_file_group'][
+        'static_ancillary_inputs_flag']
+    if static_ancillary_flag:
+        mgrs_database_file = group_cfg['static_ancillary_file_group'][
+        'mgrs_database_file']
+        mgrs_collection_database_file = group_cfg['static_ancillary_file_group'][
+        'mgrs_collection_database_file']
+        if mgrs_database_file is None or mgrs_collection_database_file is None:
+            err_str = f'Static ancillary data flag is {static_ancillary_flag} '
+            err_str += f'but mgrs_database_file {mgrs_database_file} and '
+            err_str += f'mgrs_collection_database_file {mgrs_collection_database_file}'
+            logger.error(err_str)
+            raise ValueError(err_str)
+
+        check_file_path(mgrs_collection_database_file)
+        check_file_path(mgrs_database_file)
+
 
 def check_geocode_dict(geocode_cfg: dict) -> None:
 

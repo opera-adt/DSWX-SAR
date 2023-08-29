@@ -30,7 +30,7 @@ RUN ${CONDA_PREFIX}/bin/conda init bash
 COPY --chown=dswx_user:dswx_user . /home/dswx_user/OPERA/DSWX-SAR
 
 # create CONDA environment
-RUN conda create --name "DSWX-SAR" --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.txt &&  conda clean -afy
+RUN conda create --name "DSWX-SAR" --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock &&  conda clean -afy
 
 SHELL ["conda", "run", "-n", "DSWX-SAR", "/bin/bash", "-c"]
 

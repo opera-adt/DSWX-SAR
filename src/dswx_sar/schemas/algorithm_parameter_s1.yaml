@@ -42,7 +42,7 @@ runconfig:
             # Currently, only 'smoothed' is available.
             interpolation_method: str(required=False)
             # Thresholding algorithm for initial thresholds.
-            # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.   
+            # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
             # ['otsu', 'ki']
             threshold_method: str(required=False)
             # Flag to assume the trimodal distribution.
@@ -50,14 +50,14 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
-        
+
         region_growing:
             # seed value for region growing start
-            seed: num(min=0, max=1, required=False)
+            initial_threshold: num(min=0, max=1, required=False)
             # value where region growing is stopped
-            tolerance: num(min=0, max=1, required=False)
+            relaxed_threshold: num(min=0, max=1, required=False)
             line_per_block: num(min=1, required=False)
-    
+
         inundated_vegetation:
             enabled: bool(required=False)
             mode: enum('time_series', 'static_layer')

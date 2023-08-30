@@ -17,7 +17,7 @@ runconfig:
         mosaic:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
-        
+
         # Flag to turn on/off the filtering for RTC image.
         # The enhanced Lee filter is available.
         filter:
@@ -61,10 +61,10 @@ runconfig:
         inundated_vegetation:
             enabled: True
             mode: 'static_layer'
-            temporal_avg_path: 
+            temporal_avg_path:
             initial_class_path:
             line_per_block: 300
 
-        # debug mode is true, intermeidate product is generated. 
+        # debug mode is true, intermeidate product is generated.
         debug_mode: False
 

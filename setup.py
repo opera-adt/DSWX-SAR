@@ -40,7 +40,7 @@ __version__ = version = VERSION = _get_version()
 print(f'DSWX-SAR version {version}')
 
 class CleanCommand(Command):
-    """Custom clean command to tidy up the project root 
+    """Custom clean command to tidy up the project root
     after running `python setup.py install`."""
     user_options = []
     def initialize_options(self):
@@ -48,7 +48,7 @@ class CleanCommand(Command):
     def finalize_options(self):
         pass
     def run(self):
-        # Make sure to remove the .egg-info file 
+        # Make sure to remove the .egg-info file
         os.system('rm -vrf .scratch_dir ./build ./dist ./*.pyc ./*.tgz ./*.egg-info ./src/*.egg-info')
 
 
@@ -73,10 +73,11 @@ setup(
     packages=['dswx_sar'],
     package_data=package_data_dict,
     classifiers=['Programming Language :: Python',],
-    scripts=['src/dswx_sar/dswx_s1.py'],
+    scripts=['src/dswx_sar/dswx_s1.py',
+             'src/dswx_sar/dswx_comparison.py'],
     install_requires=['argparse', 'numpy', 'yamale',
-                      'osgeo', 'scipy', 'pytest', 'requests'], 
-                    #   'h5py', 'scikit-image', 'mgrs', 'pyproj',
+                      'scipy', 'pytest', 'requests',
+                      'h5py', 'scikit-image', 'mgrs', 'pyproj'],
                     #   'opencv'],
     url='https://github.com/opera-adt/DSWX-SAR',
     license='Copyright by the California Institute of Technology.'

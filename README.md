@@ -63,7 +63,7 @@ Then, from inside the cloned repository, build the Docker image:
 Load the Docker container image onto your computer:
 
 ```bash
-docker load -i docker/dockerimg_dswx_s1_interface_v0.1.tar
+docker load -i docker/dockerimg_dswx_s1_beta_0.2.0.tar
 ```
 
 See DSWx-SAR Science Algorithm Software (SAS) User Guide for instructions on processing via Docker.

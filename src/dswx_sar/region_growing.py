@@ -3,7 +3,6 @@ import logging
 import time
 import mimetypes
 
-import cv2
 import numpy as np
 from scipy import ndimage
 from joblib import Parallel, delayed
@@ -15,7 +14,7 @@ from dswx_sar.dswx_runconfig import RunConfig, _get_parser
 logger = logging.getLogger('dswx_s1')
 
 
-def region_growing(fuzz_image,
+def region_growing(likelihood_image,
                    initial_seed=0.6,
                    relaxed_threshold=0.45,
                    maxiter=200):
@@ -24,8 +23,8 @@ def region_growing(fuzz_image,
 
     Parameters
     ----------
-    fuzz_image : numpy.ndarray
-        fuzzy image with values [0, 1] representing
+    likelihood_image : numpy.ndarray
+        fuzzy image with values [0, 1]representing
         likelihood of water where 0 is 0% and 1 is 100%
     initial_seed : float
         Initial threshold [0 - 1] used to classify
@@ -44,22 +43,14 @@ def region_growing(fuzz_image,
 
     Returns
     ----------
-    water_binary : numpy.ndarray
+    binary_image : numpy.ndarray
         result of region growing algorithm
-        1: the pixels involved in region growing (water)
-        0: the pixels not involved in region growing (non-water)
+        1: the pixels involved in region growing (i.e., water)
+        0: the pixels not involved in region growing (i.e., non-water)
     """
 
     # Create initial binary image using seed value
-    water_binary = fuzz_image > initial_seed
-
-    # Create another layer with uint8
-    thresh = water_binary.astype(np.uint8)
-
-    nb_components, *_ = cv2.connectedComponentsWithStats(
-        thresh,
-        connectivity=8)
-    nb_components = nb_components - 1
+    binary_image = likelihood_image > initial_seed
 
     newpixelmin = 0
     itercount = 0
@@ -76,18 +67,18 @@ def region_growing(fuzz_image,
 
         # exclude the original binary pixels from buffer binary
         buffer_binary = np.logical_xor(
-            ndimage.binary_dilation(water_binary), water_binary)
+            ndimage.binary_dilation(binary_image), binary_image)
 
-        # define new_water for the pixels higher than relaxed_threshold
-        new_water = fuzz_image[buffer_binary] > relaxed_threshold
+        # define new_binary for the pixels higher than relaxed_threshold
+        new_binary = likelihood_image[buffer_binary] > relaxed_threshold
 
-        # add new pixels to water_binary
-        water_binary[buffer_binary] = new_water
-        number_added = np.sum(new_water)
+        # add new pixels to binary_image
+        binary_image[buffer_binary] = new_binary
+        number_added = np.sum(new_binary)
         itercount += 1
         logger.info(f"iteration {itercount}: {number_added:.3f} pixels added")
 
-    return water_binary
+    return binary_image
 
 
 def process_region_growing_block(block_param,
@@ -114,7 +105,7 @@ def process_region_growing_block(block_param,
         path of initial fuzzy later
     initial_seed : float
         Initial threshold [0 - 1] used to classify
-        `fuzz_image` into water and non-water pixels.
+        `likelihood_image` into water and non-water pixels.
         If a pixel values exceeds `initial_seed`
         then it is classified as water, otherwise it is
         classified as non-water.
@@ -161,7 +152,7 @@ def run_parallel_region_growing(input_tif_path,
                                 initial_seed=0.6,
                                 relaxed_threshold=0.45,
                                 maxiter=200):
-    """Process region growing using parallel
+    """Perform region growing in parallel
 
     Parameters
     ----------
@@ -174,7 +165,7 @@ def run_parallel_region_growing(input_tif_path,
     initial_seed: float
         Initial seed values where region-growing starts.
         Initial threshold [0 - 1] used to classify
-        `fuzz_image` into water and non-water pixels.
+        `likelihood_image` into water and non-water pixels.
         If a pixel values exceeds `initial_seed`
         then it is classified as water, otherwise it is
         classified as non-water.

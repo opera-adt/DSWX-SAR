@@ -1,7 +1,7 @@
-import os
-import logging
-import time
 import mimetypes
+import logging
+import os
+import time
 
 import numpy as np
 from scipy import ndimage
@@ -15,7 +15,7 @@ logger = logging.getLogger('dswx_s1')
 
 
 def region_growing(likelihood_image,
-                   initial_seed=0.6,
+                   initial_threshold=0.6,
                    relaxed_threshold=0.45,
                    maxiter=200):
     """The regions are then grown from the seed points to adjacent
@@ -24,19 +24,19 @@ def region_growing(likelihood_image,
     Parameters
     ----------
     likelihood_image : numpy.ndarray
-        fuzzy image with values [0, 1]representing
-        likelihood of water where 0 is 0% and 1 is 100%
-    initial_seed : float
+        fuzzy image with values [0, 1] representing
+        likelihood of features (e.g. water) where 0 is 0% and 1 is 100%
+    initial_threshold : float
         Initial threshold [0 - 1] used to classify
-        `fuzz_image` into water and non-water pixels.
-        If a pixel values exceeds `initial_seed`
-        then it is classified as water, otherwise it is
-        classified as non-water.
+        `fuzz_image` into feature and non-feature pixels.
+        If a pixel values exceeds `initial_threshold`
+        then it is classified as feature, otherwise it is
+        classified as non-feature.
     relaxed_threshold : float
         relaxed threshold to be used for transient area
-        between water and non-water. Any pixel value
-        greater than threshold classified as water,
-        otherwise it's classified as non-water.
+        between feature and non-feature. Any pixel value
+        greater than threshold classified as feature,
+        otherwise it's classified as non-feature.
     maxiter : integer
         maximum iteration for region growing.
         Defaults to 0 which translates to infinite iterations.
@@ -48,9 +48,8 @@ def region_growing(likelihood_image,
         1: the pixels involved in region growing (i.e., water)
         0: the pixels not involved in region growing (i.e., non-water)
     """
-
     # Create initial binary image using seed value
-    binary_image = likelihood_image > initial_seed
+    binary_image = likelihood_image > initial_threshold
 
     newpixelmin = 0
     itercount = 0
@@ -86,7 +85,7 @@ def process_region_growing_block(block_param,
                                  base_dir,
                                  fuzzy_base_name,
                                  input_tif_path,
-                                 initial_seed,
+                                 initial_threshold,
                                  relaxed_threshold,
                                  maxiter):
     """Process region growing for blocks
@@ -103,17 +102,17 @@ def process_region_growing_block(block_param,
         prefix for temporary file name
     input_tif_path: str
         path of initial fuzzy later
-    initial_seed : float
+    initial_threshold : float
         Initial threshold [0 - 1] used to classify
-        `likelihood_image` into water and non-water pixels.
-        If a pixel values exceeds `initial_seed`
-        then it is classified as water, otherwise it is
-        classified as non-water.
+        `likelihood_image` into feature and non-feature pixels.
+        If a pixel values exceeds `initial_threshold`
+        then it is classified as feature, otherwise it is
+        classified as non-feature.
     relaxed_threshold : float
         relaxed threshold to be used for transient area
-        between water and non-water. Any pixel value
-        greater than threshold classified as water,
-        otherwise it's classified as non-water.
+        between feature and non-feature. Any pixel value
+        greater than threshold classified as feature,
+        otherwise it's classified as non-feature.
     maxiter : integer
         maximum iteration for region growing
 
@@ -124,7 +123,6 @@ def process_region_growing_block(block_param,
     data_block: numpy.ndarraya
         fuzzy values after region growing
     """
-
     # At first loop, read block from intial fuzzy value geotiff
     # Otherwise, read block from previous loop
     if loopind == 0:
@@ -137,7 +135,7 @@ def process_region_growing_block(block_param,
 
     # Run region growing for fuzzy values
     region_grow_sub = region_growing(data_block,
-                                     initial_seed=initial_seed,
+                                     initial_threshold=initial_threshold,
                                      relaxed_threshold=relaxed_threshold,
                                      maxiter=maxiter)
     # replace fuzzy values with 1 for the pixels included by region growing
@@ -149,7 +147,7 @@ def process_region_growing_block(block_param,
 def run_parallel_region_growing(input_tif_path,
                                 output_tif_path,
                                 lines_per_block=200,
-                                initial_seed=0.6,
+                                initial_threshold=0.6,
                                 relaxed_threshold=0.45,
                                 maxiter=200):
     """Perform region growing in parallel
@@ -162,23 +160,22 @@ def run_parallel_region_growing(input_tif_path,
         path of region-growing
     lines_per_block: int
         lines per block
-    initial_seed: float
+    initial_threshold: float
         Initial seed values where region-growing starts.
         Initial threshold [0 - 1] used to classify
-        `likelihood_image` into water and non-water pixels.
-        If a pixel values exceeds `initial_seed`
-        then it is classified as water, otherwise it is
-        classified as non-water.
+        `likelihood_image` into feature and non-feature pixels.
+        If a pixel values exceeds `initial_threshold`
+        then it is classified as feature, otherwise it is
+        classified as non-feature.
     relaxed_threshold: float
         value where region-growing stops.
         relaxed threshold to be used for transient area
-        between water and non-water. Any pixel value
-        greater than threshold classified as water,
-        otherwise it's classified as non-water.
+        between feature and non-feature. Any pixel value
+        greater than threshold classified as feature,
+        otherwise it's classified as non-feature.
     maxiter: integer
         maximum number of dilation
     """
-
     meta_dict = dswx_sar_util.get_meta_from_tif(input_tif_path)
     data_length = meta_dict['length']
     data_width = meta_dict['width']
@@ -211,7 +208,7 @@ def run_parallel_region_growing(input_tif_path,
             base_dir,
             fuzzy_base_name,
             input_tif_path,
-            initial_seed,
+            initial_threshold,
             relaxed_threshold,
             maxiter)
             for block_param in block_params)
@@ -252,7 +249,7 @@ def run(cfg):
 
     # Region growing cfg
     region_growing_cfg = processing_cfg.region_growing
-    region_growing_seed = region_growing_cfg.initial_seed
+    region_growing_seed = region_growing_cfg.initial_threshold
     region_growing_relaxed_threshold = region_growing_cfg.relaxed_threshold
     region_growing_line_per_block = region_growing_cfg.line_per_block
 
@@ -261,8 +258,8 @@ def run(cfg):
 
     fuzzy_tif_path = os.path.join(outputdir,
                                   f'fuzzy_image_{pol_str}.tif')
-    water_meta = dswx_sar_util.get_meta_from_tif(fuzzy_tif_path)
-    water_tif_path = os.path.join(outputdir,
+    feature_meta = dswx_sar_util.get_meta_from_tif(fuzzy_tif_path)
+    feature_tif_path = os.path.join(outputdir,
                                   f"region_growing_output_binary_{pol_str}.tif")
     temp_rg_tif_path = os.path.join(outputdir,
                                     f'temp_region_growing_{pol_str}.tif')
@@ -273,7 +270,7 @@ def run(cfg):
         fuzzy_tif_path,
         temp_rg_tif_path,
         lines_per_block=region_growing_line_per_block,
-        initial_seed=region_growing_seed,
+        initial_threshold=region_growing_seed,
         relaxed_threshold=region_growing_relaxed_threshold,
         maxiter=0)
 
@@ -287,16 +284,15 @@ def run(cfg):
     # Run region-growing again for entire image
     region_grow_map = region_growing(
         fuzzy_map,
-        initial_seed=region_growing_seed,
+        initial_threshold=region_growing_seed,
         relaxed_threshold=region_growing_relaxed_threshold,
         maxiter=0)
 
     dswx_sar_util.save_dswx_product(
         region_grow_map,
-        water_tif_path,
-        geotransform=water_meta['geotransform'],
-        projection=water_meta['projection'],
-        description='Water classification (WTR)',
+        feature_tif_path,
+        geotransform=feature_meta['geotransform'],
+        projection=feature_meta['projection'],
         scratch_dir=outputdir)
 
     t_all_elapsed = time.time() - t_all

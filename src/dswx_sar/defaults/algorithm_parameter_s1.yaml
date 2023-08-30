@@ -17,7 +17,7 @@ runconfig:
         mosaic:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
-
+        
         # Flag to turn on/off the filtering for RTC image.
         # The enhanced Lee filter is available.
         filter:
@@ -53,11 +53,10 @@ runconfig:
         # Region growing options
         region_growing:
             # seed value for region growing start
-            initial_seed: 0.83
+            initial_threshold: 0.81
             # end value for region growing
             relaxed_threshold: 0.51
             line_per_block: 400
-
 
         inundated_vegetation:
             enabled: True

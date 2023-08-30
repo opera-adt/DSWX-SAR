@@ -1,12 +1,13 @@
-from osgeo import gdal
-from osgeo import osr
-import numpy as np
-import os
+
+import logging
 import matplotlib.pyplot as plt
+import os
 import shutil
 import tempfile
-import logging
 from dataclasses import dataclass
+
+import numpy as np
+from osgeo import gdal, osr
 
 
 np2gdal_conversion = {
@@ -359,7 +360,6 @@ def get_raster_block(raster_path, block_param):
     data_block: np.ndarray
         Block read from raster with shape specified in block_param.
     '''
-
     # Open input data using GDAL to get raster length
     ds_data = gdal.Open(raster_path, gdal.GA_Update)
     data_block = ds_data.GetRasterBand(1).ReadAsArray(
@@ -389,7 +389,6 @@ def write_raster_block(out_raster, data,
     block_param: BlockParam
         Object specifying where and how much to write to out_raster.
     '''
-
     if DataType == 'float32':
         Gdal_type = gdal.GDT_Float32
     elif DataType == 'uint16':

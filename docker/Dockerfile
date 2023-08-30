@@ -1,7 +1,7 @@
 FROM oraclelinux:8
 
 LABEL author="OPERA ADT" \
-    description="DSWX-SAR beta release R4" \
+    description="DSWX-SAR beta release R2" \
     version="0.2.0-beta"
 
 RUN yum -y update &&\

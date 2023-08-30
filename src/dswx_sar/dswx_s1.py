@@ -5,6 +5,7 @@ from dswx_sar import mosaic_rtc_burst, save_mgrs_tiles, dummy_dswx_s1,\
                      pre_processing, region_growing
 
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar import generate_log
 
 logger = logging.getLogger('dswx_s1')
 
@@ -44,6 +45,7 @@ def main():
     parser = _get_parser()
     args = parser.parse_args()
     cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+    generate_log.configure_log_file(cfg.groups.log_file)
 
     dswx_s1_workflow(cfg)
 

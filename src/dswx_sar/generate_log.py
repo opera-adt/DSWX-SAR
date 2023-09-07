@@ -1,5 +1,7 @@
 import logging
 import sys
+
+
 def configure_log_file(log_file):
     # create logger
     logger = logging.getLogger('dswx_s1')

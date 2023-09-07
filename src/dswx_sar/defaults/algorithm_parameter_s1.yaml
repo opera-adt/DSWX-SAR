@@ -91,9 +91,9 @@ runconfig:
         # Region growing options
         region_growing:
             # seed value for region growing start
-            seed: 0.83
+            initial_threshold: 0.81
             # end value for region growing
-            tolerance: 0.51
+            relaxed_threshold: 0.51
             line_per_block: 400
 
         masking_ancillary:
@@ -109,13 +109,14 @@ runconfig:
                 bm_coefficient: 0.7
                 surface_ratio: 0.1
 
+
         inundated_vegetation:
             enabled: True
             mode: 'static_layer'
-            temporal_avg_path: 
+            temporal_avg_path:
             initial_class_path:
             line_per_block: 300
 
-        # debug mode is true, intermeidate product is generated. 
+        # debug mode is true, intermeidate product is generated.
         debug_mode: False
 

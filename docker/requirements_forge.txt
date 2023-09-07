@@ -1,3 +1,6 @@
 rasterio
 yamale
 mgrs
+rasterio
+geopandas
+shapely

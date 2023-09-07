@@ -42,14 +42,14 @@ runconfig:
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: str(required=False)
-            # Stratey to interpolate the tile-based thresholds.
+            # Strategy to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
             tile_selection_twele: list(required=False)
             tile_selection_bimodality: num(required=False)
 
             extending_method: str(required=False)
             # Thresholding algorithm for initial thresholds.
-            # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.   
+            # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
             # ['otsu', 'ki']
             threshold_method: str(required=False)
             # Flag to assume the trimodal distribution.
@@ -91,9 +91,9 @@ runconfig:
                         
         region_growing:
             # seed value for region growing start
-            seed: num(min=0, max=1, required=False)
+            initial_threshold: num(min=0, max=1, required=False)
             # value where region growing is stopped
-            tolerance: num(min=0, max=1, required=False)
+            relaxed_threshold: num(min=0, max=1, required=False)
             line_per_block: num(min=1, required=False)
 
         masking_ancillary:

@@ -10,6 +10,7 @@ import mimetypes
 
 from dswx_sar import dswx_sar_util
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar import generate_log
 
 
 logger = logging.getLogger('dswx_s1')
@@ -80,6 +81,8 @@ def main():
 
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+
+    generate_log.configure_log_file(cfg.groups.log_file)
 
     run(cfg)
 

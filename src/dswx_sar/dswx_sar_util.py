@@ -1,5 +1,4 @@
 import logging
-import matplotlib.pyplot as plt
 import os
 import shutil
 import tempfile
@@ -7,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from osgeo import gdal, osr
+import matplotlib.pyplot as plt
 
 
 np2gdal_conversion = {
@@ -58,17 +58,15 @@ def get_interpreted_dswx_s1_ctable():
 
     return dswx_ctable
 
-def read_geotiff(input_tif_str, band_ind=None):
+def read_geotiff(input_tif_str, band_ind=None, verbose=True):
     """Read band from geotiff
 
     Parameters
     ----------
     input_tif_str: str
         geotiff file path to read the band
-
     band_ind: int
         Index of the band to read, starts from 0
-
 
     Returns
     -------
@@ -78,14 +76,14 @@ def read_geotiff(input_tif_str, band_ind=None):
     tif = gdal.Open(input_tif_str)
     if band_ind is None:
         tifdata = tif.ReadAsArray()
-
     else:
         tifdata = tif.GetRasterBand(band_ind + 1).ReadAsArray()
 
     tif.FlushCache()
     tif = None
     del tif
-    print(f" -- Reading {input_tif_str} ... {tifdata.shape}")
+    if verbose:
+        print(f" -- Reading {input_tif_str} ... {tifdata.shape}")
     return tifdata
 
 def save_raster_gdal(data, output_file, geotransform,
@@ -363,7 +361,7 @@ def get_raster_block(raster_path, block_param):
 
     return data_block
 
-def write_raster_block(out_raster, data, 
+def write_raster_block(out_raster, data,
                         block_param, geotransform, projection,
                         DataType='byte'):
     ''' Write processed block to out_raster.
@@ -391,7 +389,7 @@ def write_raster_block(out_raster, data,
 
     if block_param.write_start_line == 0:
         driver = gdal.GetDriverByName('GTiff')
-        ds_data = driver.Create(out_raster, 
+        ds_data = driver.Create(out_raster,
                                 block_param.data_width,
                                 block_param.data_length,
                                 1, Gdal_type)
@@ -401,8 +399,8 @@ def write_raster_block(out_raster, data,
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
         ds_data.GetRasterBand(1).WriteArray(
-                data, 
-                xoff=0, 
+                data,
+                xoff=0,
                 yoff=block_param.write_start_line)
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):

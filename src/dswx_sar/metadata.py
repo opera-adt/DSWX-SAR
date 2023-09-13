@@ -2,267 +2,310 @@ import os
 import h5py
 import glob
 from datetime import datetime
-from collections import OrderedDict
+from collections import defaultdict
+
+import numpy as np
 from dswx_sar.version import VERSION as SOFTWARE_VERSION
+from dswx_sar.dswx_sar_util import read_geotiff, band_assign_value_dict
+
+# Constants
+UNKNOWN = 'UNKNOWN'
+PRODUCT_VERSION = 'UNKNOWN'
+DEFAULT_METADATA = {
+    'DSWX_PRODUCT_VERSION': PRODUCT_VERSION,
+    'SOFTWARE_VERSION': SOFTWARE_VERSION,
+    'PROJECT': 'OPERA',
+    'PRODUCT_LEVEL': '3',
+    'PRODUCT_TYPE': UNKNOWN,
+    'PRODUCT_SOURCE': UNKNOWN,
+    'SPACECRAFT_NAME': UNKNOWN,
+    'SENSOR': UNKNOWN
+}
+
 
 def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
-    """Copy metadata dictionary from RTC metadata
+    """Copy metadata dictionary from RTC metadata.
+    
     Parameters
     ----------
     h5path_list : list
-            List of metadata HDF5 file
+        List of metadata HDF5 file paths.
     dswx_metadata_dict : collections.OrderedDict
-        Metadata dictionary
+        Metadata dictionary to populate.
     """
 
-    metadata_dict = dict()
+    metadata_dict = defaultdict(list)
 
-    metadata_rtc_str_list = [
-        'orbitPassDirection',
-        'burstID',
-        'productVersion', 
-        'zeroDopplerStartTime']
-    metadata_rtc_int_list = [
-        'trackNumber',
-        'absoluteOrbitNumber']
+    metadata_rtc_fields = {
+        'orbitPassDirection': 'str',
+        'burstID': 'str',
+        'productVersion': 'str',
+        'zeroDopplerStartTime': 'str',
+        'trackNumber': 'int',
+        'absoluteOrbitNumber': 'int'
+    }
 
-    metadata_rtc_list = metadata_rtc_str_list + metadata_rtc_int_list
-    dswx_metadata_list = ['ORBIT_PASS_DIRECTION',
-                          'BURST_ID',
-                          'RTC_PRODUCT_VERSION',
-                          'SENSING_TIME',
-                          'TRACK_NUMBER',
-                          'ABSOLUTE_ORBIT_NUMBER']
-
-    for metadata in metadata_rtc_list:
-        metadata_dict[metadata] = []
+    # Mapping from RTC metadata to DSWx metadata
+    dswx_meta_mapping = {
+        'orbitPassDirection': 'ORBIT_PASS_DIRECTION',
+        'burstID': 'BURST_ID',
+        'productVersion': 'RTC_PRODUCT_VERSION',
+        'zeroDopplerStartTime': 'SENSING_TIME',
+        'trackNumber': 'TRACK_NUMBER',
+        'absoluteOrbitNumber': 'ABSOLUTE_ORBIT_NUMBER'
+    }
 
     for h5_meta_path in h5path_list:
         with h5py.File(h5_meta_path) as src:
+            for field, dtype in metadata_rtc_fields.items():
+                if dtype == 'str':
+                    value = str(src[f'/identification/{field}'].asstr()[...])
 
-            spacecraft_name = list(src['/science/'].keys())[0]
-            identification_path = f'/science/{spacecraft_name}/identification/'
+                else:
+                    value = int(src[f'/identification/{field}'][...])
+                metadata_dict[field].append(value)
 
-            for metadata_field in metadata_rtc_str_list:
-                metadata_dict[metadata_field].append(
-                    str(src[f'{identification_path}/{metadata_field}'].asstr()[...]))
-
-            for metadata_field in metadata_rtc_int_list:
-                metadata_dict[metadata_field].append(
-                    str(src[f'{identification_path}/{metadata_field}'][...]))
-
-    for metadata, dswx_meta_field in zip(metadata_rtc_list, dswx_metadata_list):
-
-        if dswx_meta_field == 'SENSING_TIME':
-            input_date_format = "%Y-%m-%dT%H:%M:%S"
-            output_date_format = "%Y-%m-%dT%H:%M:%SZ"
-
-            date_list = [datetime.strptime(date_single[0: 19], input_date_format) 
-                                for date_single in metadata_dict[metadata]]
-            dswx_metadata_dict['SENSING_START'] = datetime.strftime(min(date_list), 
-                                                    output_date_format)
-            dswx_metadata_dict['SENSING_END'] = datetime.strftime(max(date_list), 
-                                                    output_date_format)
+    for rtc_field, dswx_field in dswx_meta_mapping.items():
+        values = metadata_dict[rtc_field]
+        
+        if dswx_field == 'SENSING_TIME':
+            start, end = _get_date_range(values)
+            dswx_metadata_dict['SENSING_START'] = start
+            dswx_metadata_dict['SENSING_END'] = end
         else:
-            unique_set = set(metadata_dict[metadata])
-            if len(unique_set) == 1:
-                dswx_metadata_dict[dswx_meta_field] = list(unique_set)[0]
-            else:
-                dswx_metadata_dict[dswx_meta_field] = list(unique_set)
+            dswx_metadata_dict[dswx_field] = values[0] if len(set(values)) == 1 else values
 
-def _populate_ancillary_metadata_datasets(dswx_metadata_dict,
-                                     dem_file=None,
-                                     dem_file_description=None,
-                                     worldcover_file=None,
-                                     worldcover_file_description=None,
-                                     reference_water_file=None,
-                                     reference_water_file_description=None,
-                                     hand_file=None,
-                                     hand_file_description=None,
-                                     shoreline_shapefile=None,
-                                     shoreline_shapefile_description=None):
-    """Populate metadata dictionary with input files
-       Parameters
-       ----------
-       dswx_metadata_dict : collections.OrderedDict
-              Metadata dictionary
-       hls_dataset: str
-              HLS dataset name
-       dem_file: str
-              DEM filename
-       dem_file_description: str
-              DEM description
-       worldcover_file: str
-              Worldcover filename
-       worldcover_file_description: str
-              Worldcover description
-       reference_water_file: str
-              Reference water filename
-       reference_water_file_description: str
-              Reference water filename description
-       hand_file: str
-              Height above nearest drainage filename
-       hand_file_description: str
-              Height above nearest drainage filename description
-       shoreline_shapefile: str
-              NOAA GSHHS shapefile
-       shoreline_shapefile_description: str
-              NOAA GSHHS shapefile description
+
+def _get_date_range(dates):
+    """Converts and returns the min and max date from a list of date strings."""
+    input_date_format = "%Y-%m-%dT%H:%M:%S"
+    output_date_format = "%Y-%m-%dT%H:%M:%SZ"
+    date_objects = [datetime.strptime(date[:19], input_date_format) for date in dates]
+    return datetime.strftime(min(date_objects), output_date_format), \
+           datetime.strftime(max(date_objects), output_date_format)
+
+
+def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
+    """Populate metadata dictionary with input files.
+    
+    Parameters
+    ----------
+    dswx_metadata_dict : collections.OrderedDict
+        Metadata dictionary.
+    ancillary_cfg: obj
+        Configuration object containing all ancillary data sources and their descriptions.
     """
 
-    if dem_file_description:
-        dswx_metadata_dict['DEM_SOURCE'] = dem_file_description
-    elif dem_file:
-        dswx_metadata_dict['DEM_SOURCE'] = \
-            os.path.basename(dem_file)
-    else:
-        dswx_metadata_dict['DEM_SOURCE'] = 'NOT_PROVIDED'
+    # Dictionary mapping of source type to its file and description attributes in ancillary_cfg
+    source_map = {
+        'DEM_SOURCE': ('dem_file', 'dem_file_description'),
+        'HAND_SOURCE': ('hand_file', 'hand_file_description'),
+        'WORLDCOVER_SOURCE': ('worldcover_file', 'worldcover_file_description'),
+        'SHORELINE_SOURCE': ('shoreline_shapefile', 'shoreline_shapefile_description'),
+        'REFERENCE_WATER_SOURCE': ('reference_water_file', 'reference_water_file_description')
+    }
 
-    if hand_file_description:
-        dswx_metadata_dict['HAND_SOURCE'] = hand_file_description
-    elif dem_file:
-        dswx_metadata_dict['HAND_SOURCE'] = \
-            os.path.basename(hand_file)
-    else:
-        dswx_metadata_dict['HAND_SOURCE'] = 'NOT_PROVIDED'
+    for meta_key, (file_attr, desc_attr) in source_map.items():
+        description = getattr(ancillary_cfg, desc_attr, None)
+        file_path = getattr(ancillary_cfg, file_attr, None)
+        
+        if description:
+            dswx_metadata_dict[meta_key] = description
+        elif file_path:
+            dswx_metadata_dict[meta_key] = os.path.basename(file_path)
+        else:
+            dswx_metadata_dict[meta_key] = 'NOT_PROVIDED_OR_NOT_USED'
 
-    if worldcover_file_description:
-        dswx_metadata_dict['WORLDCOVER_SOURCE'] = worldcover_file_description
-    elif worldcover_file:
-        dswx_metadata_dict['WORLDCOVER_SOURCE'] = \
-            os.path.basename(worldcover_file)
-    else:
-        dswx_metadata_dict['WORLDCOVER_SOURCE'] = 'NOT_PROVIDED'
-
-    if shoreline_shapefile_description:
-        dswx_metadata_dict['SHORELINE_SOURCE'] = \
-            shoreline_shapefile_description
-    elif shoreline_shapefile:
-        dswx_metadata_dict['SHORELINE_SOURCE'] = \
-            os.path.basename(shoreline_shapefile)
-    else:
-        dswx_metadata_dict['SHORELINE_SOURCE'] = 'NOT_PROVIDED_OR_NOT_USED'
-
-    if reference_water_file_description:
-        dswx_metadata_dict['REFERENCE_WATER_SOURCE'] = \
-            reference_water_file_description
-    elif reference_water_file:
-        dswx_metadata_dict['REFERENCE_WATER_SOURCE'] = \
-            os.path.basename(reference_water_file)
-    else:
-        dswx_metadata_dict['REFERENCE_WATER_SOURCE'] = 'NOT_PROVIDED_OR_NOT_USED'
 
 def _populate_processing_metadata_datasets(dswx_metadata_dict,
                                            cfg):
+    """
+    Populate the metadata dictionary with processing information.
+    Parameters
+    ----------
+    dswx_metadata_dict: dict
+        Dictionary to be updated with processing metadata.
+    cfg: object
+        Configuration object containing processing metadata.
+    """
+    try:
+        processing_cfg = cfg.groups.processing
+        
+        # Mapping for simple key-value assignments
+        threshold_mapping = {
+            'otsu': 'OTSU',
+            'ki': 'Kittler-Illingworth'
+        }
+        
+        dswx_metadata_dict.update({
+            'POLARIZATION': processing_cfg.polarizations,
+            'FILTER': 'Enhanced Lee filter',
+            'THRESHOLDING': threshold_mapping.get(processing_cfg.initial_threshold.threshold_method),
+            'TILE_SELECTION': processing_cfg.initial_threshold.selection_method,
+            'MULTI_THRESHOLD': processing_cfg.initial_threshold.multi_threshold,
+            'FUZZY_SEED': processing_cfg.region_growing.initial_threshold,
+            'FUZZY_TOLERANCE': processing_cfg.region_growing.relaxed_threshold,
+            'INUNDATED_VEGETATION': processing_cfg.inundated_vegetation.enabled
+        })
+        
+    except AttributeError as e:
+        print(f"Attribute error occurred: {e}")
+    except KeyError as e:
+        print(f"Key error occurred: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
-    processing_cfg = cfg.groups.processing
-    dswx_metadata_dict['POLARIZATION'] = processing_cfg.polarizations
-    dswx_metadata_dict['FILTER'] = 'Enhanced Lee filter'
 
-    threshold_method = processing_cfg.initial_threshold.threshold_method
-    if threshold_method == 'otsu':
-        dswx_metadata_dict['THRESHOLDING'] = 'OTSU'
-    elif threshold_method == 'ki':
-        dswx_metadata_dict['THRESHOLDING'] = 'Kittler-Illingworth'
-    dswx_metadata_dict['TILE_SELECTION'] = processing_cfg.initial_threshold.selection_method
-    dswx_metadata_dict['MULTI_THRESHOLD'] = processing_cfg.initial_threshold.multi_threshold
-    dswx_metadata_dict['FUZZY_SEED'] = processing_cfg.region_growing.seed
-    dswx_metadata_dict['FUZZY_TOLERANCE'] = processing_cfg.region_growing.tolerance
-    dswx_metadata_dict['INUNDATED_VEGETATION'] = processing_cfg.inundated_vegetation.enabled
+def compute_spatial_coverage(data_array):
+    """
+    Compute the spatial coverage.
     
-    # [TODO]
-    dswx_metadata_dict['SPATIAL_COVERAGE'] = None
-    dswx_metadata_dict['LAYOVER_SHADOW_COVERAGE'] = None
+    Parameters
+    ----------
+    data_array : np.array
+        The 2D numpy array representation of the GeoTIFF.
+        
+    Returns
+    -------
+    float
+        Spatial coverage as a percentage.
+    """
+    total_pixels = data_array.size
+    invalid_pixels = np.sum(data_array == 255)
+    valid_pixels = total_pixels - invalid_pixels
+    
+    return round(valid_pixels / total_pixels * 100, 4)
 
-def _get_dswx_metadata_dict(cfg, product_version=None):
-    """Generate metadata field for dswx products
+
+def compute_layover_shadow_coverage(data_array, spatial_coverage):
+    """
+    Compute the layover-shadow coverage.
+    
+    Parameters
+    ----------
+    data_array : np.array
+        The 2D numpy array representation of the GeoTIFF.
+    spatial_coverage : float
+        Spatial coverage as a percentage.
+        
+    Returns
+    -------
+    float
+        Layover-shadow coverage as a percentage.
+    """
+    layover_shadow_pixels = np.sum(data_array == band_assign_value_dict['layover_shadow_mask'])
+    
+    if spatial_coverage > 0:
+        return round(layover_shadow_pixels / (spatial_coverage / 100 * data_array.size) * 100, 4)
+    else:
+        return np.nan
+
+
+def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
+    """
+    Populate the metadata dictionary with spatial
+    and layover shadow coverages.
+    
+    Parameters
+    ----------
+    dswx_metadata_dict : dict
+        Dictionary to be updated with coverages.
+    dswx_geotiff : str
+        Path to the GeoTIFF file.
+    """
+    try:
+        dswx_data = read_geotiff(dswx_geotiff, verbose=False)
+        
+        spatial_cov = compute_spatial_coverage(dswx_data)
+        layover_shadow_cov = compute_layover_shadow_coverage(dswx_data, spatial_cov)
+        
+        dswx_metadata_dict['SPATIAL_COVERAGE'] = spatial_cov
+        dswx_metadata_dict['LAYOVER_SHADOW_COVERAGE'] = layover_shadow_cov
+        
+    except Exception as e:
+        print(f"An error occurred while processing the GeoTIFF: {e}")
+
+
+def set_dswx_s1_metadata(metadata_dict):
+    """Update the dictionary with DSWx-S1 specific metadata."""
+    metadata_dict.update({
+        'PRODUCT_TYPE': 'DSWx-S1',
+        'PRODUCT_SOURCE': 'OPERA RTC S1',
+        'SPACECRAFT_NAME': 'Sentinel-1A/B',
+        'SENSOR': 'IW'
+    })
+
+
+def _get_general_dswx_metadata_dict(cfg, product_version=None):
+    """
+    Generate metadata field for dswx products.
+    
     Parameters
     ----------
     cfg: RunConfig
-        Input runconfig
+        Input runconfig.
+    product_version: str, optional
+        Version of the DSWx product. Defaults to None.
+        
     Returns
     -------
-    dswx_metadata_dict : collections.OrderedDict
-        Metadata dictionary
+    dict
+        Metadata dictionary.
     """
-    dswx_metadata_dict = OrderedDict()
-    product_type = cfg.groups.primary_executable.product_type
+    dswx_metadata_dict = DEFAULT_METADATA.copy()
 
-    # identification
-    if product_version is not None:
+    product_type = getattr(cfg.groups.primary_executable, 'product_type', None)
+
+    if product_version:
         dswx_metadata_dict['DSWX_PRODUCT_VERSION'] = product_version
-    else:
-        dswx_metadata_dict['DSWX_PRODUCT_VERSION'] = SOFTWARE_VERSION
-
-    dswx_metadata_dict['SOFTWARE_VERSION'] = SOFTWARE_VERSION
-    dswx_metadata_dict['PROJECT'] = 'OPERA'
-    dswx_metadata_dict['PRODUCT_LEVEL'] = '3'
 
     if product_type == 'dswx_s1':
-        dswx_metadata_dict['PRODUCT_TYPE'] = 'DSWx-S1'
-        dswx_metadata_dict['PRODUCT_SOURCE'] = 'OPERA RTC S1'
-        dswx_metadata_dict['SPACECRAFT_NAME'] = 'Sentinel-1A/B'
-        dswx_metadata_dict['SENSOR'] = 'IW'
+        set_dswx_s1_metadata(dswx_metadata_dict)
 
-    else:
-        dswx_metadata_dict['PRODUCT_TYPE'] = 'UNKNOWN'
-        dswx_metadata_dict['PRODUCT_SOURCE'] = 'UNKNOWN'
-        dswx_metadata_dict['SPACECRAFT_NAME'] = 'UNKNOWN'
-        dswx_metadata_dict['SENSOR'] = 'UNKNOWN'
-
-    # save datetime 'YYYY-MM-DD HH:MM:SS'
-    dswx_metadata_dict['PROCESSING_DATETIME'] = \
-        datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    # save datetime 'YYYY-MM-DDTHH:MM:SSZ'
+    dswx_metadata_dict['PROCESSING_DATETIME'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     return dswx_metadata_dict
 
-def create_dswx_sar_metadata(cfg):
-    """Create dictionary containing metadat
+
+def gather_rtc_files(rtc_dirs):
+    """
+    Given directories containing RTC files, gather all h5 files.
+    """
+    h5_files = []
+    for rtc_input_dir in rtc_dirs:
+        rtc_h5_file = glob.glob(os.path.join(rtc_input_dir, '*.h5'))
+        if rtc_h5_file:
+            h5_files.append(rtc_h5_file[0])
+    return h5_files
+
+
+def create_dswx_sar_metadata(cfg, rtc_dirs):
+    """
+    Create dictionary containing metadata.
+    
     Parameters
     ----------
     cfg: RunConfig
-        Input runconfig
+        Input runconfig.
+    rtc_dirs: list
+        List of directories containing RTC files.
+        
     Returns
     -------
-    dswx_metadata_dict : collections.OrderedDict
-        Metadata dictionary
+    dict
+        Metadata dictionary.
     """
-    dswx_metadata_dict = _get_dswx_metadata_dict(cfg, product_version=0.1)
-    _populate_ancillary_metadata_datasets(dswx_metadata_dict,
-                                        dem_file=None,
-                                        dem_file_description=None,
-                                        worldcover_file=None,
-                                        worldcover_file_description=None,
-                                        reference_water_file=None,
-                                        reference_water_file_description=None,
-                                        hand_file=None,
-                                        hand_file_description=None,
-                                        shoreline_shapefile=None,
-                                        shoreline_shapefile_description=None)
+    # Get general DSWx-S1 metadata
+    dswx_metadata_dict = _get_general_dswx_metadata_dict(cfg, product_version=0.1)
+
+    # Add metadata related to ancillary data
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
-    input_list = cfg.groups.input_file_group.input_file_path
-    h5path_list = []
-    if len(input_list) > 1:
-        for ind, input_dir in enumerate(input_list):
-            h5path_list.append(glob.glob(f'{input_dir}/*h5')[0])
-    else:
-        h5path_list = glob.glob({input_list})
+
+    h5path_list = gather_rtc_files(rtc_dirs)
     _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict)
 
-    _populate_ancillary_metadata_datasets(dswx_metadata_dict,
-                                     dem_file=ancillary_cfg.dem_file,
-                                     dem_file_description=ancillary_cfg.dem_file_description,
-                                     worldcover_file=ancillary_cfg.worldcover_file,
-                                     worldcover_file_description=ancillary_cfg.worldcover_file_description,
-                                     reference_water_file=ancillary_cfg.reference_water_file,
-                                     reference_water_file_description=ancillary_cfg.reference_water_file_description,
-                                     hand_file=ancillary_cfg.hand_file,
-                                     hand_file_description=ancillary_cfg.hand_file_description,
-                                     shoreline_shapefile=ancillary_cfg.shoreline_shapefile,
-                                     shoreline_shapefile_description=ancillary_cfg.shoreline_shapefile_description)
-
-    _get_dswx_metadata_dict(cfg, product_version=None)
-    _populate_processing_metadata_datasets(dswx_metadata_dict,
-                                           cfg)
+    _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)
+    _populate_processing_metadata_datasets(dswx_metadata_dict, cfg)
 
     return dswx_metadata_dict

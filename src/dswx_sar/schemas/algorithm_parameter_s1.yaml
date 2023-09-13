@@ -15,6 +15,9 @@ runconfig:
             max_value: num(required=False)
             no_data_value: num(required=False)
 
+        hand:
+            mask_value: num(required=False)
+
         mosaic:
             mosaic_prefix: str(required=False)
             mosaic_cog_enable: bool(required=False)

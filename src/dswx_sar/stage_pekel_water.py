@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
-# ESA Worldcover Map staging
+# Pekel's Surface Water Map staging
+# https://global-surface-water.appspot.com/download
+# Pekel, JF., Cottam, A., Gorelick, N. et al. 
+# High-resolution mapping of global surface water and its long-term changes. 
+# Nature 540, 418–422 (2016). https://doi.org/10.1038/nature20584
 
 import argparse
 import os
@@ -22,17 +26,20 @@ logger = logging.getLogger('stage peke water map')
 # Enable exceptions
 gdal.UseExceptions()
 
-S3_REF_WATER_BUCKET = "opera-reference-water"
+# [TODO] need to update the bucket
 """Name of the default S3 bucket containing the full JRC Pikel's water map to crop from.
 """
+S3_REF_WATER_BUCKET = "opera-reference-water"
+PEKEL_GOOGLE_SOURCE = "http://storage.googleapis.com/global-surface-water/downloads2021/"
+
 EARTH_APPROX_CIRCUMFERENCE = 40075017.
 EARTH_RADIUS = EARTH_APPROX_CIRCUMFERENCE / (2 * np.pi)
 
 
 def get_parser():
-    """Returns the command line parser for stage_worldcover.py"""
+    """Returns the command line parser for stage_pekel_water.py"""
     parser = argparse.ArgumentParser(
-        description="Stage and verify Worldcover map for processing.",
+        description="Stage and verify reference water map for processing.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument('-p', '--product', type=str, action='store',
@@ -40,19 +47,23 @@ def get_parser():
     parser.add_argument('-o', '--output', type=str, action='store',
                         default='reference_water.vrt', dest='outfile',
                         help='Output Reference water filepath (VRT format).')
-    parser.add_argument('-s', '--s3-bucket', type=str, action='store',
+    parser.add_argument('--s3-bucket', type=str, action='store',
                         default=S3_REF_WATER_BUCKET, dest='s3_bucket',
-                        help='Name of the S3 bucket containing the full Pekel water '
+                        help='Name of the S3 bucket containing the full JRC '
+                             'Global water map to extract from.')
+    parser.add_argument('-s', '--source', type=str, action='store',
+                        default="googleapi", dest='data_source',
+                        help='Data source containing the full Pekel water '
                              'map to extract from.')
     parser.add_argument('-w', '--watermap_type', type=str, action='store',
                         default='seasonality', dest='watermap_type',
                         help='Water map type used as reference water map.')
     parser.add_argument('-b', '--bbox', type=float, action='store',
                         dest='bbox', default=None, nargs='+',
-                        help='Spatial bounding box of the Worldcover region in '
+                        help='Spatial bounding box in '
                              'latitude/longitude (WSEN, decimal degrees)')
     parser.add_argument('-m', '--margin', type=int, action='store',
-                        default=5, help='Margin for Worldcover bounding box in km.')
+                        default=5, help='Margin for bounding box in km.')
     parser.add_argument('--log', '--log-file', dest='log_file',
                         type=str, help='Log file')
 
@@ -115,7 +126,7 @@ def transform_polygon_coords_to_lonlat(polys, epsgs):
         tgt.ImportFromEPSG(int(epsg))
         trans = osr.CoordinateTransformation(tgt, llh)
         for lx, ly in zip(x, y):
-            dummy_lat, dummy_lon, dummy_z = trans.TransformPoint(lx, ly, 0)
+            dummy_lat, dummy_lon, _ = trans.TransformPoint(lx, ly, 0)
             tgt_x.append(dummy_lon)
             tgt_y.append(dummy_lat)
         xmin.append(min(tgt_x))
@@ -124,29 +135,23 @@ def transform_polygon_coords_to_lonlat(polys, epsgs):
         ymax.append(max(tgt_y))
     # return a polygon
     poly = Polygon([(min(xmin), min(ymin)), (min(xmin), max(ymax)),
-                     (max(xmax), max(ymax)), (max(xmax), min(ymin))])
+                    (max(xmax), max(ymax)), (max(xmax), min(ymin))])
 
     return poly
 
 
 def get_geo_polygon(ref_tif):
-    """Create polygon (EPSG:4326) using RTC radar grid and orbits
+    """Get polygon from GeoTiff image
 
     Parameters:
     -----------
-    ref_slc: str
-        Path to RTC product to stage the Hand for
-    min_height: float
-        Global minimum height (in m) for Hand interpolator
-    max_height: float
-        Global maximum height (in m) for Hand interpolator
-    pts_per_edge: float
-        Number of points per edge for min/max bounding box computation
+    ref_tif: str
+        Path to RTC product to stage the pekel's water map
 
     Returns:
     -------
     poly: shapely.Geometry.Polygon
-        Bounding polygon corresponding to RTC perimeter on the ground
+        Bounding polygon corresponding to RTC
     """
     # Prepare SLC dataset input
     meta_dict = get_meta_from_tif(ref_tif)
@@ -168,8 +173,7 @@ def get_geo_polygon(ref_tif):
 
 
 def apply_margin_polygon(polygon, margin_in_km=5):
-    '''Convert margin from km to degrees and
-    apply to polygon
+    '''Convert margin from km to degrees and apply to polygon
 
     Parameters
     ----------
@@ -290,7 +294,6 @@ def check_dateline(poly):
         the dateline, or two polygons otherwise (one on either
         side of the dateline).
     """
-
     xmin, _, xmax, _ = poly.bounds
     dateline_crossing = False
     # Check dateline crossing
@@ -333,9 +336,8 @@ def check_dateline(poly):
     return polys, dateline_crossing
 
 
-
 @backoff.on_exception(backoff.expo, Exception, max_tries=8, max_value=32)
-def translate_worldcover(vrt_filename, output_path, x_min, x_max, y_min, y_max):
+def translate_pekel_water(vrt_filename, output_path, x_min, x_max, y_min, y_max):
     """
     Translate a Worldcover map from the esa-worldcover bucket.
 
@@ -362,7 +364,8 @@ def translate_worldcover(vrt_filename, output_path, x_min, x_max, y_min, y_max):
         Maximum latitude bound of the sub-window
 
     """
-    logger.info(f"Translating Worldcover for projection window {str([x_min, y_max, x_max, y_min])} "
+    logger.info("Translating JRC Global water map for projection window "
+                f"{str([x_min, y_max, x_max, y_min])} "
                 f"to {output_path}")
     ds = gdal.Open(vrt_filename, gdal.GA_ReadOnly)
 
@@ -385,6 +388,7 @@ def translate_worldcover(vrt_filename, output_path, x_min, x_max, y_min, y_max):
 
 def download_reference_water_map(polys,
                                  watermap_source,
+                                 watermap_bucket,
                                  watermap_type,
                                  outfile):
     """
@@ -394,20 +398,14 @@ def download_reference_water_map(polys,
     ----------
     polys: list of shapely.geometry.Polygon
         List of shapely polygons.
-    worldcover_bucket : str
+    watermap_source : str
         Name of the S3 bucket containing the full Worldcover map to download from.
-    worldcover_ver : str
-        Version of the full Worldcover map to download from. Becomes part of the
-        S3 key used to download.
-    worldcover_year : str
-        Year of the full Worldcover map to download from. Becomes part of the
-        S3 key used to download.
+    watermap_type : str
+        Type of Pekel's water map (i.e., seasonality, occurrence)
     outfile:
-        Path to the where the output Worldcover file is to be staged.
-
+        Path to the where the output reference water file is to be staged.
     """
-
-    # Download Worldcover map for each polygon/epsg
+    # Download Pekel's water map for each polygon/epsg
     file_prefix = os.path.splitext(outfile)[0]
     wc_list = []
     counter = 0
@@ -419,12 +417,13 @@ def download_reference_water_map(polys,
             y_min_10 = int((y_min // 10) * 10)
             x_max_10 = int(((x_max // 10) + 1) * 10)
             y_max_10 = int(((y_max // 10) + 1) * 10)
-
+            # Pekel's water map is only available from 50S to 90N.
             x_min_10 = np.max([x_min_10, -180])
             x_max_10 = np.min([x_max_10, 180])
             y_min_10 = np.max([y_min_10, -50])
             y_max_10 = np.min([y_max_10, 90])
 
+            # Pekel's water map is stored as 10 x 10 deg.
             for x_10 in range(x_min_10, x_max_10, 10):
                 for y_10 in range(y_min_10, y_max_10, 10):
                     w_or_e = 'W' if x_10 < 0 else 'E'
@@ -434,32 +433,32 @@ def download_reference_water_map(polys,
                     y_min_10_str = int(np.abs(y_10))
                     google_api_filename = f'{watermap_type}_{x_min_10_str}{w_or_e}_{y_min_10_str}{s_or_n}v1_4_2021.tif'
                     
-                    url = "http://storage.googleapis.com/global-surface-water/downloads2021/" + watermap_type + "/" + google_api_filename
+                    url = os.path.join(PEKEL_GOOGLE_SOURCE, watermap_type, google_api_filename)
                     code = urllib.request.urlopen(url).getcode()
                     if (code != 404):
                         logger.info(f"Downloading {url} ({str(counter)})")
                         urllib.request.urlretrieve(url, google_api_filename)
                         wc_list.append(google_api_filename)
                     else:
-                        logger.info(url + " not found")
+                        logger.info(f"{url} not found")
                     counter += 1
         else:
+            # [TODO] need to update the path
             vrt_filename = (
-                f'/vsis3/{watermap_source}/{worldcover_ver}/{worldcover_year}/'
+                f'/vsis3/{watermap_bucket}/{worldcover_ver}/{worldcover_year}/'
                 f'ESA_WorldCover_10m_{worldcover_year}_{worldcover_ver}_Map_AWS.vrt'
             )
 
             output_path = f'{file_prefix}_{idx}.tif'
             wc_list.append(output_path)
-            translate_worldcover(vrt_filename, output_path, x_min, x_max, y_min, y_max)
+            translate_pekel_water(vrt_filename, output_path, x_min, x_max, y_min, y_max)
 
     # Build vrt with downloaded maps
     gdal.BuildVRT(outfile, wc_list)
 
 
 def check_aws_connection(worldcover_bucket):
-    """
-    Check connection to the provided S3 bucket.
+    """Check connection to the provided S3 bucket.
 
     Parameters
     ----------
@@ -470,7 +469,6 @@ def check_aws_connection(worldcover_bucket):
     ------
     RuntimeError
        If no connection can be established.
-
     """
     s3 = boto3.resource('s3')
     obj = s3.Object(worldcover_bucket, 'readme.html')
@@ -495,38 +493,33 @@ def main(opts):
         Arguments parsed from the command-line.
 
     """
-
     # Check if MGRS tile code or bbox are provided
     if opts.product is None and opts.bbox is None:
         errmsg = ("Need to provide reference RTC Geotiff image, MGRS tile code or bounding box. "
-                  "Cannot download Worldcover map.")
+                  "Cannot download JRC Global water map.")
         raise ValueError(errmsg)
 
     # Make sure that output file has VRT extension
     if not opts.outfile.lower().endswith('.vrt'):
-        err_msg = "Worldcover output filename extension is not .vrt"
+        err_msg = "JRC Global water output filename extension is not .vrt"
         raise ValueError(err_msg)
-
-    # Check if we were provided an explicit "None" for the bucket parameters,
-    # which can occur when arguments are set up by a chimera precondition function
-    if not opts.s3_bucket:
-        opts.s3_bucket = S3_REF_WATER_BUCKET
 
     # Determine polygon based on MGRS grid reference with a margin, or bbox
     poly = determine_polygon(opts.product,
                              opts.bbox,
                              opts.margin)
 
+    # Check connection to the S3 bucket
+    logger.info(f'Checking connection to AWS S3 {opts.s3_bucket} bucket.')
+    if opts.data_source != 'googleapi':
+        check_aws_connection(opts.s3_bucket)
+
     # Check dateline crossing. Returns list of polygons
     polys, _ = check_dateline(poly)
 
-    # Check connection to the S3 bucket
-    logger.info(f'Checking connection to AWS S3 {opts.s3_bucket} bucket.')
-
-    # check_aws_connection(opts.s3_bucket)
-
-    # Download Worldcover map(s)
+    # Download JRC Global water map(s)
     download_reference_water_map(polys,
+                                 opts.data_source,
                                  opts.s3_bucket,
                                  opts.watermap_type,
                                  opts.outfile)

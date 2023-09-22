@@ -14,6 +14,9 @@ runconfig:
         reference_water:
             max_value: num(required=False)
             no_data_value: num(required=False)
+            permanent_water_value: num(required=False)
+            drought_erosion_pixel: int(required=False)
+            flood_dilation_pixel: int(required=False)
 
         mosaic:
             mosaic_prefix: str(required=False)
@@ -34,13 +37,17 @@ runconfig:
             minimum_tile_size:
                 x: num(required=False)
                 y: num(required=False)
+
             # tile selecting strategy to identify the boundary between water and nonwater
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: str(required=False)
             # Strategy to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
-            interpolation_method: str(required=False)
+            tile_selection_twele: list(required=False)
+            tile_selection_bimodality: num(required=False)
+
+            extending_method: str(required=False)
             # Thresholding algorithm for initial thresholds.
             # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
             # ['otsu', 'ki']
@@ -50,7 +57,38 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
+            tile_average: bool(required=False)
+            number_iterations: num(required=False)
+            number_cpu: num(required=False)
 
+        fuzzy_value:
+            # hand value to mask out
+            hand_maximum: num(required=False)
+            # membership bound for slope angle
+            slope:
+                member_min: num(required=False)
+                member_max: num(required=False)
+            # membership bound for reference water                
+            reference_water:
+                # Minimum reference water value for membership
+                member_min: num(required=False)
+                # Maximum reference water value for membership
+                member_max: num(required=False)
+            # Dark area is defined where cross-pol is lower than cross_land
+            # Water is defined where cross-pol is lower than cross_water
+            dark_area:
+                # Threshold [dB] for land in the dark area definition
+                cross_land: num(required=False)
+                # Threshold [dB] for water in the dark area definition
+                cross_water: num(required=False)
+            # High frequent water is defined based on two values
+            # water_min_value < high_frequent_water < water_max_value
+            high_frequent_water:
+                # Minimum value for high frequent water
+                water_min_value: num(required=False)
+                # Maximum value for high frequent water
+                water_max_value: num(required=False)
+                        
         region_growing:
             # seed value for region growing start
             initial_threshold: num(min=0, max=1, required=False)
@@ -58,11 +96,19 @@ runconfig:
             relaxed_threshold: num(min=0, max=1, required=False)
             line_per_block: num(min=1, required=False)
 
+        masking_ancillary:
+            vv_threshold: num(min=-30, max=10, required=False)
+            vh_threshold: num(min=-30, max=10, required=False)
+            water_threshold: num(min=0, max=100, required=False)
+
+        refine_with_bimodality:
+            minimum_pixel: num(min=0, required=False)
+
         inundated_vegetation:
             enabled: bool(required=False)
-            mode: enum('time_series', 'static_layer')
-            temporal_avg_path: str(required=False)
-            initial_class_path: str(required=False)
+            vv_vh_ratio_max: num(min=-30, max=10, required=False)
+            vv_vh_ratio_min: num(min=-30, max=10, required=False)
+            cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
 
         # debug mode is true, intermeidate product is generated. 

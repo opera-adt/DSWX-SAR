@@ -1,25 +1,24 @@
-import os
-import time
-import pickle
-import mimetypes
 import logging
+import mimetypes
+import os
+import pickle
+import time
 
+from joblib import Parallel, delayed
 import numpy as np
-from scipy.signal import find_peaks
-from scipy.optimize import curve_fit
+from osgeo import gdal
 from scipy import interpolate, ndimage
+from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
 from scipy.spatial import cKDTree
 from scipy.interpolate import Rbf
-from osgeo import gdal
-from joblib import Parallel, delayed
 from skimage.filters import threshold_multiotsu, threshold_otsu
 
 from dswx_sar import dswx_sar_util
-from dswx_sar import refine_with_bimodality
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import generate_log
-# This will be added after merging region_growing
-# from dswx_sar import region_growing
+from dswx_sar import refine_with_bimodality
+from dswx_sar import region_growing
+from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 logger = logging.getLogger('dswx_s1')
 
@@ -525,6 +524,10 @@ def create_three_watermask(wbd,
     wbd_max : int
         The maximum valid value in the raster.
         The raster values will be normalized by this value.
+    flood_dilation_pixel : int
+        Dilation interation number
+    drought_erosion_pixel : int
+        Erosion interation number
 
     Returns
     -------
@@ -574,25 +577,24 @@ def remove_invalid(sample_array, no_data=0):
     return sample_array
 
 
-def gauss(x, mu, sigma, A):
+def gauss(array, mu, sigma, A):
     """Generate gaussian distribution with given mean and std
     """
-    return A * np.exp(-(x - mu)**2 / 2 / sigma**2)
+    return A * np.exp(-(array - mu)**2 / 2 / sigma**2)
 
 
-def bimodal(x, mu1, sigma1, A1, mu2, sigma2, A2):
+def bimodal(array, mu1, sigma1, A1, mu2, sigma2, A2):
     """Generate bimodal gaussian distribution with given means and stds
     """
-    return gauss(x, mu1, sigma1, A1) + gauss(x, mu2, sigma2, A2)
+    return gauss(array, mu1, sigma1, A1) + gauss(array, mu2, sigma2, A2)
 
 
-def trimodal(x, mu1, sigma1, A1, mu2, sigma2, A2,  mu3, sigma3, A3):
+def trimodal(array, mu1, sigma1, A1, mu2, sigma2, A2,  mu3, sigma3, A3):
     """Generate trimodal gaussian distribution with given means and stds
     """
-    return gauss(x, mu1, sigma1, A1) + \
-        gauss(x, mu2, sigma2, A2) + \
-        gauss(x, mu3, sigma3, A3)
-
+    return gauss(array, mu1, sigma1, A1) + \
+        gauss(array, mu2, sigma2, A2) + \
+        gauss(array, mu3, sigma3, A3)
 
 def compute_ki_threshold(intensity, min_im, max_im, step_im):
     """ Computes the threshold using Kittler-Illingworth algorithm
@@ -710,7 +712,7 @@ def determine_threshold(intensity,
         min_im = np.nanpercentile(intensity, 10)
     numstep = int((max_im - min_im) / step_im)
     if numstep < 100:
-        step_im = ((max_im-min_im)/1000)
+        step_im = ((max_im-min_im) / 1000)
 
     threshold_array = []
     threshold_idx_array = []
@@ -824,7 +826,8 @@ def determine_threshold(intensity,
             converge_ind = np.where((bins2 < tau_mode_right)
                                     & (bins2 > tau_mode_left)
                                     & (bins2 < threshold)
-                                    & (np.cumsum(simul_second)/np.sum(simul_second) < 0.03))
+                                    & (np.cumsum(simul_second) / 
+                                       np.sum(simul_second) < 0.03))
 
             if len(converge_ind[0]):
                 modevalue = bins2[converge_ind[0][-1]]
@@ -947,8 +950,8 @@ def determine_threshold(intensity,
                     if hist_bin > threshold:
                         rg_layer = region_growing.region_growing(
                             intensity_sub,
-                            initial_seed=threshold,
-                            tolerance=hist_bin,
+                            initial_threshold=threshold,
+                            relaxed_threshold=hist_bin,
                             maxiter=200,
                             mode='ascending')
 
@@ -972,7 +975,7 @@ def determine_threshold(intensity,
 
                 min_rms_ind = np.where(rms_sss)
                 rg_tolerance = rms_xx[min_rms_ind[0][0]]
-                threshold = (rg_tolerance + threshold)/2
+                threshold = (rg_tolerance + threshold) / 2
 
         # add final threshold to threshold list
         threshold_array.append(threshold)
@@ -1065,6 +1068,7 @@ def fill_threshold_with_gdal(threshold_array,
             y_arr_tau_valid = y_tau[nan_mask]
 
         z_arr_tau_valid = z_tau[nan_mask]
+        tif_file_str = os.path.join(outputdir, f"{filename}_{pol}.tif")
 
         if len(z_arr_tau_valid) > 1:
             # try bilinear interpolation for the evenly spaced grid
@@ -1116,7 +1120,6 @@ def fill_threshold_with_gdal(threshold_array,
 
             vrt_file = os.path.join(outputdir,
                                     f"data_thres_{pol}_{filename}.vrt")
-            tif_file_str = os.path.join(outputdir, f"{filename}_{pol}.tif")
 
             with open(vrt_file, 'w') as fpar:
                 fpar.write('<OGRVRTDataSource>\n')
@@ -1150,6 +1153,29 @@ def fill_threshold_with_gdal(threshold_array,
             threshold_raster.append(dswx_sar_util.read_geotiff(tif_file_str))
         else:
             print('threshold array is empty')
+
+            # Define the GeoTransform (you may need to adjust this based on your spatial reference)
+            geotransform = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)  # Change as needed
+
+            # Define the projection (you may need to specify the correct projection)
+            projection = "EPSG:4326"  # Change as needed
+
+            # Create an empty NumPy array filled with zeros
+            empty_data = np.ones((rows, cols)) * no_data
+
+            # Create a new GeoTIFF dataset
+            driver = gdal.GetDriverByName('GTiff')
+            ds = driver.Create(tif_file_str, cols, rows, 1, gdal.GDT_Float32)
+
+            # Set the GeoTransform and Projection
+            ds.SetGeoTransform(geotransform)
+            ds.SetProjection(projection)
+
+            # Write the empty data to the dataset
+            ds.GetRasterBand(1).WriteArray(empty_data)
+
+            # Close the dataset
+            ds = None
             threshold_raster.append(
                 np.ones([rows, cols], dtype=np.float64) * -50)
 
@@ -1587,7 +1613,9 @@ def run(cfg):
                                    DataType='uint8')
 
     intensity_whole = filt_raster_tif.ReadAsArray()
-    intensity_whole = np.atleast_3d(intensity_whole)
+
+    if band_number == 1:
+        intensity_whole = intensity_whole[np.newaxis, :, :]
 
     thres_max = np.empty([band_number])
     threshold_iteration = number_iterations
@@ -1603,6 +1631,7 @@ def run(cfg):
                 # All thresholds can be accepted.
                 thres_max[band_ind] = 30
             else:
+                
                 # extract intensity values from the water areas
                 int_water_array = intensity_whole[
                     band_ind, (wbd_whole_norm > permanent_water_value) &
@@ -1781,6 +1810,10 @@ def run(cfg):
             threshold_tau_dict['array'] = threshold_tau_set
             threshold_tau_dict['subtile_coord'] = window_coord_list
             mode_tau_dict['array'] = mode_tau_set
+        if not threshold_tau_dict:
+            print("")
+            print('No threshold_tau')
+            print("")
 
         # Currently, only 'gdal_grid' method is supported.
         if threshold_extending_method == 'gdal_grid':
@@ -1800,6 +1833,8 @@ def run(cfg):
                     average_tile=average_threshold_flag)
 
             intensity = dswx_sar_util.read_geotiff(filt_im_str)
+            if intensity.ndim == 2:
+                intensity = intensity[np.newaxis, :, :]
 
         # create initial map for iteration method
         initial_water_set = np.zeros([height, width, len(pol_list)])
@@ -1818,6 +1853,7 @@ def run(cfg):
 
             water_tif_str = os.path.join(outputdir,
                                          f"initial_water_{pol}_{iter_ind}.tif")
+
             dswx_sar_util.save_dswx_product(
                 initial_water_binary,
                 water_tif_str,

@@ -1,18 +1,16 @@
+import cv2
+import logging
+import mimetypes
+import numpy as np
 import os
 import time
-import logging
-import numpy as np
-import cv2
-import mimetypes
-
 
 from dswx_sar import dswx_sar_util
-
+from dswx_sar import generate_log
 from dswx_sar import masking_with_ancillary
-
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
-logger = logging.getLogger('dswx_S1')
+logger = logging.getLogger('dswx_s1')
 
 # Define constants
 SOBEL_KERNEL_SIZE = 3
@@ -177,9 +175,9 @@ def compute_fuzzy_value(intensity,
         output directory
     workflow : string
         workflows i.e.twele or opera_dswx_s1
-    fuzzy_option : dictionary
+    fuzzy_option : dict
         fuzzy options to compute the fuzzy values containing
-        fllowing parameters
+        fllowing key:value parameters
             'hand_threshold': HAND value to mask out
             'slope_min': minimum value for z membership function for slope
             'slope_max': maximum value for z membership function for slope
@@ -394,10 +392,10 @@ def run(cfg):
 
     # Read filtered RTC image
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_all_str}.tif")
-    intensity = dswx_sar_util.read_geotiff(filt_im_str)
-    intensity = np.atleast_3d(intensity)
-
     im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
+    intensity = dswx_sar_util.read_geotiff(filt_im_str)
+    if im_meta['band_number'] == 1:
+        intensity = intensity[np.newaxis, :, :]
 
     mean_intensity = np.nanmean(intensity, axis=0)
     no_data_raster = np.isnan(mean_intensity)

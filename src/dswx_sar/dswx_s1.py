@@ -7,10 +7,12 @@ import time
 from datetime import datetime
 
 from dswx_sar import (mosaic_rtc_burst,
+                      pre_processing,
                       save_mgrs_tiles,
                       dummy_dswx_s1,
                       initial_threshold,
                       fuzzy_value_computation,
+                      region_growing,
                       refine_with_bimodality,
                       masking_with_ancillary)
 

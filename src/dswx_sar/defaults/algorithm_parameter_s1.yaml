@@ -112,7 +112,6 @@ runconfig:
 
         inundated_vegetation:
             enabled: True
-            mode: 'static_layer'
             temporal_avg_path:
             initial_class_path:
             line_per_block: 300

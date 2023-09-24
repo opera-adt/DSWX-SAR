@@ -106,7 +106,6 @@ runconfig:
 
         inundated_vegetation:
             enabled: bool(required=False)
-            mode: enum('time_series', 'static_layer')
             temporal_avg_path: str(required=False)
             initial_class_path: str(required=False)
             line_per_block: num(min=1, required=False)

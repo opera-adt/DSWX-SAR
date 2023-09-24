@@ -546,6 +546,8 @@ def process_dark_land_component(args):
     # Assign the datasets to their respective variables
     landcover, bands, ref_land, water_label = raster_datasets
 
+    if bands.ndim == 2:
+        bands = bands[np.newaxis, :, :]
     # Identify out of boundary areas.
     out_boundary = (np.isnan(np.sum(bands, axis=0)) == 0) & (water_label == 0)
 
@@ -677,6 +679,7 @@ def process_bright_water_component(args):
             image_set.append(image)
 
     landcover, bands, output_water, ref_land = image_set
+
     # Find areas where is within entire image boundary and
     # water areas (output_water == 0)
     adjacent_areas = (np.isnan(np.sum(bands, axis=0)) == 0) & \
@@ -932,10 +935,11 @@ def fill_gap_water_bimodality_parallel(bands,
                 A binary 2D NumPy array indicating the water gaps.
 
     """
-    if len(bands.shape) == 3:
+    if bands.ndim == 3:
         _, rows, cols = np.shape(bands)
-    elif len(bands.shape) == 2:
+    elif bands.ndim == 2:
         rows, cols = np.shape(bands)
+        bands = bands[np.newaxis, :, :]
     else:
         raise ValueError("Unexpected image shape.")
 
@@ -1043,8 +1047,11 @@ def run(cfg):
 
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_str}.tif")
     band_set = dswx_sar_util.read_geotiff(filt_im_str)
-    band_set = np.atleast_3d(band_set)
     im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
+    intensity = dswx_sar_util.read_geotiff(filt_im_str)
+
+    if im_meta['band_number'] == 1:
+        intensity = intensity[np.newaxis, :, :]
 
     # read the result of landcover masindex_array_to_imageg
     water_map_tif_str =  os.path.join(outputdir, 'refine_landcover_binary_{}.tif'.format(pol_str))

@@ -248,7 +248,6 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
     # Blocks of 512 x 512 => 256 KiB (UInt8) or 1MiB (Float32)
     tile_size = 512
     gdal_translate_options = ['BIGTIFF=IF_SAFER',
-                              'MAX_Z_ERROR=0',
                               'TILED=YES',
                               f'BLOCKXSIZE={tile_size}',
                               f'BLOCKYSIZE={tile_size}',
@@ -394,7 +393,6 @@ def write_raster_block(out_raster, data,
                                 1, Gdal_type)
         ds_data.SetGeoTransform(geotransform)
         ds_data.SetProjection(projection)
-        print('shape', np.shape(data))
 
         ds_data.GetRasterBand(1).WriteArray(data, xoff=0, yoff=0)
     else:

@@ -1185,7 +1185,7 @@ def fill_threshold_with_gdal(threshold_array,
             os.system(gdal_grid_str)
             threshold_raster.append(dswx_sar_util.read_geotiff(tif_file_str))
         else:
-            print('threshold array is empty')
+            logger.info('threshold array is empty')
 
             # Define the GeoTransform (you may need to adjust this based on your spatial reference)
             geotransform = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)  # Change as needed
@@ -1531,8 +1531,8 @@ def process_block(ii, jj, n_rows_block, n_cols_block, m_rows_block, m_cols_block
     x_size = m_cols_block if (jj == n_cols_block - 1) and m_cols_block > 0 else block_col
     y_size = m_rows_block if (ii == n_rows_block - 1) and m_rows_block > 0 else block_row
 
-    print(f"block_processing: {ii}/{n_rows_block} _ {jj}/{n_cols_block}",
-          f" - {ii * n_cols_block + jj}/{n_rows_block * n_cols_block}")
+    logger.info(f"block_processing: {ii + 1}/{n_rows_block} _ {jj + 1}/{n_cols_block}",
+                f" - {ii * n_cols_block + jj + 1}/{n_rows_block * n_cols_block}")
 
     filt_raster_tif = gdal.Open(filt_im_str)
     image_sub = filt_raster_tif.ReadAsArray(jj * block_col,
@@ -1832,9 +1832,7 @@ def run(cfg):
             threshold_tau_dict['subtile_coord'] = window_coord_list
             mode_tau_dict['array'] = mode_tau_set
         if not threshold_tau_dict:
-            print("")
-            print('No threshold_tau')
-            print("")
+            logger.info('No threshold_tau')
 
         # Currently, only 'gdal_grid' method is supported.
         if threshold_extending_method == 'gdal_grid':

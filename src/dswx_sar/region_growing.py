@@ -276,8 +276,8 @@ def run(cfg):
     region_growing_relaxed_threshold = region_growing_cfg.relaxed_threshold
     region_growing_line_per_block = region_growing_cfg.line_per_block
 
-    print(f'Region Growing Seed: {region_growing_seed}')
-    print(f'Region Growing relaxed threshold: {region_growing_relaxed_threshold}')
+    logger.info(f'Region Growing Seed: {region_growing_seed}')
+    logger.info(f'Region Growing relaxed threshold: {region_growing_relaxed_threshold}')
 
     fuzzy_tif_path = os.path.join(outputdir,
                                   f'fuzzy_image_{pol_str}.tif')

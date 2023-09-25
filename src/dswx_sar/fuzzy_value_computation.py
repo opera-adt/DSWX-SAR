@@ -1,13 +1,14 @@
-import cv2
 import logging
 import mimetypes
-import numpy as np
 import os
 import time
 
-from dswx_sar import dswx_sar_util
-from dswx_sar import generate_log
-from dswx_sar import masking_with_ancillary
+import cv2
+import numpy as np
+
+from dswx_sar import (dswx_sar_util,
+                      generate_log,
+                      masking_with_ancillary)
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 logger = logging.getLogger('dswx_s1')
@@ -63,13 +64,13 @@ def smf(values, minv, maxv):
 
     membership_left = 2 * ((values - minv) / (maxv - minv))**2
     output[(values >= minv) & (values <= center_value)] = \
-        membership_left[(values >=minv) & (values <= center_value)]
+        membership_left[(values >= minv) & (values <= center_value)]
     membership_right = 1 - 2 * ((values - maxv) / (maxv-minv))**2
     output[(values >= center_value) & (values <= maxv)] = \
-        membership_right[(values>=center_value) & (values <= maxv)]
+        membership_right[(values >= center_value) & (values <= maxv)]
 
-    output[ values <= minv ] = 0
-    output[ values >= maxv ] = 1
+    output[values <= minv] = 0
+    output[values >= maxv] = 1
 
     return output
 
@@ -99,7 +100,6 @@ def zmf(values, minv, maxv):
 
     membership_right = 2 * ((values - maxv) / (maxv - minv))**2
     mask_right = (values >= center_value) & (values <= maxv)
-
     output[mask_right] = membership_right[mask_right]
 
     output[values >= maxv] = 0
@@ -165,7 +165,7 @@ def compute_fuzzy_value(intensity,
     landcover : numpy.ndarray
         landcover raster
     landcover_label : dict
-        dict consisting of landcover label
+        dict consisting of landcover labels
     reference_water : numpy.ndarray
         reference water map.
         The values are expected from 0 to 1.
@@ -213,18 +213,17 @@ def compute_fuzzy_value(intensity,
        binary image showing the area where
        ony co-polization is used.
     '''
-
     band_number, rows, cols = intensity.shape
 
     # fuzzy value for intensity for each polarization
-    intensity_z_set=[]
+    intensity_z_set = []
     initial_map = np.ones([rows, cols], dtype='byte')
     low_backscatter_cand = np.ones([rows, cols], dtype=bool)
     dark_water_cand = np.ones([rows, cols], dtype=bool)
 
     for int_id, pol  in enumerate(pol_list):
 
-        thresh_valley_str = os.path.join(outputdir, f"KI_tau_filled_{pol}.tif")
+        thresh_valley_str = os.path.join(outputdir, f"int_threshold_filled_{pol}.tif")
         thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol}.tif")
 
         valley_threshold_raster = dswx_sar_util.read_geotiff(thresh_valley_str)
@@ -292,7 +291,8 @@ def compute_fuzzy_value(intensity,
         else:
             change_ind = co_pol_ind
 
-        print('cross pol is replaced with co-pol and span over the controversial area')
+        logger.info('cross pol is replaced with co-pol and span '
+                    'over the controversial area')
         # cross-polarization intensity is replaced with co- (or span-) polarizations
         # where water varation is high and areas are dark/flat.
         intensity_z_set[cross_pol_ind][high_frequent_water] = \
@@ -318,11 +318,12 @@ def compute_fuzzy_value(intensity,
     min_dem = mu_h
     max_dem = mu_h + (std_h + 2.5) * std_h
     hand[np.isnan(hand)] = 0
+    logger.info(f'{min_dem} {max_dem} will be used to compute HAND membership')
 
     if np.isnan(min_dem):
-        min_dem = 0
+        min_dem = fuzzy_option['hand_min']
     if np.isnan(max_dem):
-        max_dem = 15
+        max_dem = fuzzy_option['hand_max']
     hand_z = zmf(hand, min_dem, max_dem)
 
     # compute slope membership
@@ -344,15 +345,21 @@ def compute_fuzzy_value(intensity,
                             fuzzy_option['reference_water_max'])
 
     # compute fuzzy-logic-based value
+    # opera dswx s1 algorithm computes the fuzzy-logic-based values from
+    # the intensity, hand, slope, reference water.
+    # twele algorithm computes it from
+    # the intensity, hand, slope, areas.
+    # Note that half of fuzzy value comes from intensity values
+    # and remaining value will come from ancillary data.
     method_dict = {
         'opera_dswx_s1': lambda: (nansum_intensity_z_set / (band_number) * 0.5 + \
                    (hand_z + slope_z + reference_water_s)  / 3 * 0.5),
-        'twele': lambda: (nansum_intensity_z_set / (band_number + 1) / 2 + \
-                   (hand_z + slope_z)  / 3 / 2)
+        'twele': lambda: (nansum_intensity_z_set / (band_number + 1) * 0.5 + \
+                   (hand_z + slope_z + area_s)  / 3 * 0.5)
     }
     avgvalue = method_dict[workflow]()
     mask = np.squeeze(np.nansum(intensity, axis=0)) == 0
-    avgvalue[mask==1] = 0
+    avgvalue[mask] = 0
 
     return avgvalue, intensity_z_set, hand_z, \
         slope_z, area_s, reference_water_s, copol_only
@@ -377,7 +384,9 @@ def run(cfg):
 
     # fuzzy cfg
     fuzzy_cfg = processing_cfg.fuzzy_value
-    option_dict = {'hand_threshold': fuzzy_cfg.hand_maximum,
+    option_dict = {'hand_threshold': fuzzy_cfg.hand.excluded_mask,
+                   'hand_min': fuzzy_cfg.hand.member_min,
+                   'hand_max': fuzzy_cfg.hand.member_max,
                    'slope_min': fuzzy_cfg.slope.member_min,
                    'slope_max': fuzzy_cfg.slope.member_max,
                    'reference_water_min': fuzzy_cfg.reference_water.member_min,
@@ -451,8 +460,6 @@ def run(cfg):
 
     if processing_cfg.debug_mode:
 
-        vs.im_display(fuzzy_avgvalue, outputdir, 'fuzzy_image')
-
         rasters_to_save = [('hand_z', hand_z),
                            ('slope_z', slope_z),
                            ('area_s', area_s),
@@ -480,6 +487,7 @@ def run(cfg):
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran fuzzy processing in {t_all_elapsed:.3f} seconds")
 
+
 def main():
 
     parser = _get_parser()
@@ -498,6 +506,7 @@ def main():
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
     run(cfg)
+
 
 if __name__ == '__main__':
     main()

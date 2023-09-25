@@ -1,20 +1,20 @@
-import os
 import logging
-import time
 import mimetypes
+import os
+import time
 
 import cv2
-import rasterio
 import numpy as np
+import rasterio
+from joblib import Parallel, delayed
+from rasterio.windows import Window
 from scipy import ndimage
 from skimage.filters import threshold_multiotsu
-from rasterio.windows import Window
-from joblib import Parallel, delayed
 from typing import List, Tuple
 
-from dswx_sar import dswx_sar_util
-from dswx_sar import generate_log
-from dswx_sar import refine_with_bimodality
+from dswx_sar import (dswx_sar_util,
+                      generate_log,
+                      refine_with_bimodality)
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 
@@ -42,18 +42,20 @@ def get_label_landcover_esa_10():
 
     return label
 
-class FillMaskLandcover:
+
+class FillMaskLandCover:
     def __init__(self, landcover_file_path):
-        '''Initialize FillMaskLandcover
+        '''Initialize FillMaskLandCover
 
         Parameters
         ----------
         landcover_file_path : str
             path for the landcover file
         '''
-        self.landcover_file_str = landcover_file_path
-        if not os.path.isfile(self.landcover_file_str):
-            raise OSError(f"{self.landcover_file_str} is not found")
+        self.landcover_file_path = landcover_file_path
+        if not os.path.isfile(self.landcover_file_path):
+            raise OSError(f"{self.landcover_file_path} is not found")
+
 
     def open_landcover(self):
         '''Open landcover map
@@ -63,8 +65,9 @@ class FillMaskLandcover:
         landcover_map : numpy.ndarray
             2 dimensional land cover map
         '''
-        landcover_map = dswx_sar_util.read_geotiff(self.landcover_file_str)
+        landcover_map = dswx_sar_util.read_geotiff(self.landcover_file_path)
         return landcover_map
+
 
     def get_mask(self, mask_label):
         '''Obtain areas corresponding to the givin labels from landcover map
@@ -83,7 +86,7 @@ class FillMaskLandcover:
         landcover_label = get_label_landcover_esa_10()
         landcover_binary = np.zeros(landcover.shape, dtype=bool)
         for label_name in mask_label:
-            print(label_name)
+            logger.info(f'Land Cover: {label_name} is extracted.')
             temp = landcover == landcover_label[f"{label_name}"]
             landcover_binary[temp] = True
 
@@ -215,7 +218,7 @@ def check_water_land_mixture(args):
         out_boundary = (np.isnan(int_linear) == 0) & (water_label == 0)
 
         if bimodality_flag:
-            print('landcover: found bimodality', bounds)
+            logger.info(f'landcover: found bimodality {bounds}')
             out_boundary_sub = np.copy(out_boundary)
 
             # dilation will not be cover the out_boundary_sub area.
@@ -239,17 +242,17 @@ def check_water_land_mixture(args):
                                  (int_db >= threshold_local_otsu[t_ind - 1]) & \
                                  (target_water)
 
-                newsize = np.count_nonzero(dark_water)
+                n_dark_water_pixels = np.count_nonzero(dark_water)
                 # compute additional iteration number using size.
                 # it does not need to be precise.
-                add_iter = int((np.sqrt(2) - 1.2) * np.sqrt(newsize))
+                add_iter = int((np.sqrt(2) - 1.2) * np.sqrt(n_dark_water_pixels))
                 dark_mask_buffer = ndimage.binary_dilation(
                     dark_water,
                     iterations=add_iter,
                     mask=out_boundary_sub)
                 dark_water_linear = int_linear[dark_mask_buffer]
-                hist_min = np.percentile(10*np.log10(dark_water_linear), 1)
-                hist_max = np.percentile(10*np.log10(dark_water_linear), 99)
+                hist_min = np.percentile(10 * np.log10(dark_water_linear), 1)
+                hist_max = np.percentile(10 * np.log10(dark_water_linear), 99)
 
                 # Check if the candidates of 'dark water' has distinct backscattering
                 # compared to the adjacent pixels using bimodality
@@ -268,22 +271,25 @@ def check_water_land_mixture(args):
                     water_mask[dark_water] = 0
                     change_flag = True
 
-                if t_ind == len(threshold_local_otsu)-1:
-                    bright_water = (int_db >= threshold) & (target_water)
+                if t_ind == len(threshold_local_otsu) - 1:
+                    bright_water_pixels = (int_db >= threshold) & \
+                                          (target_water)
                 else:
-                    bright_water = (int_db >= threshold) & \
-                                   (int_db < threshold_local_otsu[t_ind+1]) & \
-                                   (target_water)
+                    bright_water_pixels = \
+                        (int_db >= threshold) & \
+                        (int_db < threshold_local_otsu[t_ind+1]) & \
+                        (target_water)
 
-                newsize = np.count_nonzero(bright_water)
-                add_iter = int((np.sqrt(2) - 1.2) * np.sqrt(newsize))
-                bright_mask_buffer = ndimage.binary_dilation(bright_water,
-                                                        iterations=add_iter,
-                                                        mask=out_boundary_sub)
+                n_bright_water_pixels = np.count_nonzero(bright_water_pixels)
+                add_iter = int((np.sqrt(2) - 1.2) * np.sqrt(n_bright_water_pixels))
+                bright_mask_buffer = ndimage.binary_dilation(
+                    bright_water_pixels,
+                    iterations=add_iter,
+                    mask=out_boundary_sub)
                 bright_water_linear = int_linear[bright_mask_buffer]
                 bright_water_linear[bright_water_linear == 0] = np.nan
-                hist_min = np.percentile(10*np.log10(bright_water_linear), 2)
-                hist_max = np.percentile(10*np.log10(bright_water_linear), 98)
+                hist_min = np.percentile(10 * np.log10(bright_water_linear), 2)
+                hist_max = np.percentile(10 * np.log10(bright_water_linear), 98)
                 metric_obj_local = refine_with_bimodality.BimodalityMetrics(
                     bright_water_linear,
                     hist_min=hist_min,
@@ -294,7 +300,7 @@ def check_water_land_mixture(args):
                     bm_flag=True,
                     surface_ratio_flag=True,
                     bc_flag=False):
-                    water_mask[bright_water] = 0
+                    water_mask[bright_water_pixels] = 0
                     change_flag = True
 
     return i, change_flag, water_mask
@@ -364,6 +370,7 @@ def split_extended_water_parallel(
                        coord_list[i][0] : coord_list[i][1]] = water_mask_subset
 
     return water_mask
+
 
 def compute_spatial_coverage_from_ancillary_parallel(
         water_mask: np.ndarray,
@@ -450,6 +457,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
 
     return mask_water_image
 
+
 def compute_spatial_coverage(args):
     """Compute the spatial coverage of non-water areas
     based on given arguments.
@@ -487,6 +495,7 @@ def compute_spatial_coverage(args):
     test_output_i = ref_land_portion > threshold
 
     return i, test_output_i
+
 
 def run(cfg):
     '''
@@ -527,7 +536,7 @@ def run(cfg):
     landcover_path_str = os.path.join(outputdir, 'interpolated_landcover')
 
     # Identify target areas from landcover
-    mask_obj = FillMaskLandcover(landcover_path_str)
+    mask_obj = FillMaskLandCover(landcover_path_str)
     mask_excluded_landcover = mask_obj.get_mask(mask_label=['Bare sparse vegetation',
                                                   'Urban',
                                                   'Moss and lichen'])
@@ -708,6 +717,6 @@ def main():
 
     run(cfg)
 
+
 if __name__ == '__main__':
     main()
-

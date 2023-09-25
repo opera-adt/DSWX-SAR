@@ -19,7 +19,8 @@ def region_growing(likelihood_image,
                    initial_threshold=0.6,
                    relaxed_threshold=0.45,
                    maxiter=200,
-                   mode='descending'):
+                   mode='descending',
+                   verbose=True):
     """The regions are then grown from the seed points to adjacent
     points since it covers the relaxed_threshold values.
 
@@ -96,7 +97,8 @@ def region_growing(likelihood_image,
         binary_image[buffer_binary] = new_binary
         number_added = np.sum(new_binary)
         itercount += 1
-        logger.info(f"iteration {itercount}: {number_added:.3f} pixels added")
+        if verbose:
+            logger.info(f"iteration {itercount}: {number_added:.3f} pixels added")
 
     return binary_image
 

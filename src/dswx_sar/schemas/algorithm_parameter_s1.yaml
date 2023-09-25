@@ -57,13 +57,23 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
+            # Flag to average the thresholds within the tile. 
+            # The output thresholds are assigned to each tile. 
             tile_average: bool(required=False)
             number_iterations: num(required=False)
+            # number of threads to run
+            # -1 represents the all available threads
             number_cpu: num(required=False)
 
         fuzzy_value:
             # hand value to mask out
-            hand_maximum: num(required=False)
+            hand: 
+                excluded_mask: num(required=False)
+                # min and max values for hand are automatically calculated
+                # from input HAND, but they are not given,
+                # below values are used.
+                member_min: num(required=False)
+                member_max: num(required=False)
             # membership bound for slope angle
             slope:
                 member_min: num(required=False)
@@ -97,8 +107,10 @@ runconfig:
             line_per_block: num(min=1, required=False)
 
         masking_ancillary:
+            # VV and VH threshold values for dark land candidates
             vv_threshold: num(min=-30, max=10, required=False)
             vh_threshold: num(min=-30, max=10, required=False)
+            # reference water threshold value for dark land candidates
             water_threshold: num(min=0, max=100, required=False)
 
         refine_with_bimodality:
@@ -110,5 +122,5 @@ runconfig:
             initial_class_path: str(required=False)
             line_per_block: num(min=1, required=False)
 
-        # debug mode is true, intermeidate product is generated. 
+        # debug mode is true, intermediate product is generated. 
         debug_mode: bool(required=False)

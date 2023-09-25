@@ -1,22 +1,23 @@
+import logging
+import mimetypes
 import os
 import time
-import logging
-import cv2
-import numpy as np
-import mimetypes
-import scipy
-from scipy import ndimage
-from scipy.optimize import curve_fit
-from scipy import stats
 
-from skimage.filters import threshold_otsu, threshold_multiotsu
+import cv2
 from joblib import Parallel, delayed
+import numpy as np
 import rasterio
 from rasterio.windows import Window
+import scipy
+from scipy import ndimage, stats
+from scipy.optimize import curve_fit
+from skimage.filters import (threshold_otsu,
+                             threshold_multiotsu)
 
-from dswx_sar import generate_log
-from dswx_sar import dswx_sar_util
-from dswx_sar import masking_with_ancillary
+from dswx_sar import (dswx_sar_util,
+                      generate_log,
+                      masking_with_ancillary)
+from dswx_sar.dswx_sar_util import band_assign_value_dict
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 logger = logging.getLogger('dswx_S1')
@@ -24,6 +25,7 @@ logger = logging.getLogger('dswx_S1')
 
 class BimodalityMetrics:
     '''Estimate metrics for bimodality'''
+
     def __init__(self,
                 intensity_array,
                 hist_min=-32,
@@ -47,11 +49,12 @@ class BimodalityMetrics:
             distribution
         """
         self.intensity_array = intensity_array.flatten()
-        bins_hist = np.linspace(hist_min,
-                                hist_max,
-                                hist_num+1)
         int_db = 10 * np.log10(self.intensity_array)
         self.int_db = int_db
+
+        bins_hist = np.linspace(hist_min,
+                                hist_max,
+                                hist_num + 1)
 
         self.counts, bins = np.histogram(int_db,
                                          bins=bins_hist,
@@ -70,9 +73,10 @@ class BimodalityMetrics:
         # then apply multi-threshold algorithm
         if self.threshold_global_otsu < gauss_dist_thres_bound[0]:
             multithreshold_global_otsu = threshold_multiotsu(int_db)
-            if any(element for element in
-                   multithreshold_global_otsu if element >=
-                   gauss_dist_thres_bound[0]):
+            # if any(element for element in
+            #        multithreshold_global_otsu if element >=
+            #        gauss_dist_thres_bound[0]):
+            if any(multithreshold_global_otsu >= gauss_dist_thres_bound[0]):
                 self.threshold_global_otsu_ind = \
                     np.where((multithreshold_global_otsu >
                               gauss_dist_thres_bound[0]) &
@@ -85,20 +89,20 @@ class BimodalityMetrics:
         self.prob = self.counts * self.binstep
 
         # Initial values for curve fitting using threshold computed above
-        mean_cand1 = np.nanmean(int_db[int_db < self.threshold_global_otsu])
-        mean_cand2= np.nanmean(int_db[int_db > self.threshold_global_otsu])
-        std_cand1 = np.std(int_db[int_db < self.threshold_global_otsu])
-        std_cand2 = np.std(int_db[int_db > self.threshold_global_otsu])
-        amp_cand1_ind = np.abs(self.bincenter - mean_cand1).argmin()
-        amp_cand1 = self.prob[amp_cand1_ind]
-        amp_cand2_ind = np.abs(self.bincenter - mean_cand2).argmin()
-        amp_cand2 = self.prob[amp_cand2_ind]
+        mean_lt = np.nanmean(int_db[int_db < self.threshold_global_otsu])
+        mean_gt= np.nanmean(int_db[int_db > self.threshold_global_otsu])
+        std_lt = np.std(int_db[int_db < self.threshold_global_otsu])
+        std_gt = np.std(int_db[int_db > self.threshold_global_otsu])
+        amp_lt_ind = np.abs(self.bincenter - mean_lt).argmin()
+        amp_lt = self.prob[amp_lt_ind]
+        amp_gt_ind = np.abs(self.bincenter - mean_gt).argmin()
+        amp_gt = self.prob[amp_gt_ind]
 
         try:
             # starting value for curve_fit
             # mean, std, amplitude, mean, std, amplitude
-            expected = (mean_cand1, std_cand1, amp_cand1,
-                        mean_cand2, std_cand2, amp_cand2)
+            expected = (mean_lt, std_lt, amp_lt,
+                        mean_gt, std_gt, amp_gt)
             params, _ = curve_fit(self.bimodal,
                                   self.bincenter,
                                   self.prob,
@@ -122,18 +126,19 @@ class BimodalityMetrics:
         except:
             self.optimization = False
 
-    def gauss(self, x, mu, sigma, A):
+
+    def gauss(self, array, mu, sigma, amplitude):
         """ Calculate the value of a Gaussian (normal) function.
 
         Parameters
         ----------
-        x : float or array-like
+        array : float or array-like
             The value(s) at which to evaluate the Gaussian.
         mu: float
             The mean of the Gaussian.
         sigma: float
             The standard deviation of the Gaussian.
-        A: float
+        amplitude: float
             Amplitude of the Gaussian.
 
         Returns
@@ -141,15 +146,16 @@ class BimodalityMetrics:
         float or array-like
             The value(s) of the Gaussian function at x.
         """
-        return A * np.exp(-(x - mu)**2 / 2 / sigma**2)
+        return amplitude * np.exp(-(array - mu)**2 / 2 / sigma ** 2)
 
-    def bimodal(self, x, mu1, sigma1, amplitud1,
+
+    def bimodal(self, array, mu1, sigma1, amplitud1,
                 mu2, sigma2, amplitud2):
         """ Calculate the value of a bimodal Gaussian (normal) function.
 
         Parameters
         ----------
-        x : float or array-like
+        array : float or array-like
             The value(s) at which to evaluate the Gaussian.
         mu1: float
             The mean of the first Gaussian.
@@ -169,8 +175,9 @@ class BimodalityMetrics:
         float or array-like
             The value(s) of the Gaussian function at x.
         """
-        return self.gauss(x, mu1, sigma1, amplitud1) + \
-            self.gauss(x, mu2, sigma2, amplitud2)
+        return self.gauss(array, mu1, sigma1, amplitud1) + \
+            self.gauss(array, mu2, sigma2, amplitud2)
+
 
     def compute_ashman(self):
         """Compute the Ashman coefficient for bimodality estimation.
@@ -191,6 +198,7 @@ class BimodalityMetrics:
         ashman_coeff = numerator / denominator
         return ashman_coeff
 
+
     def compute_bhc(self):
         """
         Compute the Bhattacharyya coefficient for bimodality estimation.
@@ -207,6 +215,7 @@ class BimodalityMetrics:
         counts_norm = self.counts / np.sum(self.counts)
         bhc_coeff = np.sum(np.sqrt(simul_all_norm * counts_norm))
         return bhc_coeff
+
 
     def compute_surface_ratio(self):
         """Compute the Surface Ratio coefficient
@@ -226,6 +235,7 @@ class BimodalityMetrics:
         surface_ratio_coeff = np.nanmin([area_first, area_second]) / \
             np.max([area_first, area_second])
         return surface_ratio_coeff
+
 
     def compute_bc_coefficient(self):
         """Compute the BC coefficient for bimodality estimation.
@@ -249,6 +259,7 @@ class BimodalityMetrics:
             sample_size - 2) / (sample_size - 3)
         bc_coeff = (skewness_sq + 1) / (kurtosis + adjustment)
         return bc_coeff
+
 
     def compute_bimodality(self):
         """
@@ -276,20 +287,20 @@ class BimodalityMetrics:
             local_min_ind = np.argmin(self.simul_all[start_ind:end_ind]) + start_ind
 
             value = self.bincenter[local_min_ind]
-            cand1 = self.bincenter <= value
-            cand2 = self.bincenter >= value
-            meanp1 = np.nanmean(self.int_db[self.int_db <= value])
-            meanp2 = np.nanmean(self.int_db[self.int_db >= value])
-
-            probp1 = np.nansum(self.counts[cand1]) * self.binstep
-            probp2 = np.nansum(self.counts[cand2]) * self.binstep
+            cand_lte = self.bincenter <= value
+            cand_gte = self.bincenter >= value
+            meanp_lte = np.nanmean(self.int_db[self.int_db <= value])
+            meanp_gte = np.nanmean(self.int_db[self.int_db >= value])
+            probp_lte = np.nansum(self.counts[cand_lte]) * self.binstep
+            probp_gte = np.nansum(self.counts[cand_gte]) * self.binstep
 
             var_all = np.nanvar(self.int_db)
-            sigma_b = probp1 * probp2 * ((meanp1 - meanp2) ** 2) / var_all
+            sigma_b = probp_lte * probp_gte * ((meanp_lte - meanp_gte) ** 2) / var_all
         except:
             sigma_b, _ = estimate_bimodality(self.int_db)
 
         return sigma_b
+
 
     def compute_metric(self,
                        ashman_flag=True,
@@ -373,6 +384,7 @@ class BimodalityMetrics:
 
         return bimodality_flag
 
+
     def get_metric(self):
         """
         Calculate bimodality metrics based on the optimization flag.
@@ -399,6 +411,7 @@ class BimodalityMetrics:
             bc_coeff = self.compute_bc_coefficient()
 
         return ashman, bhc, surface_ratio, bm_coeff, bc_coeff
+
 
 def estimate_bimodality(array,
                         min_im=-30,
@@ -442,35 +455,39 @@ def estimate_bimodality(array,
     countsum=np.nansum(counts_smooth)
 
     for bin_idx, value in enumerate(bincenter):
-        cand1 = bincenter <= value
-        cand2 = bincenter >= value
-        left_sum = np.nansum(counts_smooth[cand1])
-        right_sum = np.nansum(counts_smooth[cand2])
+        cand_left = bincenter <= value
+        cand_right = bincenter >= value
+        left_sum = np.nansum(counts_smooth[cand_left])
+        right_sum = np.nansum(counts_smooth[cand_right])
 
         # when number of histogram bin is not zero
         if left_sum > 0 and right_sum > 0:
+            meanp_left = \
+                np.nansum(counts_smooth[cand_left] * bincenter[cand_left]) \
+                / left_sum
+            meanp_right = \
+                np.nansum(counts_smooth[cand_right] * bincenter[cand_right]) \
+                / right_sum
+            stdp_left = np.sqrt(np.nansum(
+                ((counts_smooth[cand_left] * bincenter[cand_left])
+                - meanp_left )**2)) / left_sum
+            stdp_right = np.sqrt(np.nansum(
+                ((counts_smooth[cand_right] * bincenter[cand_right])
+                - meanp_right )**2)) / right_sum
+            probp_left = np.nansum(counts_smooth[cand_left]) / countsum
+            probp_right = np.nansum(counts_smooth[cand_right]) / countsum
 
-            meanp1 = np.nansum(counts_smooth[cand1] * bincenter[cand1]) / left_sum
-            meanp2 = np.nansum(counts_smooth[cand2] * bincenter[cand2]) / right_sum
-
-            stdp1 = np.sqrt(np.nansum(
-                ((counts_smooth[cand1] * bincenter[cand1]) - meanp1 )**2)) / left_sum
-            stdp2 = np.sqrt(np.nansum(
-                ((counts_smooth[cand2] * bincenter[cand2]) - meanp2 )**2)) / right_sum
-
-            probp1 = np.nansum(counts_smooth[cand1]) / countsum
-            probp2 = np.nansum(counts_smooth[cand2]) / countsum
-
-            sigma_b[bin_idx] = probp1 * probp2 * (
-                (meanp1 - meanp2)**2) / std_int
+            sigma_b[bin_idx] = probp_left * probp_right * (
+                (meanp_left - probp_right)**2) / std_int
             ads[bin_idx] = np.sqrt(2) * (
-                np.abs(meanp1 - meanp2)) / np.sqrt(
-                (stdp1**2 + stdp2**2))
+                np.abs(meanp_left - probp_right)) / np.sqrt(
+                (stdp_left ** 2 + stdp_right ** 2))
 
     sigma_max = np.nanmax(sigma_b)
     ad_max = np.nanmax(ads)
 
     return sigma_max, ad_max
+
 
 def process_dark_land_component(args):
     """
@@ -522,8 +539,7 @@ def process_dark_land_component(args):
         pol_ind, bands_str, water_label_str, thresholds, debug_mode = args
 
     # bounding box covering the water
-    row = bounds[0]
-    col = bounds[2]
+    row, _, col, _ = bounds
     width = bounds[1] - bounds[0]
     height = bounds[3] - bounds[2]
     window = Window(row, col, width, height)
@@ -632,7 +648,7 @@ def process_bright_water_component(args):
     -----------
     args : tuple
     A tuple containing the following elements:
-        - i (int): The index of the bright water component.
+        - ind_bright_water (int): The index of the bright water component.
         - sizes (int): The size of the bright water component in pixels.
         - bounds (tuple): The bounding box of the component
           (row, col, width, height).
@@ -653,14 +669,13 @@ def process_bright_water_component(args):
         for the bright water component
             - Btmax (float): The estimated Bt metric value.
             - ADmax (float): The estimated AD metric value.
-            - i (int): The index of the bright water component.
+            - ind_bright_water (int): The index of the bright water component.
     """
-    i, sizes, bounds, output_water_str, landcover_str, \
+    ind_bright_water, sizes, bounds, output_water_str, landcover_str, \
         bands_str, ref_land_str, pol_ind, threshold = args
 
     # bounding box covering the bright waters
-    row = bounds[0]
-    col = bounds[2]
+    row , _, col, _ = bounds
     width = bounds[1] - bounds[0]
     height = bounds[3] - bounds[2]
     window = Window(row, col, width, height)
@@ -671,7 +686,7 @@ def process_bright_water_component(args):
     for image_path in image_paths:
         with rasterio.open(image_path) as src:
             image = src.read(window=window)
-            num_im, _, _ = image.shape
+            num_im, *_ = image.shape
             if num_im > 1:
                 image = np.squeeze(image[pol_ind, :, :])
             else:
@@ -687,7 +702,7 @@ def process_bright_water_component(args):
     # Fine water areas from ref_land and landcover
     landcover_water = (ref_land == 0) | (landcover == 0)
 
-    mask_water = output_water == i + 1
+    mask_water = output_water == ind_bright_water + 1
     landcover_portion = np.nanmean(landcover_water[mask_water])
 
     # Initially, value is set to be higher than threshold
@@ -708,7 +723,7 @@ def process_bright_water_component(args):
         bt_value, ad_value = estimate_bimodality(
             10 * np.log10(intensity_array))
 
-    return bt_value, ad_value, i
+    return bt_value, ad_value, ind_bright_water
 
 
 def remove_false_water_bimodality_parallel(bands,
@@ -1017,11 +1032,13 @@ def fill_gap_water_bimodality_parallel(bands,
             bimodality_set.append(bimodality_image)
             ad_set.append(ad_image)
             # bindary image is created for the pixels that passed two tests.
-            bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set,axis=0)< threshold[1])) | (np.squeeze(np.nanmean(bimodality_set,axis=0)< threshold [0]))
+            bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set,axis=0)< threshold[1])) \
+                | (np.squeeze(np.nanmean(bimodality_set,axis=0)< threshold [0]))
             # 0 value in output_water indicates the non-water
             bimodal_ad_binary[output_water==0] = False
 
     return bimodality_set, ad_set, bimodal_ad_binary
+
 
 def run(cfg):
 
@@ -1066,10 +1083,10 @@ def run(cfg):
     wbd = dswx_sar_util.read_geotiff(reference_water_gdal_str)
 
     # Identify the non-water area from Landcover map
-    try:
+    if 'openSea' in landcover_label:
         landcover_not_water = (landcover_map != landcover_label['openSea']) &\
              (landcover_map != landcover_label['Permanent water bodies'])
-    except:
+    else:
         landcover_not_water = (landcover_map != landcover_label['Permanent water bodies'])
 
     ref_land_str = os.path.join(outputdir,
@@ -1110,7 +1127,7 @@ def run(cfg):
 
     # Identify gaps within the water bodies and fill the gaps
     # if bimodality exists
-    _, _, fill_gap_bindary = \
+    *_, fill_gap_bindary = \
         fill_gap_water_bimodality_parallel(band_set,
                             bimodal_binary==0,
                             pol_list,
@@ -1124,13 +1141,15 @@ def run(cfg):
 
     water_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
 
-    mask_excluded = water_mask_image == 4
-    dark_land = np.logical_and(mask_excluded, water_bindary)
+    landcover_mask_excluded = \
+        water_mask_image == band_assign_value_dict['landcover_mask']
+    dark_land = np.logical_and(landcover_mask_excluded, water_bindary)
     no_data_raster = np.isnan(
         np.squeeze(np.nanmean(band_set, axis=0)))
-    no_data_raster = no_data_raster | (water_mask_image == 255)
-    water_tif_str = os.path.join(outputdir,
-                                 f"bimodality_output_binary_{pol_str}.tif")
+    no_data_raster = no_data_raster | \
+        (water_mask_image == band_assign_value_dict['no_data'])
+    water_tif_str = os.path.join(
+        outputdir, f"bimodality_output_binary_{pol_str}.tif")
     dswx_sar_util.save_dswx_product(water_bindary>0,
                   water_tif_str,
                   geotransform=water_meta['geotransform'],
@@ -1139,24 +1158,6 @@ def run(cfg):
                   scratch_dir=outputdir,
                   dark_land=dark_land,
                   no_data=no_data_raster)
-
-    if processing_cfg.debug_mode:
-        reference_water_gdal_str = os.path.join(outputdir,
-                                                'interpolated_wbd')
-        wbd = dswx_sar_util.read_geotiff(reference_water_gdal_str)
-        wbd = np.array(wbd, dtype='float32')
-        wbd[wbd==ref_no_data] = np.nan
-        output_str = os.path.join(outputdir,
-            f'bimodality_output_comparison_{pol_str}.tif')
-
-        reference_standing_water = wbd/ref_water_max > 0.95
-
-        dswx_sar_util.WaterBinary_comparison_ConvertTiff(
-            water_bindary,
-            reference_standing_water,
-            geotransform=water_meta['geotransform'],
-            projection=water_meta['projection'],
-            output_tiff_str=output_str)
 
     t_time_end = time.time()
     t_all_elapsed = t_time_end - t_all

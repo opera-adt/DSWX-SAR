@@ -42,6 +42,7 @@ runconfig:
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: 'combined'
+            # 
             tile_selection_twele: [0.09, 0.8, 0.97]
             tile_selection_bimodality: 0.7
 
@@ -57,12 +58,19 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: True
+            # number of threads to run
+            # -1 represents the all available threads
             number_cpu: -1
             tile_average: False
 
         fuzzy_value:
             # hand value to mask out
-            hand_maximum: 200
+            hand:
+                # Area where the height is above the exclusion threshold 
+                # is masked out.
+                excluded_mask: 200
+                member_min: 0
+                member_max: 15
             # membership bound for slope angle
             slope:
                 member_min: 0.5
@@ -97,8 +105,10 @@ runconfig:
             line_per_block: 400
 
         masking_ancillary:
+            # VV and VH threshold values for dark land candidates
             vv_threshold: -14.6
             vh_threshold: -22.8
+            # reference water threshold value for dark land candidates
             water_threshold: 
 
         refine_with_bimodality:
@@ -116,6 +126,6 @@ runconfig:
             initial_class_path:
             line_per_block: 300
 
-        # debug mode is true, intermeidate product is generated.
+        # debug mode is true, intermediate product is generated.
         debug_mode: False
 

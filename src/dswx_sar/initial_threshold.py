@@ -544,7 +544,6 @@ def create_three_water_masks(
     water_mask_set : np.ndarray
         The water mask with three settings: normal, flood, and drought.
     """
-
     wbd = np.asarray(wbd, dtype='float32')
     wbd[wbd == no_data] = wbd_max_value
     water_global_norm = wbd / wbd_max_value
@@ -732,7 +731,6 @@ def determine_threshold(
     glob_mode_thres : float
         mode value of gaussian distribution of water body
     """
-
     if max_intensity_histogram == -1000:
         max_intensity_histogram = np.nanpercentile(intensity, 90)
     if min_intensity_histogram == -1000:
@@ -1250,7 +1248,6 @@ def fill_threshold_with_distance(threshold_array,
     threshold_raster : numpy.ndarray
         interpolated raster
     """
-
     tau_row, tau_col, _ = threshold_array['array'].shape
 
     y_tau = threshold_array['block_row'] * np.arange(0, tau_row) + \
@@ -1375,6 +1372,7 @@ def save_threshold_dict(threshold, block_row, block_col):
     threshold_dict['array'] = threshold
 
     return threshold_dict
+
 
 def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
 
@@ -1573,7 +1571,7 @@ def run(cfg):
     Run inital threshold with parameters in cfg dictionary
     """
     t_all = time.time()
-    logger.info(f'Start Initial Threshold')
+    logger.info('Start Initial Threshold')
 
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
@@ -1589,7 +1587,7 @@ def run(cfg):
     average_threshold_flag = init_threshold_cfg.tile_average
     threshold_extending_method = init_threshold_cfg.extending_method
     logger.info(f'Tile selection method: {tile_selection_method}')
-    logger.info(f'average_threshold_flag: {average_threshold_flag}')
+    logger.info(f'Average_threshold_flag: {average_threshold_flag}')
 
     # options for reference water
     ref_water_cfg = processing_cfg.reference_water

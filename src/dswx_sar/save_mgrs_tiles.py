@@ -1,26 +1,28 @@
-import os
-import time
+import ast
+import datetime
 import glob
 import logging
 import mimetypes
-import ast
-import datetime
+import os
+import time
 
+import geopandas as gpd
 import h5py
 import mgrs
-import rasterio
 import numpy as np
-import geopandas as gpd
 from osgeo import gdal, osr
 from pyproj import CRS
+import rasterio
 from rasterio.warp import transform_bounds
 from shapely.geometry import Polygon
 
-from dswx_sar import dswx_sar_util
+from dswx_sar import (dswx_sar_util,
+                      generate_log)
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import generate_log
+
 
 logger = logging.getLogger('dswx_s1')
+
 
 def get_bounding_box_from_mgrs_tile_db(
         mgrs_tile_name,

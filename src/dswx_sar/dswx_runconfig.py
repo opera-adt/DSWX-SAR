@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 import logging
@@ -158,15 +159,28 @@ def check_file_path(file_path: str) -> None:
         raise FileNotFoundError(err_str)
 
 def check_polarizations(pol_list):
+    """Sort polarizations so that co-pols are preceded. 
+    Parameters
+    ----------
+    pol_list : list
+        List of polarizations.
+    """
+    co_pol_list = []
+    cross_pol_list = []
+    def custom_sort(pol):
+        if pol in ['VV', 'HH']:
+            return (0, pol)  # Sort 'VV' and 'HH' before others
+        return (1, pol)
 
-    if 'VH' in pol_list:
-        pol_list.remove('VH')
-        pol_list = ['VH'] + pol_list
+    pol_list = sorted(pol_list, key=custom_sort)
 
-    if 'VV' in pol_list:
-        pol_list.remove('VV')
-        pol_list = ['VV'] + pol_list
+    for pol in pol_list:
+        if pol in ['VV', 'HH']:
+            co_pol_list.append(pol)
+        else:
+            cross_pol_list.append(pol)
 
+    return co_pol_list, cross_pol_list, pol_list
 
 def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     """Check and validate runconfig entries.
@@ -191,6 +205,7 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     for path in ancillary_file_paths:
         check_file_path(path)
 
+
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions
     product_group = group_cfg['product_path_group']
@@ -213,37 +228,6 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
 
         check_file_path(mgrs_collection_database_file)
         check_file_path(mgrs_database_file)
-
-
-def check_geocode_dict(geocode_cfg: dict) -> None:
-
-    # check output EPSG
-    output_epsg = geocode_cfg['output_epsg']
-    if output_epsg is not None:
-        # check 1024 <= output_epsg <= 32767:
-        if output_epsg < 1024 or 32767 < output_epsg:
-            err_str = f'output epsg {output_epsg} in YAML out of bounds'
-            logger.error(err_str)
-            raise ValueError(err_str)
-
-    for xy in 'xy':
-        # check posting value in current axis
-        posting_key = f'{xy}_posting'
-        if geocode_cfg[posting_key] is not None:
-            posting = geocode_cfg[posting_key]
-            if posting <= 0:
-                err_str = '{xy} posting from config of {posting} <= 0'
-                logger.error(err_str)
-                raise ValueError(err_str)
-
-        # check snap value in current axis
-        snap_key = f'{xy}_snap'
-        if geocode_cfg[snap_key] is not None:
-            snap = geocode_cfg[snap_key]
-            if snap <= 0:
-                err_str = '{xy} snap from config of {snap} <= 0'
-                logger.error(err_str)
-                raise ValueError(err_str)
 
 @singledispatch
 def wrap_namespace(ob):
@@ -300,11 +284,19 @@ class RunConfig:
 
         algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameters,
                                            f'algorithm_parameter_{sensor.lower()}')
+        co_pol, cross_pol, pol_list = check_polarizations(
+            algorithm_cfg['runconfig']['processing']['polarizations'])
+        
+        algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list
+        algorithm_cfg['runconfig']['processing']['copol'] = co_pol[0]
+        algorithm_cfg['runconfig']['processing']['crosspol'] = cross_pol[0]
 
         algorithm_sns = wrap_namespace(algorithm_cfg['runconfig']['processing'])
+        
         # copy runconfig parameters from dictionary
         sns.processing = algorithm_sns
         processing_group = sns.processing
+
         debug_mode = processing_group.debug_mode
 
         if args.debug_mode and not debug_mode:

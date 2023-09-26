@@ -556,9 +556,9 @@ def run(cfg):
     low_backscatter_cand = np.ones([cols, rows], dtype=bool)
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'HH']:
-            pol_threshold = landcover_cfg.vv_threshold
+            pol_threshold = landcover_cfg.co_pol_threshold
         elif pol in ['VH', 'HV']:
-            pol_threshold = landcover_cfg.vh_threshold
+            pol_threshold = landcover_cfg.cross_pol_threshold
         else:
             continue  # Skip unknown polarizations
         low_backscatter = 10 * np.log10(band_set[pol_ind, :, :]) < pol_threshold

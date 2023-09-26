@@ -110,16 +110,17 @@ class TileSelection:
         if max_intensity_histogram is None:
             max_intensity_histogram = np.nanpercentile(intensity_db, 98)
 
-        intensity_counts, bins = np.histogram(intensity_db,
-                                    bins=np.linspace(min_intensity_histogram,
-                                                     max_intensity_histogram,
-                                                     numstep+1),
-                                    density=True)
+        intensity_counts, intensity_bins = np.histogram(
+            intensity_db,
+            bins=np.linspace(min_intensity_histogram,
+                             max_intensity_histogram,
+                             numstep+1),
+            density=True)
 
-        bincenter = ((bins[:-1] + bins[1:]) / 2)
+        bincenter = ((intensity_bins[:-1] + intensity_bins[1:]) / 2)
         int_db_variance = np.nanstd(intensity_db)**2
 
-        binstep = bins[2] - bins[1]
+        intensity_bins_step = intensity_bins[2] - intensity_bins[1]
 
         sigma = np.zeros_like(bincenter)
         for bin_index, value in enumerate(bincenter):
@@ -134,8 +135,8 @@ class TileSelection:
                 meanp1 = np.nanmean(intensity_db_left)
                 meanp2 = np.nanmean(intensity_db_right)
 
-                probp1 = np.nansum(intensity_counts[cand1]) * binstep
-                probp2 = np.nansum(intensity_counts[cand2]) * binstep
+                probp1 = np.nansum(intensity_counts[cand1]) * intensity_bins_step
+                probp2 = np.nansum(intensity_counts[cand2]) * intensity_bins_step
 
                 sigma[bin_index] = probp1 * probp2 * (
                     (meanp1 - meanp2) ** 2) / int_db_variance
@@ -444,7 +445,7 @@ class TileSelection:
                                     _, _, tile_bimode_flag = \
                                         self.select_tile_bimodality(
                                             intensity_sub,
-                                            threshold=0.7)
+                                            threshold=self.threshold_bimodality)
 
                                     if tile_bimode_flag:
                                         selected_tile_bimodality.append(True)
@@ -737,7 +738,10 @@ def determine_threshold(
         min_intensity_histogram = np.nanpercentile(intensity, 10)
     numstep = int((max_intensity_histogram - min_intensity_histogram) / step_histogram)
     if numstep < 100:
+        step_histogram0 = step_histogram
         step_histogram = ((max_intensity_histogram - min_intensity_histogram) / 1000)
+        logger.info(f'Histogram bin step changes from {step_histogram0} to {step_histogram} '
+                    'in threshold computation.')
 
     threshold_array = []
     threshold_idx_array = []
@@ -862,6 +866,7 @@ def determine_threshold(
 
         except:
             optimization = False
+            logger.info(f'Bimodal curve Fitting fails in threshold computation.')
             modevalue = tau_mode_left
         try:
             expected = (tau_mode_left, .5, tau_amp_left,
@@ -940,7 +945,7 @@ def determine_threshold(
 
         except:
             tri_optimization = False
-
+            logger.info(f'Trimodal curve Fitting fails in threshold computation.')       
         if tri_optimization:
             intensity_sub2 = intensity_sub[intensity_sub < tri_second_mode[0]]
             tau_bound_gauss = threshold_otsu(intensity_sub2)
@@ -950,11 +955,12 @@ def determine_threshold(
                 modevalue = tri_first_mode[0]
 
         if method == 'rg':
-            intensity_countspp, _ = np.histogram(intensity_sub,
-                                       bins=np.linspace(min_intensity_histogram,
-                                                        max_intensity_histogram,
-                                                        numstep+1),
-                                       density=False)
+            intensity_countspp, _ = np.histogram(
+                intensity_sub,
+                bins=np.linspace(min_intensity_histogram,
+                                 max_intensity_histogram,
+                                 numstep+1),
+                density=False)
             ratio = np.nanmean(intensity_countspp/intensity_counts)
 
             if optimization:
@@ -1420,12 +1426,11 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
 
     tile_selection_object = TileSelection(ref_water_max=water_cfg.max_value,
                                           no_data=water_cfg.no_data_value)
+    tile_selection_object.threshold_twele = tile_selection_twele
+    tile_selection_object.threshold_bimodality = \
+        tile_selection_bimodality
     ## Tile Selection (with water body)
     for polind, pol in enumerate(pol_list):
-
-        tile_selection_object.threshold_twele = tile_selection_twele
-        tile_selection_object.threshold_bimodality = \
-            tile_selection_bimodality
 
         candidate_tile_coords = tile_selection_object.tile_selection_wbd(
                            intensity=intensity[polind, :, :],

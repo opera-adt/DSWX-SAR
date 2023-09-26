@@ -35,6 +35,7 @@ runconfig:
             maximum_tile_size:
                 x: 400
                 y: 400
+            # Minimum tile size for initial threshold.
             minimum_tile_size:
                 x: 40
                 y: 40
@@ -42,10 +43,14 @@ runconfig:
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: 'combined'
-            # 
+            # Thresholds to select tiles showing the boundary between water and nonwater
+            # using bimodality strategy. 
+            # One values are required for twele method 
             tile_selection_twele: [0.09, 0.8, 0.97]
+            # Thresholds to select tiles showing the boundary between water and nonwater
+            # using bimodality strategy. 
+            # One values are required for bimodality method
             tile_selection_bimodality: 0.7
-
             # Stratey to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
             extending_method: 'gdal_grid'
@@ -64,15 +69,16 @@ runconfig:
             tile_average: False
 
         fuzzy_value:
-            # hand value to mask out
             hand:
                 # Area where the height is above the exclusion threshold 
                 # is masked out.
                 excluded_mask: 200
+                # The units of the HAND is meters. 
                 member_min: 0
                 member_max: 15
             # membership bound for slope angle
             slope:
+                # The units of the slope is degree. 
                 member_min: 0.5
                 member_max: 15
             # membership bound for reference water                
@@ -81,12 +87,18 @@ runconfig:
                 member_min: 0.8
                 # Maximum reference water value for membership
                 member_max: 0.95
+            # membership bound for area of initial water bodies
+            # area membership is only required for 'twele' workflow. 
+            # area unit is pixel number. 
+            area:
+                member_min: 0
+                member_max: 40
             # Dark area is defined where cross-pol is lower than cross_land
             # Water is defined where cross-pol is lower than cross_water
             dark_area:
-                # Threshold for land in the dark area definition
+                # Threshold [dB] for land in the dark area definition
                 cross_land: -18
-                # Threshold for water in the dark area definition
+                # Threshold [dB] for water in the dark area definition
                 cross_water: -24
             # High frequent water is defined based on two values
             # water_min_value < high_frequent_water < water_max_value
@@ -106,8 +118,8 @@ runconfig:
 
         masking_ancillary:
             # VV and VH threshold values for dark land candidates
-            vv_threshold: -14.6
-            vh_threshold: -22.8
+            co_pol_threshold: -14.6
+            cross_pol_threshold: -22.8
             # reference water threshold value for dark land candidates
             water_threshold: 
 

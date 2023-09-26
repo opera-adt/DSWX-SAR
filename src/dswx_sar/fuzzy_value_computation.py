@@ -181,6 +181,8 @@ def compute_fuzzy_value(intensity,
             'hand_threshold': HAND value to mask out
             'slope_min': minimum value for z membership function for slope
             'slope_max': maximum value for z membership function for slope
+            'area_min': minimum value for s membership function for area
+            'area_max': maximum value for s membership function for area
             'reference_water_min':
                 minimum value for s membership function for reference water
             'reference_water_max':
@@ -246,7 +248,7 @@ def compute_fuzzy_value(intensity,
             water_threshold = fuzzy_option['dark_area_water']
             low_backscatter = (intensity[int_id, :, :] < pol_threshold) & \
                               (intensity[int_id, :, :] > water_threshold)
-            # low backscattering candidates
+            # Low backscattering candidates
             low_backscatter_cand &= low_backscatter
             dark_water_cand &= intensity[int_id, :, :] < water_threshold
 
@@ -257,7 +259,7 @@ def compute_fuzzy_value(intensity,
     # Here, we identify dry/flat area using slope/landcover/backscattering
     # and use only co-polarization instead of dual polarization.
 
-    # darkland candidate from landcover
+    # Darkland candidate from landcover
     landcover_flat_area_cand = \
             (landcover == landcover_label['Bare sparse vegetation']) | \
             (landcover == landcover_label['Shrubs'])| \
@@ -275,7 +277,8 @@ def compute_fuzzy_value(intensity,
     co_pol_ind = []
     cross_pol_ind = []
 
-    # when dual-polarizations are available
+    # When dual-polarizations are available, cross-polarization intensity
+    # is replaced by the co-polarization over the challenging areas. 
     if ('HH' in pol_list and 'HV' in pol_list) or \
        ('VV' in pol_list and 'VH' in pol_list):
         for polindex, pol in enumerate(pol_list):
@@ -291,16 +294,16 @@ def compute_fuzzy_value(intensity,
         else:
             change_ind = co_pol_ind
 
-        logger.info('cross pol is replaced with co-pol and span '
+        logger.info('Cross pol is replaced with co-pol and span '
                     'over the controversial area')
-        # cross-polarization intensity is replaced with co- (or span-) polarizations
+        # Cross-polarization intensity is replaced with co- (or span-) polarizations
         # where water varation is high and areas are dark/flat.
         intensity_z_set[cross_pol_ind][high_frequent_water] = \
             intensity_z_set[change_ind][high_frequent_water]
         intensity_z_set[cross_pol_ind][landcover_flat_area] = \
             intensity_z_set[change_ind][landcover_flat_area]
 
-        # co-polarization intensity is replaced with cross polarizations
+        # Co-polarization intensity is replaced with cross polarizations
         # where very dark water exists.
         intensity_z_set[change_ind][dark_water_cand] = \
             intensity_z_set[cross_pol_ind][dark_water_cand]
@@ -308,49 +311,63 @@ def compute_fuzzy_value(intensity,
     copol_only = (high_frequent_water == 1) | \
                  (landcover_flat_area==1)
 
-    # compute sum of intensities.
+    # Compute sum of intensities.
     nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
 
-    # compute HAND membership
+    # Compute HAND membership
     logger.info('compute hand z membership')
     mu_h = np.nanmean(hand[initial_map == 1])
     std_h = np.nanstd(hand[initial_map == 1])
     min_dem = mu_h
     max_dem = mu_h + (std_h + 2.5) * std_h
     hand[np.isnan(hand)] = 0
-    logger.info(f'{min_dem} {max_dem} will be used to compute HAND membership')
 
     if np.isnan(min_dem):
         min_dem = fuzzy_option['hand_min']
     if np.isnan(max_dem):
         max_dem = fuzzy_option['hand_max']
+    logger.info(f'     {min_dem} {max_dem} are used to compute HAND membership')
+
     hand_z = zmf(hand, min_dem, max_dem)
 
     # compute slope membership
     logger.info('compute slope z membership')
+    logger.info(f"      {fuzzy_option['slope_min']} {fuzzy_option['slope_max']}"
+                " are used to compute slope membership")
     slope_z = zmf(slope,
                   fuzzy_option['slope_min'],
                   fuzzy_option['slope_max'])
 
-    # compute area membership
+    # Compute area membership
     logger.info('area s membership')
+    logger.info(f"      {fuzzy_option['area_min']} {fuzzy_option['area_max']}"
+                " are used to compute area membership")
     handem = hand < fuzzy_option['hand_threshold']
     wbsmask = (initial_map == 1) & (handem)
     watermap = calculate_water_area(wbsmask)
-    area_s = smf(watermap, 5, 40)
+    area_s = smf(watermap,
+                fuzzy_option['area_min'],
+                fuzzy_option['area_max'])
 
-    ## reference water map
+    # Reference water map membership
+    logger.info('reference s membership')
+    logger.info(f"      {fuzzy_option['reference_water_min']} {fuzzy_option['reference_water_max']}"
+                " are used to compute reference water membership")
     reference_water_s = smf(reference_water,
                             fuzzy_option['reference_water_min'],
                             fuzzy_option['reference_water_max'])
 
-    # compute fuzzy-logic-based value
-    # opera dswx s1 algorithm computes the fuzzy-logic-based values from
-    # the intensity, hand, slope, reference water.
-    # twele algorithm computes it from
-    # the intensity, hand, slope, areas.
-    # Note that half of fuzzy value comes from intensity values
-    # and remaining value will come from ancillary data.
+    # Compute fuzzy-logic-based value
+    # The Opera dswx s1 algorithm calculates fuzzy-logic-based values based on
+    # input parameters, including intensity, hand, slope, and reference water.
+    # The Twele algorithm, on the other hand, computes these values using
+    # intensity, hand, slope, and areas.
+    # It's important to note that half of the fuzzy values (0.5) are derived from
+    # the intensity values, while the remaining half (0.5) comes from ancillary data.
+    # To achieve this, the intensity membership is divided by the number of bands
+    # and then multiplied by 0.5. The maximum value for intensity membership is
+    # capped at 0.5. Similarly, the membership of the ancillary data contributes
+    # 0.5 to the final result.
     method_dict = {
         'opera_dswx_s1': lambda: (nansum_intensity_z_set / (band_number) * 0.5 + \
                    (hand_z + slope_z + reference_water_s)  / 3 * 0.5),
@@ -389,6 +406,8 @@ def run(cfg):
                    'hand_max': fuzzy_cfg.hand.member_max,
                    'slope_min': fuzzy_cfg.slope.member_min,
                    'slope_max': fuzzy_cfg.slope.member_max,
+                   'area_min': fuzzy_cfg.area.member_min,
+                   'area_max': fuzzy_cfg.area.member_max,
                    'reference_water_min': fuzzy_cfg.reference_water.member_min,
                    'reference_water_max': fuzzy_cfg.reference_water.member_max,
                    'dark_area_land': fuzzy_cfg.dark_area.cross_land,

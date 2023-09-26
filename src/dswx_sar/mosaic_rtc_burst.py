@@ -776,8 +776,16 @@ def run(cfg):
             # layover/shadow mask is saved from hdf5 metadata.
                 temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
                 epsg_output = read_metadata_epsg(metadata_path)['epsg']
+                with h5py.File(metadata_path) as meta_src:
+                    if 'mask' in meta_src[freqA_path]:
+                        mask_name = 'mask'
+                    elif 'layoverShadowMask' in meta_src[freqA_path]:
+                        mask_name = 'layoverShadowMask'
+                    else:
+                        raise FileNotFoundError
+
                 save_h5_metadata_to_tif(metadata_path,
-                                            data_path=f'{freqA_path}/mask',
+                                            data_path=f'{freqA_path}/{mask_name}',
                                             output_tif_path=temp_mask_path,
                                             epsg_output=epsg_output)
                 mask_list.append(temp_mask_path)

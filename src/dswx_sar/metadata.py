@@ -35,7 +35,6 @@ def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
     dswx_metadata_dict : collections.OrderedDict
         Metadata dictionary to populate.
     """
-
     metadata_dict = defaultdict(list)
 
     metadata_rtc_fields = {
@@ -62,7 +61,6 @@ def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
             for field, dtype in metadata_rtc_fields.items():
                 if dtype == 'str':
                     value = str(src[f'/identification/{field}'].asstr()[...])
-
                 else:
                     value = int(src[f'/identification/{field}'][...])
                 metadata_dict[field].append(value)
@@ -82,7 +80,7 @@ def _get_date_range(dates):
     input_date_format = "%Y-%m-%dT%H:%M:%S"
     output_date_format = "%Y-%m-%dT%H:%M:%SZ"
     date_objects = [datetime.strptime(date[:19], input_date_format) for date in dates]
-    return datetime.strftime(min(date_objects), output_date_format), 
+    return datetime.strftime(min(date_objects), output_date_format), \
            datetime.strftime(max(date_objects), output_date_format)
 
 
@@ -275,7 +273,7 @@ def gather_rtc_files(rtc_dirs):
     return h5_files
 
 
-def create_dswx_sar_metadata(cfg, rtc_dirs):
+def create_dswx_sar_metadata(cfg, rtc_dirs, product_version):
     """
     Create dictionary containing metadata.
 
@@ -292,7 +290,9 @@ def create_dswx_sar_metadata(cfg, rtc_dirs):
         Metadata dictionary.
     """
     # Get general DSWx-S1 metadata
-    dswx_metadata_dict = _get_general_dswx_metadata_dict(cfg, product_version=0.1)
+    dswx_metadata_dict = _get_general_dswx_metadata_dict(
+        cfg,
+        product_version=product_version)
 
     # Add metadata related to ancillary data
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group

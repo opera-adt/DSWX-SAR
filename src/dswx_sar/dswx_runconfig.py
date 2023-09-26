@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import os
 import sys
 import logging
@@ -157,6 +158,7 @@ def check_file_path(file_path: str) -> None:
         logger.error(err_str)
         raise FileNotFoundError(err_str)
 
+
 def check_polarizations(pol_list):
     """Sort polarizations so that co-pols are preceded. 
     Parameters
@@ -180,6 +182,7 @@ def check_polarizations(pol_list):
             cross_pol_list.append(pol)
 
     return co_pol_list, cross_pol_list, pol_list
+
 
 def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     """Check and validate runconfig entries.
@@ -227,6 +230,7 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
 
         check_file_path(mgrs_collection_database_file)
         check_file_path(mgrs_database_file)
+
 
 @singledispatch
 def wrap_namespace(ob):

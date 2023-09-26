@@ -644,21 +644,6 @@ def run(cfg):
             scratch_dir=outputdir
             )
 
-        dswx_sar_util.binary_display(water_map,
-                                     outputdir,
-                                     'landcover_mask_out')
-
-        output_str = os.path.join(
-            outputdir,
-            f'refine_landcover_comparison_{pol_str}.tif'
-            )
-        dswx_sar_util.WaterBinary_comparison_ConvertTiff(
-            water_map,
-            interp_wbd/ref_water_max>=0.95,
-            geotransform=water_meta['geotransform'],
-            projection=water_meta['projection'],
-            output_tiff_str=output_str)
-
         darkland_str = os.path.join(outputdir,
                                     f"split_dark_land_candidate_{pol_str}.tif")
         dswx_sar_util.save_dswx_product(

@@ -75,8 +75,6 @@ runconfig:
 
         fuzzy_value:
             hand: 
-                # Hand value to mask out
-                excluded_mask: num(required=False)
                 # Min and max values for hand are automatically calculated
                 # from input HAND, but they are not given,
                 # below values are used.

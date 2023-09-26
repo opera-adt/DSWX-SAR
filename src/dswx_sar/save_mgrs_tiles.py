@@ -460,7 +460,7 @@ def run(cfg):
     pol_str = '_'.join(processing_cfg.polarizations)
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
-    hand_mask = processing_cfg.fuzzy_value.hand.excluded_mask
+    hand_mask = processing_cfg.hand.mask_value
 
     static_ancillary_file_group_cfg = cfg.groups.static_ancillary_file_group
     mgrs_db_path = static_ancillary_file_group_cfg.mgrs_database_file
@@ -646,7 +646,7 @@ def run(cfg):
 
         for mgrs_num_id, mgrs_tile_id in enumerate(unique_mgrs_tile_list):
 
-            logger.info(f'MGRS tile {mgrs_num_id}: {mgrs_tile_id}')
+            logger.info(f'MGRS tile {mgrs_num_id + 1}: {mgrs_tile_id}')
 
             if mgrs_db_path is None:
                 (x_value_min, x_value_max,
@@ -662,46 +662,49 @@ def run(cfg):
                 ref_bbox=mgrs_bbox,
                 ref_epsg=epsg_output,
                 input_rtc_dirs=input_list)
+            logger.info(f'overlapped_bursts: {overlapped_burst}')
 
             # Metadata
-            dswx_metadata_dict = create_dswx_sar_metadata(
-                cfg,
-                overlapped_burst)
+            if overlapped_burst:
+                dswx_metadata_dict = create_dswx_sar_metadata(
+                    cfg,
+                    overlapped_burst,
+                    product_version=product_version)
 
-            dswx_name_format_prefix = \
-                f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_{platform_str}_{resolution_str}_v{product_version}'
-            logger.info('Saving the file:')
-            logger.info(f'      {dswx_name_format_prefix}')
+                dswx_name_format_prefix = \
+                    f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_{platform_str}_{resolution_str}_v{product_version}'
+                logger.info('Saving the file:')
+                logger.info(f'      {dswx_name_format_prefix}')
 
-            # Output File names
-            output_mgrs_bwtr = f'{dswx_name_format_prefix}_B01_BWTR.tif'
-            output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_WTR.tif'
-            output_mgrs_conf = f'{dswx_name_format_prefix}_B03_CONF.tif'
+                # Output File names
+                output_mgrs_bwtr = f'{dswx_name_format_prefix}_B01_BWTR.tif'
+                output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_WTR.tif'
+                output_mgrs_conf = f'{dswx_name_format_prefix}_B03_CONF.tif'
 
-            # Crop full size of BWTR, WTR, CONF file
-            # and save them into MGRS tile grid
-            full_input_file_paths = [full_bwtr_water_set_path,
-                                     full_wtr_water_set_path,
-                                     full_conf_water_set_path]
+                # Crop full size of BWTR, WTR, CONF file
+                # and save them into MGRS tile grid
+                full_input_file_paths = [full_bwtr_water_set_path,
+                                        full_wtr_water_set_path,
+                                        full_conf_water_set_path]
 
-            full_output_file_paths = [output_mgrs_bwtr,
-                                      output_mgrs_wtr,
-                                      output_mgrs_conf]
+                full_output_file_paths = [output_mgrs_bwtr,
+                                        output_mgrs_wtr,
+                                        output_mgrs_conf]
 
-            for full_input_file_path, full_output_file_path in zip(
-                full_input_file_paths, full_output_file_paths
-            ):
-                crop_and_save_mgrs_tile(
-                    source_tif_path=full_input_file_path,
-                    output_dir_path=sas_outputdir,
-                    output_tif_name=full_output_file_path,
-                    output_bbox=mgrs_bbox,
-                    output_epsg=epsg_output,
-                    output_format=output_imagery_format,
-                    metadata=dswx_metadata_dict,
-                    cog_compression=output_imagery_compression,
-                    cog_nbits=output_imagery_nbits,
-                    interpolation_method='nearest')
+                for full_input_file_path, full_output_file_path in zip(
+                    full_input_file_paths, full_output_file_paths
+                ):
+                    crop_and_save_mgrs_tile(
+                        source_tif_path=full_input_file_path,
+                        output_dir_path=sas_outputdir,
+                        output_tif_name=full_output_file_path,
+                        output_bbox=mgrs_bbox,
+                        output_epsg=epsg_output,
+                        output_format=output_imagery_format,
+                        metadata=dswx_metadata_dict,
+                        cog_compression=output_imagery_compression,
+                        cog_nbits=output_imagery_nbits,
+                        interpolation_method='nearest')
 
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran save_mgrs_tiles in "

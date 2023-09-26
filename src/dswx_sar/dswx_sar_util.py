@@ -325,6 +325,7 @@ def get_meta_from_tif(tif_file_name):
         tif_name = tif_file_name
     tif_gdal = gdal.Open(tif_name)
     meta_dict = {}
+    meta_dict['band_number'] = tif_gdal.RasterCount
     meta_dict['geotransform'] = tif_gdal.GetGeoTransform()
     meta_dict['projection'] = tif_gdal.GetProjection()
     meta_dict['length'] = tif_gdal.RasterYSize
@@ -561,3 +562,88 @@ def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
               vmax=immax)
     plt.title('RTC')
     plt.savefig(os.path.join(outputdir, f'RTC_intensity_{pol}'))
+
+def block_threshold_visulaization(intensity, block_row, block_col, threshold_tile, outputdir, figname):
+    if len(intensity.shape) == 2:
+        Rows, Cols = np.shape(intensity)  
+    elif len(intensity.shape) == 3:
+        band_number, Rows, Cols = np.shape(intensity)  
+    print(np.shape(threshold_tile))
+    ## Tile Selection (w/o water body)
+    
+    nR = np.int16(Rows / block_row) 
+    nC = np.int16(Cols / block_col)
+    mR = np.mod(Rows, block_row)
+    mC = np.mod(Cols, block_col)
+    nR = nR + ( 1 if mR > 0 else 0) 
+    nC = nC + ( 1 if mC > 0 else 0) 
+    
+    assert nR == threshold_tile.shape[0], 'tile size error'
+    assert nC == threshold_tile.shape[1], 'tile size error'
+
+    intensity = 10*np.log10(intensity)
+
+    plt.figure(figsize=(20,20))
+    vmin = np.nanpercentile(intensity,5)
+    vmax = np.nanpercentile(intensity,95)
+    plt.imshow(intensity, cmap = plt.get_cmap('gray'),vmin=vmin,vmax=vmax)
+       
+    threshold_oversample = np.zeros([Rows, Cols])
+    for ii in range(0,nR):
+        for jj in range(0,nC):
+            if (ii == nR) and ( mR > 0):
+                iend = Rows
+            else:
+                iend = (ii + 1) * block_row
+            if (jj == nC) and ( mC > 0):
+                jend = Cols
+            else:
+                jend = (jj + 1) * block_col 
+            threshold_oversample[ii*block_row : iend, jj*block_col:jend] = threshold_tile[ii, jj]
+            plt.plot( 
+                [jj*block_col,jend, jend, jj*block_col, jj*block_col],[ii*block_row, ii*block_row, iend, iend, ii*block_row] ,'black')
+    threshold_oversample[threshold_oversample==-50] = np.nan
+    plt.imshow(threshold_oversample, alpha=0.3, cmap = plt.get_cmap('jet'), vmin=-20, vmax=-14)
+
+    plt.savefig(os.path.join(outputdir, figname) )
+    plt.close()
+
+
+def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figname):
+    
+    number_layer = len(threshold_dict['array'])
+
+    if len(intensity.shape) == 2:
+        Rows, Cols = np.shape(intensity)
+        band_num = 1
+    elif len(intensity.shape) == 3:
+        band_num, Rows, Cols = np.shape(intensity)
+
+
+    for fig_ind in range(0, band_num):
+        if band_num == 1:
+            intensity_db = 10 * np.log10(intensity)
+        else:
+            intensity_db = 10 * np.log10(np.squeeze(intensity[fig_ind, :, :]))
+
+        plt.figure(figsize=(20, 20))
+        vmin = np.nanpercentile(intensity_db, 5)
+        vmax = np.nanpercentile(intensity_db, 95)
+        plt.imshow(intensity_db, cmap = plt.get_cmap('gray'),vmin=vmin, vmax=vmax)
+        
+        threshold_oversample = np.ones([Rows, Cols]) * -50
+        number_thres = len(threshold_dict['array'][fig_ind])
+        for thres_ind in range(0, number_thres):
+            block_start_row = threshold_dict['subtile_coord'][fig_ind][thres_ind][0]
+            block_end_row = threshold_dict['subtile_coord'][fig_ind][thres_ind][1]     
+            block_start_col = threshold_dict['subtile_coord'][fig_ind][thres_ind][2]
+            block_end_col = threshold_dict['subtile_coord'][fig_ind][thres_ind][3]
+            threshold_tile = threshold_dict['array'][fig_ind][thres_ind]
+            threshold_oversample[block_start_row : block_end_row, block_start_col:block_end_col] = threshold_tile
+            plt.plot([block_start_col, block_end_col, block_end_col, block_start_col, block_start_col],
+                     [block_start_row, block_start_row, block_end_row, block_end_row, block_start_row] ,'black')
+            threshold_oversample[threshold_oversample==-50] = np.nan
+        plt.imshow(threshold_oversample, alpha=0.3, cmap = plt.get_cmap('jet'), vmin=-20, vmax=-14)
+
+        plt.savefig(os.path.join(outputdir, f'{figname}_{fig_ind}') )
+        plt.close()

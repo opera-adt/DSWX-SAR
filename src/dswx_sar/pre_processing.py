@@ -1,17 +1,16 @@
+import logging
+import mimetypes
+import numpy as np
 import os
 import pathlib
 import time
-import numpy as np
-import logging
-import mimetypes
 
-from osgeo import osr, gdal
+from osgeo import gdal, osr
 from pathlib import Path
 
-from dswx_sar import filter_SAR
-from dswx_sar import dswx_sar_util
+from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import generate_log
+
 
 logger = logging.getLogger('dswx_s1')
 
@@ -200,7 +199,8 @@ def run(cfg):
 
     pol_list = processing_cfg.polarizations
     pol_all_str = '_'.join(pol_list)
-
+    co_pol = processing_cfg.copol
+    cross_pol = processing_cfg.crosspol
     mosaic_prefix = processing_cfg.mosaic.mosaic_prefix
     if mosaic_prefix is None:
         mosaic_prefix = 'mosaic'
@@ -300,7 +300,7 @@ def run(cfg):
             # If ratio/span is in the list,
             # then compute the ratio from VVVV and VHVH
             if pol in ['ratio', 'span']:
-                temp_pol_list = ['VV', 'VH']
+                temp_pol_list = [co_pol, cross_pol]
                 logger.info(f'>> computing {pol} {temp_pol_list}')
 
             # If coherence is in the list,
@@ -319,7 +319,7 @@ def run(cfg):
                 ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
                                   np.squeeze(temp_raster_set[1, :, :]))
                 intensity.append(ratio)
-                logger.info('computing ratio VV/VH')
+                logger.info(f'computing ratio {co_pol}/{cross_pol}')
 
             if pol in ['coherence']:
                 coherence = pol_coherence(
@@ -330,8 +330,8 @@ def run(cfg):
                 logger.info('computing polarimetric coherence')
 
             if pol in ['span']:
-                span = np.squeeze(temp_raster_set[0, :, :]+
-                                  2 * np.squeeze(temp_raster_set[1, :, :]))
+                span = np.squeeze(temp_raster_set[0, :, :] +
+                        2 * np.squeeze(temp_raster_set[1, :, :]))
                 intensity.append(span)
 
         else:

@@ -4,10 +4,10 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 
+import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
 import matplotlib.pyplot as plt
-
 
 np2gdal_conversion = {
   "uint8": 1,
@@ -125,7 +125,7 @@ def save_raster_gdal(data, output_file, geotransform,
     gdal_ds.SetProjection(projection)
 
     if nim == 1:
-        gdal_ds.GetRasterBand(1).WriteArray(data)
+        gdal_ds.GetRasterBand(1).WriteArray(np.squeeze(data))
     else:
         for im_ind in range(0, nim):
             gdal_ds.GetRasterBand(im_ind+1).WriteArray(
@@ -250,7 +250,6 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
     # Blocks of 512 x 512 => 256 KiB (UInt8) or 1MiB (Float32)
     tile_size = 512
     gdal_translate_options = ['BIGTIFF=IF_SAFER',
-                              'MAX_Z_ERROR=0',
                               'TILED=YES',
                               f'BLOCKXSIZE={tile_size}',
                               f'BLOCKYSIZE={tile_size}',
@@ -316,6 +315,7 @@ def get_meta_from_tif(tif_file_name):
         tif_name = tif_file_name
     tif_gdal = gdal.Open(tif_name)
     meta_dict = {}
+    meta_dict['band_number'] = tif_gdal.RasterCount
     meta_dict['geotransform'] = tif_gdal.GetGeoTransform()
     meta_dict['projection'] = tif_gdal.GetProjection()
     meta_dict['length'] = tif_gdal.RasterYSize
@@ -395,7 +395,8 @@ def write_raster_block(out_raster, data,
                                 1, Gdal_type)
         ds_data.SetGeoTransform(geotransform)
         ds_data.SetProjection(projection)
-        ds_data.WriteArray(data, xoff=0, yoff=0)
+
+        ds_data.GetRasterBand(1).WriteArray(data, xoff=0, yoff=0)
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
         ds_data.GetRasterBand(1).WriteArray(

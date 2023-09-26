@@ -13,9 +13,12 @@ runconfig:
         reference_water:
             max_value: 100
             no_data_value: 255
-
-        hand:
-            mask_value: 200
+            # value assuming the permanent water [0-1]
+            permanent_water_value: 0.9
+            # number of pixel to apply erosion for drought case
+            drought_erosion_pixel: 10
+            # number of pixel to apply dilation for flood case
+            flood_dilation_pixel: 16 
 
         mosaic:
             mosaic_prefix: 'mosaic'
@@ -33,6 +36,7 @@ runconfig:
             maximum_tile_size:
                 x: 400
                 y: 400
+            # Minimum tile size for initial threshold.
             minimum_tile_size:
                 x: 40
                 y: 40
@@ -40,9 +44,17 @@ runconfig:
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: 'combined'
+            # Thresholds to select tiles showing the boundary between water and nonwater
+            # using bimodality strategy. 
+            # One values are required for twele method 
+            tile_selection_twele: [0.09, 0.8, 0.97]
+            # Thresholds to select tiles showing the boundary between water and nonwater
+            # using bimodality strategy. 
+            # One values are required for bimodality method
+            tile_selection_bimodality: 0.7
             # Stratey to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
-            interpolation_method: 'smoothed'
+            extending_method: 'gdal_grid'
             # Thresholding algorithm for initial thresholds.
             # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
             # ['otsu', 'ki']
@@ -52,6 +64,50 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: True
+            # number of threads to run
+            # -1 represents the all available threads
+            number_cpu: -1
+            tile_average: False
+
+        fuzzy_value:
+            hand:
+                # Area where the height is above the exclusion threshold 
+                # is masked out.
+                excluded_mask: 200
+                # The units of the HAND is meters. 
+                member_min: 0
+                member_max: 15
+            # membership bound for slope angle
+            slope:
+                # The units of the slope is degree. 
+                member_min: 0.5
+                member_max: 15
+            # membership bound for reference water                
+            reference_water:
+                # Minimum reference water value for membership
+                member_min: 0.8
+                # Maximum reference water value for membership
+                member_max: 0.95
+            # membership bound for area of initial water bodies
+            # area membership is only required for 'twele' workflow. 
+            # area unit is pixel number. 
+            area:
+                member_min: 0
+                member_max: 40
+            # Dark area is defined where cross-pol is lower than cross_land
+            # Water is defined where cross-pol is lower than cross_water
+            dark_area:
+                # Threshold [dB] for land in the dark area definition
+                cross_land: -18
+                # Threshold [dB] for water in the dark area definition
+                cross_water: -24
+            # High frequent water is defined based on two values
+            # water_min_value < high_frequent_water < water_max_value
+            high_frequent_water:
+                # Minimum value for high frequent water
+                water_min_value: 0.1
+                # Maximum value for high frequent water
+                water_max_value: 0.9
 
         # Region growing options
         region_growing:
@@ -61,13 +117,28 @@ runconfig:
             relaxed_threshold: 0.51
             line_per_block: 400
 
+        masking_ancillary:
+            # VV and VH threshold values for dark land candidates
+            co_pol_threshold: -14.6
+            cross_pol_threshold: -22.8
+            # reference water threshold value for dark land candidates
+            water_threshold: 
+
+        refine_with_bimodality:
+            minimum_pixel: 4
+            thresholds:
+                ashman: 1.5
+                Bhattacharyya_coefficient: 0.97
+                bm_coefficient: 0.7
+                surface_ratio: 0.1
+
+
         inundated_vegetation:
             enabled: True
-            mode: 'static_layer'
             temporal_avg_path:
             initial_class_path:
             line_per_block: 300
 
-        # debug mode is true, intermeidate product is generated.
+        # debug mode is true, intermediate product is generated.
         debug_mode: False
 

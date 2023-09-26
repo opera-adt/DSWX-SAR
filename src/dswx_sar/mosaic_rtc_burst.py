@@ -1,22 +1,24 @@
 '''
 A module to mosaic Sentinel-1 geobursts from RTC workflow
 '''
-
-import os
-import time
 import glob
-import numpy as np
 import logging
-import h5py
-from osgeo import osr, gdal
 import mimetypes
+import os
 import tempfile
-from scipy import ndimage
-from collections import Counter
+import time
 
+from collections import Counter
+import h5py
+import numpy as np
+from osgeo import osr, gdal
+from scipy import ndimage
+
+
+from dswx_sar import (dswx_sar_util,
+                      generate_log)
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import dswx_sar_util
-from dswx_sar import generate_log
+
 
 logger = logging.getLogger('dswx_s1')
 
@@ -776,10 +778,17 @@ def run(cfg):
             # layover/shadow mask is saved from hdf5 metadata.
                 temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
                 epsg_output = read_metadata_epsg(metadata_path)['epsg']
-                save_h5_metadata_to_tif(metadata_path,
+                try:
+                    save_h5_metadata_to_tif(metadata_path,
                                             data_path=f'{freqA_path}/mask',
                                             output_tif_path=temp_mask_path,
                                             epsg_output=epsg_output)
+                except:
+                    save_h5_metadata_to_tif(metadata_path,
+                                            data_path=f'{freqA_path}/layoverShadowMask',
+                                            output_tif_path=temp_mask_path,
+                                            epsg_output=epsg_output)
+
                 mask_list.append(temp_mask_path)
 
         # Check if metadata have common values on

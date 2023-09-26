@@ -7,7 +7,8 @@ import numpy as np
 from scipy import ndimage
 from joblib import Parallel, delayed
 
-from dswx_sar import dswx_sar_util
+from dswx_sar import (dswx_sar_util,
+                      generate_log)
 from dswx_sar.dswx_runconfig import RunConfig, _get_parser
 
 
@@ -17,7 +18,9 @@ logger = logging.getLogger('dswx_s1')
 def region_growing(likelihood_image,
                    initial_threshold=0.6,
                    relaxed_threshold=0.45,
-                   maxiter=200):
+                   maxiter=200,
+                   mode='descending',
+                   verbose=True):
     """The regions are then grown from the seed points to adjacent
     points since it covers the relaxed_threshold values.
 
@@ -48,8 +51,24 @@ def region_growing(likelihood_image,
         1: the pixels involved in region growing (i.e., water)
         0: the pixels not involved in region growing (i.e., non-water)
     """
+    if mode == 'descending':
+        if initial_threshold <= relaxed_threshold:
+            err_str = f"Initial threshold {initial_threshold} " \
+                      f" should be larger than relaxed threshold" \
+                      f"{relaxed_threshold}."
+            raise ValueError(err_str)
+    else:
+        if initial_threshold >= relaxed_threshold:
+            err_str = f"Initial threshold {initial_threshold} " \
+                      f" should be smaller than relaxed threshold" \
+                      f"{relaxed_threshold}."
+            raise ValueError(err_str)
+
     # Create initial binary image using seed value
-    binary_image = likelihood_image > initial_threshold
+    if mode == 'descending':
+        binary_image = likelihood_image > initial_threshold
+    else:
+        binary_image = likelihood_image < initial_threshold
 
     newpixelmin = 0
     itercount = 0
@@ -69,13 +88,17 @@ def region_growing(likelihood_image,
             ndimage.binary_dilation(binary_image), binary_image)
 
         # define new_binary for the pixels higher than relaxed_threshold
-        new_binary = likelihood_image[buffer_binary] > relaxed_threshold
+        if mode == 'descending':
+            new_binary = likelihood_image[buffer_binary] > relaxed_threshold
+        else:
+            new_binary = likelihood_image[buffer_binary] < relaxed_threshold 
 
         # add new pixels to binary_image
         binary_image[buffer_binary] = new_binary
         number_added = np.sum(new_binary)
         itercount += 1
-        logger.info(f"iteration {itercount}: {number_added:.3f} pixels added")
+        if verbose:
+            logger.info(f"iteration {itercount}: {number_added:.3f} pixels added")
 
     return binary_image
 
@@ -253,8 +276,8 @@ def run(cfg):
     region_growing_relaxed_threshold = region_growing_cfg.relaxed_threshold
     region_growing_line_per_block = region_growing_cfg.line_per_block
 
-    print(f'Region Growing Seed: {region_growing_seed}')
-    print(f'Region Growing relaxed threshold: {region_growing_relaxed_threshold}')
+    logger.info(f'Region Growing Seed: {region_growing_seed}')
+    logger.info(f'Region Growing relaxed threshold: {region_growing_relaxed_threshold}')
 
     fuzzy_tif_path = os.path.join(outputdir,
                                   f'fuzzy_image_{pol_str}.tif')
@@ -305,6 +328,7 @@ def main():
     parser = _get_parser()
 
     args = parser.parse_args()
+    generate_log.configure_log_file(args.log_file)
 
     mimetypes.add_type("text/yaml", ".yaml", strict=True)
     flag_first_file_is_text = 'text' in mimetypes.guess_type(

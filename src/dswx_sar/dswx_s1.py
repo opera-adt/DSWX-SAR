@@ -3,9 +3,14 @@
 import logging
 import time
 
-from dswx_sar import mosaic_rtc_burst, save_mgrs_tiles, dummy_dswx_s1,\
-                     pre_processing, region_growing
-
+from dswx_sar import (fuzzy_value_computation,
+                      initial_threshold,
+                      masking_with_ancillary,
+                      mosaic_rtc_burst,
+                      pre_processing,
+                      save_mgrs_tiles,
+                      refine_with_bimodality,
+                      region_growing,)
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import generate_log
 
@@ -17,6 +22,7 @@ def dswx_s1_workflow(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
     input_list = cfg.groups.input_file_group.input_file_path
+    dswx_workflow = processing_cfg.dswx_workflow
 
     logger.info("")
     logger.info("Starting DSWx-S1 algorithm")
@@ -29,11 +35,25 @@ def dswx_s1_workflow(cfg):
     # preprocessing (relocating ancillary data and filtering)
     pre_processing.run(cfg)
 
-    # create dummy water map. This will be replaced or removed in future. 
-    dummy_dswx_s1.run(cfg)
+    # Estimate threshold for given polarizations
+    initial_threshold.run(cfg)
 
-    # apply region-growing algorithm
+    # Fuzzy value computation
+    fuzzy_value_computation.run(cfg)
+
+    # Region Growing
     region_growing.run(cfg)
+
+    if dswx_workflow == 'opera_dswx_s1':
+        # Land use map
+        masking_with_ancillary.run(cfg)
+
+        ### Refinement
+        refine_with_bimodality.run(cfg)
+
+        if processing_cfg.inundated_vegetation.enabled:
+            #[TODO]detect_inundated_vegetation.run(cfg)
+            pass
 
     # save product as mgrs tiles.
     save_mgrs_tiles.run(cfg)

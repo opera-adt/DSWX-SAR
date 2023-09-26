@@ -1,16 +1,18 @@
-import os
-import h5py
-import glob
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+import glob
+import os
 
+import h5py
 import numpy as np
+
 from dswx_sar.version import VERSION as SOFTWARE_VERSION
-from dswx_sar.dswx_sar_util import read_geotiff, band_assign_value_dict
+from dswx_sar.dswx_sar_util import (band_assign_value_dict,
+                                    read_geotiff)
 
 # Constants
 UNKNOWN = 'UNKNOWN'
-PRODUCT_VERSION = 'UNKNOWN'
+PRODUCT_VERSION = UNKNOWN
 DEFAULT_METADATA = {
     'DSWX_PRODUCT_VERSION': PRODUCT_VERSION,
     'SOFTWARE_VERSION': SOFTWARE_VERSION,
@@ -25,7 +27,7 @@ DEFAULT_METADATA = {
 
 def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
     """Copy metadata dictionary from RTC metadata.
-    
+
     Parameters
     ----------
     h5path_list : list
@@ -67,7 +69,6 @@ def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
 
     for rtc_field, dswx_field in dswx_meta_mapping.items():
         values = metadata_dict[rtc_field]
-        
         if dswx_field == 'SENSING_TIME':
             start, end = _get_date_range(values)
             dswx_metadata_dict['SENSING_START'] = start
@@ -81,13 +82,13 @@ def _get_date_range(dates):
     input_date_format = "%Y-%m-%dT%H:%M:%S"
     output_date_format = "%Y-%m-%dT%H:%M:%SZ"
     date_objects = [datetime.strptime(date[:19], input_date_format) for date in dates]
-    return datetime.strftime(min(date_objects), output_date_format), \
+    return datetime.strftime(min(date_objects), output_date_format), 
            datetime.strftime(max(date_objects), output_date_format)
 
 
 def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
     """Populate metadata dictionary with input files.
-    
+
     Parameters
     ----------
     dswx_metadata_dict : collections.OrderedDict
@@ -95,7 +96,6 @@ def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
     ancillary_cfg: obj
         Configuration object containing all ancillary data sources and their descriptions.
     """
-
     # Dictionary mapping of source type to its file and description attributes in ancillary_cfg
     source_map = {
         'DEM_SOURCE': ('dem_file', 'dem_file_description'),
@@ -108,7 +108,6 @@ def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
     for meta_key, (file_attr, desc_attr) in source_map.items():
         description = getattr(ancillary_cfg, desc_attr, None)
         file_path = getattr(ancillary_cfg, file_attr, None)
-        
         if description:
             dswx_metadata_dict[meta_key] = description
         elif file_path:
@@ -117,8 +116,7 @@ def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
             dswx_metadata_dict[meta_key] = 'NOT_PROVIDED_OR_NOT_USED'
 
 
-def _populate_processing_metadata_datasets(dswx_metadata_dict,
-                                           cfg):
+def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
     """
     Populate the metadata dictionary with processing information.
     Parameters
@@ -130,13 +128,11 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict,
     """
     try:
         processing_cfg = cfg.groups.processing
-        
         # Mapping for simple key-value assignments
         threshold_mapping = {
             'otsu': 'OTSU',
             'ki': 'Kittler-Illingworth'
         }
-        
         dswx_metadata_dict.update({
             'POLARIZATION': processing_cfg.polarizations,
             'FILTER': 'Enhanced Lee filter',
@@ -147,7 +143,6 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict,
             'FUZZY_TOLERANCE': processing_cfg.region_growing.relaxed_threshold,
             'INUNDATED_VEGETATION': processing_cfg.inundated_vegetation.enabled
         })
-        
     except AttributeError as e:
         print(f"Attribute error occurred: {e}")
     except KeyError as e:
@@ -159,12 +154,12 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict,
 def compute_spatial_coverage(data_array):
     """
     Compute the spatial coverage.
-    
+
     Parameters
     ----------
     data_array : np.array
         The 2D numpy array representation of the GeoTIFF.
-        
+
     Returns
     -------
     float
@@ -173,28 +168,28 @@ def compute_spatial_coverage(data_array):
     total_pixels = data_array.size
     invalid_pixels = np.sum(data_array == 255)
     valid_pixels = total_pixels - invalid_pixels
-    
+
     return round(valid_pixels / total_pixels * 100, 4)
 
 
 def compute_layover_shadow_coverage(data_array, spatial_coverage):
     """
     Compute the layover-shadow coverage.
-    
+
     Parameters
     ----------
     data_array : np.array
         The 2D numpy array representation of the GeoTIFF.
     spatial_coverage : float
         Spatial coverage as a percentage.
-        
+
     Returns
     -------
     float
         Layover-shadow coverage as a percentage.
     """
     layover_shadow_pixels = np.sum(data_array == band_assign_value_dict['layover_shadow_mask'])
-    
+
     if spatial_coverage > 0:
         return round(layover_shadow_pixels / (spatial_coverage / 100 * data_array.size) * 100, 4)
     else:
@@ -205,7 +200,7 @@ def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
     """
     Populate the metadata dictionary with spatial
     and layover shadow coverages.
-    
+
     Parameters
     ----------
     dswx_metadata_dict : dict
@@ -215,13 +210,13 @@ def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
     """
     try:
         dswx_data = read_geotiff(dswx_geotiff, verbose=False)
-        
+
         spatial_cov = compute_spatial_coverage(dswx_data)
         layover_shadow_cov = compute_layover_shadow_coverage(dswx_data, spatial_cov)
-        
+
         dswx_metadata_dict['SPATIAL_COVERAGE'] = spatial_cov
         dswx_metadata_dict['LAYOVER_SHADOW_COVERAGE'] = layover_shadow_cov
-        
+
     except Exception as e:
         print(f"An error occurred while processing the GeoTIFF: {e}")
 
@@ -239,14 +234,14 @@ def set_dswx_s1_metadata(metadata_dict):
 def _get_general_dswx_metadata_dict(cfg, product_version=None):
     """
     Generate metadata field for dswx products.
-    
+
     Parameters
     ----------
     cfg: RunConfig
         Input runconfig.
     product_version: str, optional
         Version of the DSWx product. Defaults to None.
-        
+
     Returns
     -------
     dict
@@ -283,14 +278,14 @@ def gather_rtc_files(rtc_dirs):
 def create_dswx_sar_metadata(cfg, rtc_dirs):
     """
     Create dictionary containing metadata.
-    
+
     Parameters
     ----------
     cfg: RunConfig
         Input runconfig.
     rtc_dirs: list
         List of directories containing RTC files.
-        
+
     Returns
     -------
     dict

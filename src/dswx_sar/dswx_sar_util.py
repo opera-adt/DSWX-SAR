@@ -4,10 +4,10 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 
-import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
 import matplotlib.pyplot as plt
+
 
 np2gdal_conversion = {
   "uint8": 1,
@@ -23,8 +23,8 @@ np2gdal_conversion = {
 }
 
 band_assign_value_dict = {
-    'no_water': 0 ,
-    'water': 1, # water body
+    'no_water': 0,
+    'water': 1,  # water body
     'bright_water_fill': 2,
     'dark_land_mask': 3,
     'landcover_mask': 4,
@@ -33,6 +33,7 @@ band_assign_value_dict = {
     'inundated_vegetation': 7,
     'no_data': 255
 }
+
 
 def get_interpreted_dswx_s1_ctable():
     """Get colortable for DSWx-S1 products
@@ -57,6 +58,7 @@ def get_interpreted_dswx_s1_ctable():
     dswx_ctable.SetColorEntry(255, (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
 
     return dswx_ctable
+
 
 def read_geotiff(input_tif_str, band_ind=None, verbose=True):
     """Read band from geotiff
@@ -86,9 +88,10 @@ def read_geotiff(input_tif_str, band_ind=None, verbose=True):
         print(f" -- Reading {input_tif_str} ... {tifdata.shape}")
     return tifdata
 
+
 def save_raster_gdal(data, output_file, geotransform,
                      projection, scratch_dir='.',
-                     DataType='float32'):
+                     datatype='float32'):
     """Save images using Gdal
     Parameters
     ----------
@@ -102,10 +105,10 @@ def save_raster_gdal(data, output_file, geotransform,
         projection object
     scratch_dir: str
         temporary file path to process COG file.
-    DataType: str
+    datatype: str
         Data types to save the file.
     """
-    gdal_type = np2gdal_conversion[str(DataType)]
+    gdal_type = np2gdal_conversion[str(datatype)]
     image_size = data.shape
     #  Set the Pixel Data (Create some boxes)
     # set geotransform
@@ -125,7 +128,7 @@ def save_raster_gdal(data, output_file, geotransform,
     gdal_ds.SetProjection(projection)
 
     if nim == 1:
-        gdal_ds.GetRasterBand(1).WriteArray(np.squeeze(data))
+        gdal_ds.GetRasterBand(1).WriteArray(data)
     else:
         for im_ind in range(0, nim):
             gdal_ds.GetRasterBand(im_ind+1).WriteArray(
@@ -136,6 +139,7 @@ def save_raster_gdal(data, output_file, geotransform,
     del gdal_ds  # close the dataset (Python object and pointers)
 
     _save_as_cog(output_file, scratch_dir)
+
 
 def save_dswx_product(wtr, output_file, geotransform,
                       projection, scratch_dir='.',
@@ -197,9 +201,13 @@ def save_dswx_product(wtr, output_file, geotransform,
 
     _save_as_cog(output_file, scratch_dir)
 
-def _save_as_cog(filename, scratch_dir = '.', logger = None,
-                flag_compress=True, ovr_resamp_algorithm=None,
-                compression='DEFLATE', nbits=None):
+def _save_as_cog(filename,
+                 scratch_dir='.',
+                 logger=None,
+                 flag_compress=True,
+                 ovr_resamp_algorithm=None,
+                 compression='DEFLATE',
+                 nbits=None):
     """Save (overwrite) a GeoTIFF file as a cloud-optimized GeoTIFF.
 
     Parameters
@@ -229,7 +237,7 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
 
     overviews_list = [4, 16, 64, 128]
 
-    is_integer = 'byte' in dtype_name  or 'int' in dtype_name
+    is_integer = 'byte' in dtype_name or 'int' in dtype_name
     if ovr_resamp_algorithm is None and is_integer:
         ovr_resamp_algorithm = 'NEAREST'
     elif ovr_resamp_algorithm is None:
@@ -250,6 +258,7 @@ def _save_as_cog(filename, scratch_dir = '.', logger = None,
     # Blocks of 512 x 512 => 256 KiB (UInt8) or 1MiB (Float32)
     tile_size = 512
     gdal_translate_options = ['BIGTIFF=IF_SAFER',
+                              'MAX_Z_ERROR=0',
                               'TILED=YES',
                               f'BLOCKXSIZE={tile_size}',
                               f'BLOCKYSIZE={tile_size}',
@@ -287,12 +296,13 @@ def change_epsg_tif(input_tif, output_tif, epsg_output):
         new EPSG code
     """
     metadata = get_meta_from_tif(input_tif)
-    opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
-                     resampleAlg='nearest',
-                     dstNodata='Nan',
-                     xRes=metadata['geotransform'][1],
-                     yRes=metadata['geotransform'][5],
-                     format='GTIFF')
+    opt = gdal.WarpOptions(
+        dstSRS=f'EPSG:{epsg_output}',
+        resampleAlg='nearest',
+        dstNodata='Nan',
+        xRes=metadata['geotransform'][1],
+        yRes=metadata['geotransform'][5],
+        format='GTIFF')
 
     gdal.Warp(output_tif, input_tif, options=opt)
 
@@ -315,7 +325,6 @@ def get_meta_from_tif(tif_file_name):
         tif_name = tif_file_name
     tif_gdal = gdal.Open(tif_name)
     meta_dict = {}
-    meta_dict['band_number'] = tif_gdal.RasterCount
     meta_dict['geotransform'] = tif_gdal.GetGeoTransform()
     meta_dict['projection'] = tif_gdal.GetProjection()
     meta_dict['length'] = tif_gdal.RasterYSize
@@ -361,9 +370,10 @@ def get_raster_block(raster_path, block_param):
 
     return data_block
 
+
 def write_raster_block(out_raster, data,
-                        block_param, geotransform, projection,
-                        DataType='byte'):
+                       block_param, geotransform, projection,
+                       datatype='byte'):
     ''' Write processed block to out_raster.
 
     Parameters
@@ -376,33 +386,33 @@ def write_raster_block(out_raster, data,
     block_param: BlockParam
         Object specifying where and how much to write to out_raster.
     '''
-    if DataType == 'float32':
-        Gdal_type = gdal.GDT_Float32
-    elif DataType == 'uint16':
-        Gdal_type = gdal.GDT_UInt16
-    elif DataType == 'byte':
-        Gdal_type = gdal.GDT_Byte
-    elif DataType == 'int16':
-        Gdal_type = gdal.GDT_Int16
-    elif DataType == 'int32':
-        Gdal_type = gdal.GDT_Int32
+    if datatype == 'float32':
+        gdal_type = gdal.GDT_Float32
+    elif datatype == 'uint16':
+        gdal_type = gdal.GDT_UInt16
+    elif datatype == 'byte':
+        gdal_type = gdal.GDT_Byte
+    elif datatype == 'int16':
+        gdal_type = gdal.GDT_Int16
+    elif datatype == 'int32':
+        gdal_type = gdal.GDT_Int32
 
     if block_param.write_start_line == 0:
         driver = gdal.GetDriverByName('GTiff')
         ds_data = driver.Create(out_raster,
                                 block_param.data_width,
                                 block_param.data_length,
-                                1, Gdal_type)
+                                1, gdal_type)
         ds_data.SetGeoTransform(geotransform)
         ds_data.SetProjection(projection)
-
-        ds_data.GetRasterBand(1).WriteArray(data, xoff=0, yoff=0)
+        ds_data.WriteArray(data, xoff=0, yoff=0)
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
         ds_data.GetRasterBand(1).WriteArray(
                 data,
                 xoff=0,
                 yoff=block_param.write_start_line)
+
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):
     ''' Generator for block specific parameter class.
@@ -437,7 +447,8 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         middle_block = not first_block and not last_block
 
         # Determine block size; Last block uses leftover lines
-        block_length = data_length - start_line if last_block else lines_per_block
+        block_length = data_length - start_line \
+            if last_block else lines_per_block
 
         # Determine padding along length. Full padding for middle blocks
         # Half padding for start and end blocks
@@ -450,12 +461,14 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         # to account for additional lines to be read.
         read_start_line = block * lines_per_block - half_path_length
 
-        # If applicable, save negative start line as deficit to account for later
+        # If applicable, save negative start line as deficit
+        # to account for later
         read_start_line, start_line_deficit = (
             0, read_start_line) if read_start_line < 0 else (
             read_start_line, 0)
 
-        # Initial guess at number lines to read; accounting for negative start at the end
+        # Initial guess at number lines to read; accounting
+        # for negative start at the end
         read_length = block_length + read_length_pad
         if not first_block:
             read_length -= abs(start_line_deficit)
@@ -467,8 +480,10 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
 
         # Determine block padding in length
         if first_block:
-            # Only the top part of the block should be padded. If end_deficit_line=0
-            # we have a sufficient number of lines to be read in the subsequent block
+            # Only the top part of the block should be padded.
+            # If end_deficit_line=0
+            # we have a sufficient number of lines to be read in
+            # the subsequent block
             top_pad = half_path_length
             bottom_pad = abs(end_line_deficit)
         elif last_block:
@@ -485,7 +500,8 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         block_pad = ((top_pad, bottom_pad),
                      (half_path_width, half_path_width))
 
-        yield BlockParam(block_length, write_start_line, read_start_line, read_length, block_pad, data_width, data_length)
+        yield BlockParam(block_length, write_start_line, read_start_line,
+                         read_length, block_pad, data_width, data_length)
 
     return
 
@@ -510,7 +526,7 @@ class BlockParam:
 
     # Padding to be applied to read in current block. First tuple is padding to
     # be applied to top/bottom (along length). Second tuple is padding to be
-    # applied to left/right (along width). Values in second tuple do not change;
+    # applied to left/right (along width). Values in second tuple do not change
     # included in class so one less value is passed between functions.
     block_pad: tuple
 
@@ -539,8 +555,9 @@ def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     """
     plt.figure(figsize=(20, 20))
     _, ax = plt.subplots(1, 1, figsize=(15, 15))
-    ax.imshow(10*np.log10(intensity), cmap = plt.get_cmap('gray'),
-
-                   vmin=immin,vmax=immax)
+    ax.imshow(10 * np.log10(intensity),
+              cmap=plt.get_cmap('gray'),
+              vmin=immin,
+              vmax=immax)
     plt.title('RTC')
-    plt.savefig(os.path.join(outputdir, 'RTC_intensity_{}'.format(pol)))
+    plt.savefig(os.path.join(outputdir, f'RTC_intensity_{pol}'))

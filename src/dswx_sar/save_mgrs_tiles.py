@@ -1,14 +1,14 @@
 import ast
 import datetime
 import glob
+import h5py
 import logging
 import mimetypes
+import mgrs
 import os
 import time
 
 import geopandas as gpd
-import h5py
-import mgrs
 import numpy as np
 from osgeo import gdal, osr
 from pyproj import CRS
@@ -16,12 +16,12 @@ import rasterio
 from rasterio.warp import transform_bounds
 from shapely.geometry import Polygon
 
-from dswx_sar import (dswx_sar_util,
-                      generate_log)
+from dswx_sar import dswx_sar_util
+from dswx_sar.dswx_sar_util import band_assign_value_dict
+from dswx_sar.dswx_runconfig import RunConfig, _get_parser
 from dswx_sar.metadata import (create_dswx_sar_metadata,
                                _populate_statics_metadata_datasets)
-from dswx_sar.dswx_sar_util import band_assign_value_dict
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar import generate_log
 
 
 logger = logging.getLogger('dswx_s1')
@@ -138,9 +138,8 @@ def find_intersecting_burst_with_bbox(ref_bbox,
     ----------
     ref_bbox: list
         Bounding box, minx, miny, maxx, maxy
-        in geographic coordinates (ESPG:4326)
     ref_epsg: int
-        Name of the MGRS tile (ex. 18LWQ)
+        reference EPSG code.
     input_rtc_dirs: list
         List of rtc directories
 
@@ -183,7 +182,7 @@ def find_intersecting_burst_with_bbox(ref_bbox,
 
         # Check if bursts intersect the reference polygon
         if ref_polygon.intersects(rtc_polygon) or \
-            ref_polygon.overlaps(rtc_polygon):
+           ref_polygon.overlaps(rtc_polygon):
             overlapped_rtc_dir_list.append(input_dir)
             
     return overlapped_rtc_dir_list
@@ -261,7 +260,8 @@ def crop_and_save_mgrs_tile(
     gdal_band = None
 
     input_tif_obj = None
-    if  output_format == 'COG':
+
+    if output_format == 'COG':
         dswx_sar_util._save_as_cog(
             output_tif_file_path,
             output_dir_path,
@@ -309,9 +309,9 @@ def get_intersecting_mgrs_tiles_list_from_db(
     # Create a Polygon from the bounds
     raster_polygon = Polygon(
         [(left, bottom),
-        (left, top),
-        (right, top),
-        (right, bottom)])
+         (left, top),
+         (right, top),
+         (right, bottom)])
 
     # Create a GeoDataFrame from the raster polygon
     raster_gdf = gpd.GeoDataFrame([1],
@@ -339,7 +339,8 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
 
 def get_intersecting_mgrs_tiles_list(image_tif: str):
-    """Find and return a list of MGRS tiles that intersect a reference GeoTIFF file
+    """Find and return a list of MGRS tiles
+    that intersect a reference GeoTIFF file.
 
     Parameters
     ----------
@@ -351,7 +352,6 @@ def get_intersecting_mgrs_tiles_list(image_tif: str):
     mgrs_list: list
         List of intersecting MGRS tiles.
     """
-
     water_meta = dswx_sar_util.get_meta_from_tif(image_tif)
 
     # extract bounding for images.
@@ -416,7 +416,6 @@ def get_intersecting_mgrs_tiles_list(image_tif: str):
         dst.ImportFromEPSG(4326)
         transformation_utm_to_ll = osr.CoordinateTransformation(srs, dst)
 
-
     # Get MGRS tile list
     mgrs_list = []
     mgrs_obj = mgrs.MGRS()
@@ -429,7 +428,9 @@ def get_intersecting_mgrs_tiles_list(image_tif: str):
                             int(y_extent[1]),
                             -5000):
             # extract MGRS tile
-            lat, lon, _ = transformation_utm_to_ll.TransformPoint(x_cand, y_cand, 0)
+            lat, lon, _ = transformation_utm_to_ll.TransformPoint(x_cand,
+                                                                  y_cand,
+                                                                  0)
             mgrs_tile = mgrs_obj.toMGRS(lat, lon)
             mgrs_list.append(mgrs_tile[0:5])
 
@@ -450,15 +451,16 @@ def run(cfg):
 
     # Output image format
     output_imagery_format = product_path_group_cfg.output_imagery_format
-    output_imagery_compression = product_path_group_cfg.output_imagery_compression
+    output_imagery_compression = \
+        product_path_group_cfg.output_imagery_compression
     output_imagery_nbits = product_path_group_cfg.output_imagery_nbits
 
-
+    # Processing parameters
     processing_cfg = cfg.groups.processing
     pol_str = '_'.join(processing_cfg.polarizations)
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
-    hand_mask = processing_cfg.hand.mask_value
+    hand_mask = processing_cfg.fuzzy_value.hand.excluded_mask
 
     static_ancillary_file_group_cfg = cfg.groups.static_ancillary_file_group
     mgrs_db_path = static_ancillary_file_group_cfg.mgrs_database_file
@@ -469,7 +471,8 @@ def run(cfg):
         logger.warning('WARNING: product version was not provided.')
 
     if mgrs_db_path is not None and mgrs_collection_db_path is not None:
-        logger.info('Both the MGRS tile or the MGRS collection database were provided.')
+        logger.info('Both the MGRS tile or the MGRS collection database '
+                    'were provided.')
         database_bool = True
     else:
         logger.warning('WARNING: Either the MGRS tile or '
@@ -646,10 +649,12 @@ def run(cfg):
             logger.info(f'MGRS tile {mgrs_num_id}: {mgrs_tile_id}')
 
             if mgrs_db_path is None:
-                x_value_min, x_value_max, y_value_min, y_value_max, epsg_output = \
+                (x_value_min, x_value_max,
+                 y_value_min, y_value_max, epsg_output) = \
                     get_bounding_box_from_mgrs_tile(mgrs_tile_id)
             else:
-                x_value_min, x_value_max, y_value_min, y_value_max, epsg_output = \
+                (x_value_min, x_value_max,
+                 y_value_min, y_value_max, epsg_output) = \
                     get_bounding_box_from_mgrs_tile_db(mgrs_tile_id,
                                                        mgrs_db_path)
             mgrs_bbox = [x_value_min, y_value_min, x_value_max, y_value_max]
@@ -659,7 +664,9 @@ def run(cfg):
                 input_rtc_dirs=input_list)
 
             # Metadata
-            dswx_metadata_dict = create_dswx_sar_metadata(cfg, overlapped_burst)
+            dswx_metadata_dict = create_dswx_sar_metadata(
+                cfg,
+                overlapped_burst)
 
             dswx_name_format_prefix = \
                 f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_{platform_str}_{resolution_str}_v{product_version}'
@@ -697,7 +704,8 @@ def run(cfg):
                     interpolation_method='nearest')
 
     t_all_elapsed = time.time() - t_all
-    logger.info(f"successfully ran save_mgrs_tiles in {t_all_elapsed:.3f} seconds")
+    logger.info("successfully ran save_mgrs_tiles in "
+                f"{t_all_elapsed:.3f} seconds")
 
 
 def main():
@@ -719,6 +727,7 @@ def main():
     generate_log.configure_log_file(cfg.groups.log_file)
 
     run(cfg)
+
 
 if __name__ == '__main__':
     main()

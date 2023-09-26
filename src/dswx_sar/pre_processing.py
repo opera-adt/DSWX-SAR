@@ -1,17 +1,16 @@
+import logging
+import mimetypes
+import numpy as np
 import os
 import pathlib
 import time
-import numpy as np
-import logging
-import mimetypes
 
-from osgeo import osr, gdal
+from osgeo import gdal, osr
 from pathlib import Path
 
-from dswx_sar import filter_SAR
-from dswx_sar import dswx_sar_util
+from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import generate_log
+
 
 logger = logging.getLogger('dswx_s1')
 

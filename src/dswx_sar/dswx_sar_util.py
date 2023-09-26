@@ -1,13 +1,12 @@
 import logging
-import matplotlib.pyplot as plt
 import os
 import shutil
 import tempfile
 from dataclasses import dataclass
 
+import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
-
 
 np2gdal_conversion = {
   "uint8": 1,

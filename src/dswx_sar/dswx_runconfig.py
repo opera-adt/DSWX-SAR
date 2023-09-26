@@ -1,15 +1,14 @@
-import copy
 import os
 import sys
 import logging
-import yamale
-import argparse
-from dataclasses import dataclass
 from functools import singledispatch
 from types import SimpleNamespace
-from ruamel.yaml import YAML
-import dswx_sar
 
+import yamale
+import argparse
+from ruamel.yaml import YAML
+
+import dswx_sar
 
 logger = logging.getLogger('dswx-s1')
 

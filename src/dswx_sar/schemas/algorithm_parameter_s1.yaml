@@ -33,20 +33,26 @@ runconfig:
             maximum_tile_size:
                 x: num(required=False)
                 y: num(required=False)
-            # minimum tile size for initial threshold.
+            # Minimum tile size for initial threshold.
             minimum_tile_size:
                 x: num(required=False)
                 y: num(required=False)
 
-            # tile selecting strategy to identify the boundary between water and nonwater
+            # Tile selecting strategy to identify the boundary between water and nonwater
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: str(required=False)
+            # Thresholds to select tiles showing the boundary between water and nonwater
+            # three values are required for twele method
+            # 1) std / mean of tiles
+            # 2) min value and 3) max value of mean of subtiles / mean of tiles
+            tile_selection_twele: list(required=False)
+            # Thresholds to select tiles showing the boundary between water and nonwater
+            # using bimodality strategy. 
+            # One values are required for bimodality method
+            tile_selection_bimodality: num(required=False)
             # Strategy to interpolate the tile-based thresholds.
             # Currently, only 'smoothed' is available.
-            tile_selection_twele: list(required=False)
-            tile_selection_bimodality: num(required=False)
-
             extending_method: str(required=False)
             # Thresholding algorithm for initial thresholds.
             # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
@@ -57,22 +63,37 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
+            # Flag to average the thresholds within the tile. 
+            # The output thresholds are assigned to each tile. 
             tile_average: bool(required=False)
             number_iterations: num(required=False)
+            # Number of threads to run
+            # -1 represents the all available threads
             number_cpu: num(required=False)
 
         fuzzy_value:
-            # hand value to mask out
-            hand_maximum: num(required=False)
-            # membership bound for slope angle
+            hand: 
+                # Hand value to mask out
+                excluded_mask: num(required=False)
+                # Min and max values for hand are automatically calculated
+                # from input HAND, but they are not given,
+                # below values are used.
+                member_min: num(required=False)
+                member_max: num(required=False)
+            # Membership bound for slope angle
             slope:
                 member_min: num(required=False)
                 member_max: num(required=False)
-            # membership bound for reference water                
+            # Membership bound for reference water                
             reference_water:
                 # Minimum reference water value for membership
                 member_min: num(required=False)
                 # Maximum reference water value for membership
+                member_max: num(required=False)
+            # Membership bound for area of initial water bodies.
+            # Area membership is only required for 'twele' workflow. 
+            area:
+                member_min: num(required=False)
                 member_max: num(required=False)
             # Dark area is defined where cross-pol is lower than cross_land
             # Water is defined where cross-pol is lower than cross_water
@@ -90,15 +111,17 @@ runconfig:
                 water_max_value: num(required=False)
                         
         region_growing:
-            # seed value for region growing start
+            # Seed value for region growing start
             initial_threshold: num(min=0, max=1, required=False)
-            # value where region growing is stopped
+            # Value where region growing is stopped
             relaxed_threshold: num(min=0, max=1, required=False)
             line_per_block: num(min=1, required=False)
 
         masking_ancillary:
-            vv_threshold: num(min=-30, max=10, required=False)
-            vh_threshold: num(min=-30, max=10, required=False)
+            # VV and VH threshold values for dark land candidates
+            co_pol_threshold: num(min=-30, max=10, required=False)
+            cross_pol_threshold: num(min=-30, max=10, required=False)
+            # Reference water threshold value for dark land candidates
             water_threshold: num(min=0, max=100, required=False)
 
         refine_with_bimodality:
@@ -111,5 +134,5 @@ runconfig:
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
 
-        # debug mode is true, intermeidate product is generated. 
+        # If debug mode is true, intermediate product is generated. 
         debug_mode: bool(required=False)

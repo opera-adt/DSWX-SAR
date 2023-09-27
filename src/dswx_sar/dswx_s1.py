@@ -6,15 +6,14 @@ import mimetypes
 import time
 from datetime import datetime
 
-from dswx_sar import (mosaic_rtc_burst,
-                      save_mgrs_tiles,
-                      dummy_dswx_s1,
+from dswx_sar import (fuzzy_value_computation,
                       initial_threshold,
-                      fuzzy_value_computation,
+                      masking_with_ancillary,
+                      mosaic_rtc_burst,
+                      pre_processing,
+                      save_mgrs_tiles,
                       refine_with_bimodality,
-                      masking_with_ancillary)
-
-
+                      region_growing,)
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import generate_log
 
@@ -48,14 +47,11 @@ def dswx_s1_workflow(cfg):
     # Region Growing
     region_growing.run(cfg)
 
-    # Create dummpy water map.
-    dummy_dswx_s1.run(cfg)
-
     if dswx_workflow == 'opera_dswx_s1':
         # Land use map
         masking_with_ancillary.run(cfg)
 
-        ### Refinement
+        # Refinement
         refine_with_bimodality.run(cfg)
 
         if processing_cfg.inundated_vegetation.enabled:

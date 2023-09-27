@@ -129,4 +129,4 @@ def create_logger(log_file, full_log_formatting=None):
     sys.stdout = Logger(logger, logging.INFO)
     sys.stderr = Logger(logger, logging.ERROR, prefix='[StdErr] ')
 
-    return
+    return logger

@@ -273,7 +273,7 @@ def gather_rtc_files(rtc_dirs):
     return h5_files
 
 
-def create_dswx_sar_metadata(cfg, rtc_dirs, product_version):
+def create_dswx_sar_metadata(cfg, rtc_dirs, product_version=None):
     """
     Create dictionary containing metadata.
 
@@ -283,6 +283,8 @@ def create_dswx_sar_metadata(cfg, rtc_dirs, product_version):
         Input runconfig.
     rtc_dirs: list
         List of directories containing RTC files.
+    product_version: str, optional
+        Version of the DSWx product. Defaults to None.
 
     Returns
     -------

@@ -44,8 +44,8 @@ def region_growing(likelihood_image,
         maximum iteration for region growing.
         Defaults to 0 which translates to infinite iterations.
     mode : str
-        'acending' or 'descending'
-        If region growing mode is 'acending', 
+        'ascending' or 'descending'
+        If region growing mode is 'ascending', 
         then algorithm starts from low value to high value
         to find the pixel lower than relaxed threshold.
         The 'descending' starts from high value and find
@@ -62,14 +62,14 @@ def region_growing(likelihood_image,
     if mode == 'descending':
         if initial_threshold <= relaxed_threshold:
             err_str = f"Initial threshold {initial_threshold} " \
-                        f" should be larger than relaxed threshold" \
-                        f"{relaxed_threshold}."
+                      " should be larger than relaxed threshold" \
+                      f"{relaxed_threshold}."
             raise ValueError(err_str)
-    elif mode == 'acending':
+    elif mode == 'ascending':
         if initial_threshold >= relaxed_threshold:
             err_str = f"Initial threshold {initial_threshold} " \
-                        f" should be smaller than relaxed threshold" \
-                        f"{relaxed_threshold}."
+                      " should be smaller than relaxed threshold" \
+                      f"{relaxed_threshold}."
             raise ValueError(err_str)
     
 

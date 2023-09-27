@@ -785,9 +785,9 @@ def run(cfg):
                         raise FileNotFoundError
 
                 save_h5_metadata_to_tif(metadata_path,
-                                            data_path=f'{freqA_path}/{mask_name}',
-                                            output_tif_path=temp_mask_path,
-                                            epsg_output=epsg_output)
+                                        data_path=f'{freqA_path}/{mask_name}',
+                                        output_tif_path=temp_mask_path,
+                                        epsg_output=epsg_output)
                 mask_list.append(temp_mask_path)
 
         # Check if metadata have common values on

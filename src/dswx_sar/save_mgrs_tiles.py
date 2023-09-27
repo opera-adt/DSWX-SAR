@@ -670,8 +670,11 @@ def run(cfg):
                     overlapped_burst,
                     product_version=product_version)
 
-                dswx_name_format_prefix = \
-                    f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_{date_str_id}_{processing_time}_{platform_str}_{resolution_str}_v{product_version}'
+                dswx_name_format_prefix = (f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_'
+                                           f'{date_str_id}_{processing_time}_'
+                                           f'{platform_str}_{resolution_str}_'
+                                           f'v{product_version}')
+
                 logger.info('Saving the file:')
                 logger.info(f'      {dswx_name_format_prefix}')
 

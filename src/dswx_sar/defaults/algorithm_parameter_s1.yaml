@@ -70,6 +70,7 @@ runconfig:
             # number of threads to run
             # -1 represents the all available threads
             number_cpu: -1
+            number_iterations: 1
             tile_average: False
 
         fuzzy_value:

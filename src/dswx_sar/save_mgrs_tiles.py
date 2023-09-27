@@ -1,14 +1,14 @@
 import ast
 import datetime
 import glob
-import h5py
 import logging
 import mimetypes
-import mgrs
 import os
 import time
 
 import geopandas as gpd
+import h5py
+import mgrs
 import numpy as np
 from osgeo import gdal, osr
 from pyproj import CRS
@@ -16,13 +16,12 @@ import rasterio
 from rasterio.warp import transform_bounds
 from shapely.geometry import Polygon
 
-from dswx_sar import dswx_sar_util
+from dswx_sar import (dswx_sar_util,
+                      generate_log)
 from dswx_sar.dswx_sar_util import band_assign_value_dict
 from dswx_sar.dswx_runconfig import RunConfig, _get_parser
 from dswx_sar.metadata import (create_dswx_sar_metadata,
                                _populate_statics_metadata_datasets)
-from dswx_sar import generate_log
-
 
 logger = logging.getLogger('dswx_s1')
 

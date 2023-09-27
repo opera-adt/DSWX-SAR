@@ -1,22 +1,22 @@
 '''
 A module to mosaic Sentinel-1 geobursts from RTC workflow
 '''
-
-import os
-import time
 import glob
-import numpy as np
 import logging
-import h5py
-from osgeo import osr, gdal
 import mimetypes
+import os
 import tempfile
-from scipy import ndimage
+import time
+
 from collections import Counter
+import h5py
+import numpy as np
+from osgeo import osr, gdal
+from scipy import ndimage
 
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import dswx_sar_util
-from dswx_sar import generate_log
+from dswx_sar import (dswx_sar_util,
+                      generate_log)
 
 logger = logging.getLogger('dswx_s1')
 
@@ -792,7 +792,6 @@ def run(cfg):
 
         # Check if metadata have common values on
         # poliarzation /track number/ direction fields
-
         output_dir_mosaic_raster = scratch_path
         product_prefix = processing_cfg.mosaic.mosaic_prefix
         imagery_extension = 'tif'

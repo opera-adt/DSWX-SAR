@@ -2,11 +2,11 @@ import logging
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass
 
+from dataclasses import dataclass
+import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
-import matplotlib.pyplot as plt
 
 
 np2gdal_conversion = {

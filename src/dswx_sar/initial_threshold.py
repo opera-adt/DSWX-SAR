@@ -1536,7 +1536,7 @@ def process_block(ii, jj, n_rows_block, n_cols_block, m_rows_block, m_cols_block
     x_size = m_cols_block if (jj == n_cols_block - 1) and m_cols_block > 0 else block_col
     y_size = m_rows_block if (ii == n_rows_block - 1) and m_rows_block > 0 else block_row
 
-    logger.info(f"block_processing: {ii + 1}/{n_rows_block} _ {jj + 1}/{n_cols_block}",
+    logger.info(f"block_processing: {ii + 1}/{n_rows_block} _ {jj + 1}/{n_cols_block}"
                 f" - {ii * n_cols_block + jj + 1}/{n_rows_block * n_cols_block}")
 
     filt_raster_tif = gdal.Open(filt_im_str)
@@ -1637,7 +1637,7 @@ def run(cfg):
                                    geotransform=water_meta['geotransform'],
                                    projection=water_meta['projection'],
                                    scratch_dir=outputdir,
-                                   DataType='uint8')
+                                   datatype='uint8')
 
     intensity_whole = filt_raster_tif.ReadAsArray()
 
@@ -1895,23 +1895,23 @@ def run(cfg):
                 projection=water_meta['projection'],
                 scratch_dir=outputdir)
 
-        # if processing_cfg.debug_mode:
+        if processing_cfg.debug_mode:
 
-        #     if not average_threshold_flag:
-        #         vs.block_threshold_visulaization2(
-        #             intensity_whole,
-        #             threshold_tau_dict,
-        #             outputdir=outputdir,
-        #             figname=f'int_threshold_{iter_ind}iter_')
-        #     else:
-        #         for band_ind2 in range(band_number):
-        #             vs.block_threshold_visulaization(
-        #                 np.squeeze(intensity[band_ind2, :, :]),
-        #                 block_row,
-        #                 block_col,
-        #                 threshold_tau_set[:, :, band_ind2],
-        #                 outputdir,
-        #                 f'int_threshold_{pol_list[band_ind2]}_{iter_ind}')
+            if not average_threshold_flag:
+                dswx_sar_util.block_threshold_visulaization_rg(
+                    intensity_whole,
+                    threshold_tau_dict,
+                    outputdir=outputdir,
+                    figname=f'int_threshold_{iter_ind}iter_')
+            else:
+                for band_ind2 in range(band_number):
+                    dswx_sar_util.block_threshold_visulaization(
+                        np.squeeze(intensity[band_ind2, :, :]),
+                        block_row,
+                        block_col,
+                        threshold_tau_set[:, :, band_ind2],
+                        outputdir,
+                        f'int_threshold_{pol_list[band_ind2]}_{iter_ind}')
 
     filt_raster_tif.FlushCache()
     filt_raster_tif = None

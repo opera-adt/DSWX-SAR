@@ -43,6 +43,14 @@ def region_growing(likelihood_image,
     maxiter : integer
         maximum iteration for region growing.
         Defaults to 0 which translates to infinite iterations.
+    mode : str
+        'ascending' or 'descending'
+        If region growing mode is 'ascending', 
+        then algorithm starts from low value to high value
+        to find the pixel lower than relaxed threshold.
+        The 'descending' starts from high value and find
+        the pixel higher than relaxed threshold.
+        
 
     Returns
     ----------
@@ -54,15 +62,16 @@ def region_growing(likelihood_image,
     if mode == 'descending':
         if initial_threshold <= relaxed_threshold:
             err_str = f"Initial threshold {initial_threshold} " \
-                      f" should be larger than relaxed threshold" \
+                      " should be larger than relaxed threshold" \
                       f"{relaxed_threshold}."
             raise ValueError(err_str)
-    else:
+    elif mode == 'ascending':
         if initial_threshold >= relaxed_threshold:
             err_str = f"Initial threshold {initial_threshold} " \
-                      f" should be smaller than relaxed threshold" \
+                      " should be smaller than relaxed threshold" \
                       f"{relaxed_threshold}."
             raise ValueError(err_str)
+    
 
     # Create initial binary image using seed value
     if mode == 'descending':
@@ -246,7 +255,7 @@ def run_parallel_region_growing(input_tif_path,
                 block_param,
                 geotransform=meta_dict['geotransform'],
                 projection=meta_dict['projection'],
-                DataType='float32')
+                datatype='float32')
 
             # In final loop, write the result to output_tif_path
             if loopind == num_loop - 1:
@@ -328,7 +337,6 @@ def main():
     parser = _get_parser()
 
     args = parser.parse_args()
-    generate_log.configure_log_file(args.log_file)
 
     mimetypes.add_type("text/yaml", ".yaml", strict=True)
     flag_first_file_is_text = 'text' in mimetypes.guess_type(
@@ -342,6 +350,7 @@ def main():
         return
 
     cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+    generate_log.configure_log_file(args.log_file)
 
     run(cfg)
 

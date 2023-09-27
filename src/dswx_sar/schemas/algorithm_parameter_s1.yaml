@@ -18,6 +18,9 @@ runconfig:
             drought_erosion_pixel: int(required=False)
             flood_dilation_pixel: int(required=False)
 
+        hand:
+            mask_value: num(required=False)
+
         mosaic:
             mosaic_prefix: str(required=False)
             mosaic_cog_enable: bool(required=False)
@@ -72,8 +75,6 @@ runconfig:
 
         fuzzy_value:
             hand: 
-                # Hand value to mask out
-                excluded_mask: num(required=False)
                 # Min and max values for hand are automatically calculated
                 # from input HAND, but they are not given,
                 # below values are used.

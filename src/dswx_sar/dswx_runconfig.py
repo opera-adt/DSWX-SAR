@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import os
 import sys
 import logging
@@ -85,7 +86,8 @@ def load_validate_yaml(yaml_path: str, workflow_name: str) -> dict:
         try:
             data = yamale.make_data(yaml_path, parser='ruamel')
         except yamale.YamaleError as yamale_err:
-            err_str = f'Yamale unable to load {workflow_name} runconfig yaml {yaml_path} for validation.'
+            err_str = f'Yamale unable to load {workflow_name} ' \
+                      'runconfig yaml {yaml_path} for validation.'
             logger.error(err_str)
             raise yamale.YamaleError(err_str) from yamale_err
     else:
@@ -112,7 +114,7 @@ def load_validate_yaml(yaml_path: str, workflow_name: str) -> dict:
     _deep_update(default_cfg, user_cfg)
     # Validate YAML values under groups dict
     if 'groups' in default_cfg['runconfig'].keys():
-        validate_group_dict(default_cfg['runconfig']['groups'], workflow_name)
+        validate_group_dict(default_cfg['runconfig']['groups'])
 
     return default_cfg
 
@@ -157,6 +159,7 @@ def check_file_path(file_path: str) -> None:
         logger.error(err_str)
         raise FileNotFoundError(err_str)
 
+
 def check_polarizations(pol_list):
     """Sort polarizations so that co-pols are preceded. 
     Parameters
@@ -181,14 +184,14 @@ def check_polarizations(pol_list):
 
     return co_pol_list, cross_pol_list, pol_list
 
-def validate_group_dict(group_cfg: dict, workflow_name) -> None:
+
+def validate_group_dict(group_cfg: dict) -> None:
     """Check and validate runconfig entries.
     Parameters
     ----------
     group_cfg : dict
         Dictionary storing runconfig options to validate
     """
-
     # Check 'dynamic_ancillary_file_groups' section of runconfig
     # Check that ancillary file exist and is GDAL-compatible
     dem_path = group_cfg['dynamic_ancillary_file_group']['dem_file']
@@ -204,29 +207,31 @@ def validate_group_dict(group_cfg: dict, workflow_name) -> None:
     for path in ancillary_file_paths:
         check_file_path(path)
 
-
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions
     product_group = group_cfg['product_path_group']
     check_write_dir(product_group['sas_output_path'])
     check_write_dir(product_group['scratch_path'])
 
-    static_ancillary_flag = group_cfg['static_ancillary_file_group'][
-        'static_ancillary_inputs_flag']
+    static_ancillary_flag = group_cfg[
+        'static_ancillary_file_group']['static_ancillary_inputs_flag']
+
     if static_ancillary_flag:
-        mgrs_database_file = group_cfg['static_ancillary_file_group'][
-        'mgrs_database_file']
-        mgrs_collection_database_file = group_cfg['static_ancillary_file_group'][
-        'mgrs_collection_database_file']
+        mgrs_database_file = group_cfg[
+            'static_ancillary_file_group']['mgrs_database_file']
+        mgrs_collection_database_file = group_cfg[
+            'static_ancillary_file_group']['mgrs_collection_database_file']
+
         if mgrs_database_file is None or mgrs_collection_database_file is None:
-            err_str = f'Static ancillary data flag is {static_ancillary_flag} '
-            err_str += f'but mgrs_database_file {mgrs_database_file} and '
-            err_str += f'mgrs_collection_database_file {mgrs_collection_database_file}'
+            err_str = f'Static ancillary data flag is {static_ancillary_flag} ' \
+                      f'but mgrs_database_file {mgrs_database_file} and ' \
+                      f'mgrs_collection_database_file {mgrs_collection_database_file}'
             logger.error(err_str)
             raise ValueError(err_str)
 
         check_file_path(mgrs_collection_database_file)
         check_file_path(mgrs_database_file)
+
 
 @singledispatch
 def wrap_namespace(ob):

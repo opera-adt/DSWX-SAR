@@ -401,7 +401,7 @@ def run(cfg):
 
     # fuzzy cfg
     fuzzy_cfg = processing_cfg.fuzzy_value
-    option_dict = {'hand_threshold': fuzzy_cfg.hand.excluded_mask,
+    option_dict = {'hand_threshold': processing_cfg.hand.mask_value,
                    'hand_min': fuzzy_cfg.hand.member_min,
                    'hand_max': fuzzy_cfg.hand.member_max,
                    'slope_min': fuzzy_cfg.slope.member_min,

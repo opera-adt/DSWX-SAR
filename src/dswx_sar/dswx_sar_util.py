@@ -112,11 +112,11 @@ def save_raster_gdal(data, output_file, geotransform,
     image_size = data.shape
     #  Set the Pixel Data (Create some boxes)
     # set geotransform
-    if len(image_size) == 3:
+    if data.ndim == 3:
         nim = image_size[0]
         ny = image_size[1]
         nx = image_size[2]
-    elif len(image_size) == 2:
+    elif data.ndim == 2:
         ny = image_size[0]
         nx = image_size[1]
         nim = 1
@@ -127,7 +127,7 @@ def save_raster_gdal(data, output_file, geotransform,
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
 
-    if nim == 1:
+    if data.ndim == 2:
         gdal_ds.GetRasterBand(1).WriteArray(data)
     else:
         for im_ind in range(0, nim):
@@ -563,12 +563,35 @@ def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     plt.title('RTC')
     plt.savefig(os.path.join(outputdir, f'RTC_intensity_{pol}'))
 
+
 def block_threshold_visulaization(intensity, block_row, block_col, threshold_tile, outputdir, figname):
+    """Visualize an intensity image overlaid with threshold values from specified blocks/subtiles.
+
+    Parameters:
+    -----------
+    intensity : numpy.ndarray
+        A 2D or 3D array representing the intensity of the image. 
+        If 3D, only the second and third dimensions (rows and columns) are used for visualization.
+    block_row : int
+        The number of rows in each block/subtile.
+    block_col : int
+        The number of columns in each block/subtile.
+    threshold_tile : numpy.ndarray
+        2D array containing the threshold values for each block/subtile. 
+        Its dimensions should match the number of blocks in the intensity image.
+    outputdir : str
+        Path to the directory where visualizations will be saved.
+    figname : str
+        Name for the saved visualization figure.
+
+    Returns:
+    --------
+    None. The visualized figure is saved to the specified directory.
+    """
     if len(intensity.shape) == 2:
         Rows, Cols = np.shape(intensity)  
     elif len(intensity.shape) == 3:
-        band_number, Rows, Cols = np.shape(intensity)  
-    print(np.shape(threshold_tile))
+        _, Rows, Cols = np.shape(intensity)  
     ## Tile Selection (w/o water body)
     
     nR = np.int16(Rows / block_row) 
@@ -610,40 +633,59 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
 
 
 def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figname):
-    
-    number_layer = len(threshold_dict['array'])
+    """
+    Visualize an intensity image overlaid with threshold values from provided blocks/subtiles.
 
+    Parameters:
+    -----------
+    intensity : numpy.ndarray
+        2D or 3D array representing the intensity of the image. 
+        If 3D, the first dimension is considered as the band index.
+    threshold_dict : dict
+        A dictionary containing:
+        * 'array': A nested list of threshold values for each band and block.
+        * 'subtile_coord': A nested list of block coordinates for each band and block, 
+          in the format [[start_row, end_row, start_col, end_col], ...].
+    outputdir : str
+        Path to the directory where visualizations will be saved.
+    figname : str
+        Base name for the saved visualization figures.
+
+    Returns:
+    --------
+    None. The visualized figures are saved to the specified directory.
+    """
+    # Determine the dimensions and the number of bands based on the shape of the intensity array
     if len(intensity.shape) == 2:
-        Rows, Cols = np.shape(intensity)
-        band_num = 1
-    elif len(intensity.shape) == 3:
-        band_num, Rows, Cols = np.shape(intensity)
+        Rows, Cols = intensity.shape
+        bands = [intensity]
+    else:
+        bands = [intensity[i] for i in range(intensity.shape[0])]
 
-
-    for fig_ind in range(0, band_num):
-        if band_num == 1:
-            intensity_db = 10 * np.log10(intensity)
-        else:
-            intensity_db = 10 * np.log10(np.squeeze(intensity[fig_ind, :, :]))
+    for band_index, band in enumerate(bands):
+        intensity_db = 10 * np.log10(band)
 
         plt.figure(figsize=(20, 20))
         vmin = np.nanpercentile(intensity_db, 5)
         vmax = np.nanpercentile(intensity_db, 95)
-        plt.imshow(intensity_db, cmap = plt.get_cmap('gray'),vmin=vmin, vmax=vmax)
         
-        threshold_oversample = np.ones([Rows, Cols]) * -50
-        number_thres = len(threshold_dict['array'][fig_ind])
-        for thres_ind in range(0, number_thres):
-            block_start_row = threshold_dict['subtile_coord'][fig_ind][thres_ind][0]
-            block_end_row = threshold_dict['subtile_coord'][fig_ind][thres_ind][1]     
-            block_start_col = threshold_dict['subtile_coord'][fig_ind][thres_ind][2]
-            block_end_col = threshold_dict['subtile_coord'][fig_ind][thres_ind][3]
-            threshold_tile = threshold_dict['array'][fig_ind][thres_ind]
-            threshold_oversample[block_start_row : block_end_row, block_start_col:block_end_col] = threshold_tile
-            plt.plot([block_start_col, block_end_col, block_end_col, block_start_col, block_start_col],
-                     [block_start_row, block_start_row, block_end_row, block_end_row, block_start_row] ,'black')
-            threshold_oversample[threshold_oversample==-50] = np.nan
-        plt.imshow(threshold_oversample, alpha=0.3, cmap = plt.get_cmap('jet'), vmin=-20, vmax=-14)
-
-        plt.savefig(os.path.join(outputdir, f'{figname}_{fig_ind}') )
+        # Display the main intensity image
+        plt.imshow(intensity_db, cmap='gray', vmin=vmin, vmax=vmax)
+        
+        # Prepare a matrix for the overlaid threshold values
+        threshold_overlay = np.full((Rows, Cols), np.nan)
+        
+        for threshold, coords in zip(threshold_dict['array'][band_index], threshold_dict['subtile_coord'][band_index]):
+            start_row, end_row, start_col, end_col = coords
+            threshold_overlay[start_row:end_row, start_col:end_col] = threshold
+            
+            # Draw a block boundary for visualization
+            plt.plot([start_col, end_col, end_col, start_col, start_col],
+                     [start_row, start_row, end_row, end_row, start_row], 'black')
+        
+        # Overlay the threshold values on top of the intensity image
+        plt.imshow(threshold_overlay, alpha=0.3, cmap='jet', vmin=-20, vmax=-14)
+        
+        # Save the visualization to file
+        plt.savefig(os.path.join(outputdir, f'{figname}_{band_index}'))
         plt.close()

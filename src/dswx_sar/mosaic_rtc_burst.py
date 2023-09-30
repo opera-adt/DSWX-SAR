@@ -73,6 +73,7 @@ def read_metadata_epsg(h5_meta_path):
     meta_dict['epsg'] = epsg
     return meta_dict
 
+
 def save_h5_metadata_to_tif(h5_meta_path,
                             data_path,
                             output_tif_path,
@@ -134,6 +135,7 @@ def save_h5_metadata_to_tif(h5_meta_path,
                      format='GTIFF')
         gdal.Warp(output_tif_path, output_tif_temp_path, options=opt)
         os.remove(output_tif_temp_path)
+
 
 def requires_reprojection(geogrid_mosaic,
                           rtc_image: str,
@@ -224,6 +226,7 @@ def requires_reprojection(geogrid_mosaic,
 
     flag_requires_reprojection = False
     return flag_requires_reprojection
+
 
 def _compute_distance_to_burst_center(image, geotransform):
     '''
@@ -775,7 +778,6 @@ def run(cfg):
             else:
             # layover/shadow mask is saved from hdf5 metadata.
                 temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
-                epsg_output = read_metadata_epsg(metadata_path)['epsg']
                 with h5py.File(metadata_path) as meta_src:
                     if 'mask' in meta_src[freqA_path]:
                         mask_name = 'mask'

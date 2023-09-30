@@ -17,6 +17,7 @@ DEFAULT_METADATA = {
     'DSWX_PRODUCT_VERSION': PRODUCT_VERSION,
     'SOFTWARE_VERSION': SOFTWARE_VERSION,
     'PROJECT': 'OPERA',
+    'INSTITUTION': 'NASA JPL',
     'PRODUCT_LEVEL': '3',
     'PRODUCT_TYPE': UNKNOWN,
     'PRODUCT_SOURCE': UNKNOWN,
@@ -40,7 +41,7 @@ def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
     metadata_rtc_fields = {
         'orbitPassDirection': 'str',
         'burstID': 'str',
-        'productVersion': 'str',
+        'productVersion': 'float',
         'zeroDopplerStartTime': 'str',
         'trackNumber': 'int',
         'absoluteOrbitNumber': 'int'
@@ -61,18 +62,24 @@ def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
             for field, dtype in metadata_rtc_fields.items():
                 if dtype == 'str':
                     value = str(src[f'/identification/{field}'].asstr()[...])
+                elif dtype == 'float':
+                    value = float(src[f'/identification/{field}'][...])
                 else:
                     value = int(src[f'/identification/{field}'][...])
                 metadata_dict[field].append(value)
 
     for rtc_field, dswx_field in dswx_meta_mapping.items():
         values = metadata_dict[rtc_field]
+
         if dswx_field == 'SENSING_TIME':
             start, end = _get_date_range(values)
             dswx_metadata_dict['SENSING_START'] = start
             dswx_metadata_dict['SENSING_END'] = end
         else:
-            dswx_metadata_dict[dswx_field] = values[0] if len(set(values)) == 1 else values
+            if len(set(values)) == 1:
+                dswx_metadata_dict[dswx_field] = values[0]
+            else:
+                dswx_metadata_dict[dswx_field] = ', '.join(values)
 
 
 def _get_date_range(dates):
@@ -96,11 +103,11 @@ def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
     """
     # Dictionary mapping of source type to its file and description attributes in ancillary_cfg
     source_map = {
-        'DEM_SOURCE': ('dem_file', 'dem_file_description'),
-        'HAND_SOURCE': ('hand_file', 'hand_file_description'),
-        'WORLDCOVER_SOURCE': ('worldcover_file', 'worldcover_file_description'),
-        'SHORELINE_SOURCE': ('shoreline_shapefile', 'shoreline_shapefile_description'),
-        'REFERENCE_WATER_SOURCE': ('reference_water_file', 'reference_water_file_description')
+        'INPUT_DEM_SOURCE': ('dem_file', 'dem_file_description'),
+        'INPUT_HAND_SOURCE': ('hand_file', 'hand_file_description'),
+        'INPUT_WORLDCOVER_SOURCE': ('worldcover_file', 'worldcover_file_description'),
+        'INPUT_SHORELINE_SOURCE': ('shoreline_shapefile', 'shoreline_shapefile_description'),
+        'INPUT_REFERENCE_WATER_SOURCE': ('reference_water_file', 'reference_water_file_description')
     }
 
     for meta_key, (file_attr, desc_attr) in source_map.items():
@@ -124,22 +131,24 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
     cfg: object
         Configuration object containing processing metadata.
     """
+
     try:
         processing_cfg = cfg.groups.processing
         # Mapping for simple key-value assignments
         threshold_mapping = {
             'otsu': 'OTSU',
-            'ki': 'Kittler-Illingworth'
+            'ki': 'Kittler-Illingworth',
+            'rg': 'Region-growning based threshold'
         }
         dswx_metadata_dict.update({
-            'POLARIZATION': processing_cfg.polarizations,
-            'FILTER': 'Enhanced Lee filter',
-            'THRESHOLDING': threshold_mapping.get(processing_cfg.initial_threshold.threshold_method),
-            'TILE_SELECTION': processing_cfg.initial_threshold.selection_method,
-            'MULTI_THRESHOLD': processing_cfg.initial_threshold.multi_threshold,
-            'FUZZY_SEED': processing_cfg.region_growing.initial_threshold,
-            'FUZZY_TOLERANCE': processing_cfg.region_growing.relaxed_threshold,
-            'INUNDATED_VEGETATION': processing_cfg.inundated_vegetation.enabled
+            'PROCESSING_INFORMATION_POLARIZATION': processing_cfg.polarizations,
+            'PROCESSING_INFORMATION_FILTER': 'Enhanced Lee filter',
+            'PROCESSING_INFORMATION_THRESHOLDING': threshold_mapping.get(processing_cfg.initial_threshold.threshold_method),
+            'PROCESSING_INFORMATION_TILE_SELECTION': processing_cfg.initial_threshold.selection_method,
+            'PROCESSING_INFORMATION_MULTI_THRESHOLD': processing_cfg.initial_threshold.multi_threshold,
+            'PROCESSING_INFORMATION_FUZZY_SEED': processing_cfg.region_growing.initial_threshold,
+            'PROCESSING_INFORMATION_FUZZY_TOLERANCE': processing_cfg.region_growing.relaxed_threshold,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION': processing_cfg.inundated_vegetation.enabled
         })
     except AttributeError as e:
         print(f"Attribute error occurred: {e}")
@@ -223,7 +232,7 @@ def set_dswx_s1_metadata(metadata_dict):
     """Update the dictionary with DSWx-S1 specific metadata."""
     metadata_dict.update({
         'PRODUCT_TYPE': 'DSWx-S1',
-        'PRODUCT_SOURCE': 'OPERA RTC S1',
+        'PRODUCT_SOURCE': 'OPERA_RTC_S1',
         'SPACECRAFT_NAME': 'Sentinel-1A/B',
         'SENSOR': 'IW'
     })

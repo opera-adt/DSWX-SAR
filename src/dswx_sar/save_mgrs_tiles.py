@@ -252,11 +252,9 @@ def crop_and_save_mgrs_tile(
     
     _populate_statics_metadata_datasets(metadata,
                                         output_tif_file_path)
-    gdal_ds = gdal.Open(output_tif_file_path)
-    gdal_band = gdal_ds.GetRasterBand(1)
-    gdal_band.SetMetadata(metadata)
-    gdal_band.FlushCache()
-    gdal_band = None
+
+    with rasterio.open(output_tif_file_path, 'r+') as src:
+        src.update_tags(**metadata)
 
     input_tif_obj = None
 

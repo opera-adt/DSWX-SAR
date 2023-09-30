@@ -256,8 +256,8 @@ def run(cfg):
         if os.path.isfile(dem_file):
             logger.info('interpolated dem file was not found')
             ancillary_reloc.relocate(dem_file,
-                                      'interpolated_DEM',
-                                      method='near')
+                                     'interpolated_DEM',
+                                     method='near')
         else:
             raise FileNotFoundError
 
@@ -275,8 +275,8 @@ def run(cfg):
                                                     'interpolated_landcover'))
     if not landcover_interpolated_path.is_file():
         ancillary_reloc.relocate(landcover_file,
-                                  'interpolated_landcover',
-                                  method='near')
+                                 'interpolated_landcover',
+                                 method='near')
 
     # Check if the interpolated HAND exists
     hand_interpolated_path = os.path.join(scratch_dir,
@@ -290,8 +290,8 @@ def run(cfg):
             # args.hand_file = os.path.join(args.scratch_dir, 'temp_hand.tif')
 
         ancillary_reloc.relocate(hand_file,
-                                  'interpolated_hand',
-                                  method='near')
+                                 'interpolated_hand',
+                                 method='near')
 
     intensity = []
     for polind, pol in enumerate(pol_list):

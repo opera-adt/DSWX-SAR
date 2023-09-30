@@ -293,221 +293,227 @@ class TileSelection:
             The x and y coordinates that pass the tile selection test.
             Each row has index, y_start, y_end, x_start, and x_end.
         '''
-        height, width = intensity.shape
-        n_water_masks = water_mask.ndim
-        assert n_water_masks >= 2, "water mask must have at least 2 dimensions."
 
-        # create 3 dimensional water mask
-        if n_water_masks == 2:
-            water_mask = np.expand_dims(water_mask, axis=0)
-        _, water_nrow, water_ncol = water_mask.shape
-
-        # If image size is smaller than window size,
-        # window size become half of image size
-        if (height <= win_size) | (width <= win_size):
-            win_size0 = win_size
-            win_size = np.min([height, width])
-            logger.info(f'tile size changed {win_size0} -> {win_size}')
-
-        if (height != water_nrow) and (width != water_ncol):
-            raise ValueError("reference water image size differ from intensity image")
-
-        if win_size < minimum_pixel_number:
-            logger.info('tile & image sizes are too small')
-            coordinate = []
-            return coordinate
-
-        # Check if number of pixel is enough
-        num_pixel_max = win_size * win_size / 3
-
-        number_y_window = np.ceil(height / win_size)
-        number_x_window = np.ceil(width / win_size)
-
-        number_y_window = number_y_window + \
-            (1 if np.mod(height, win_size) > 0 else 0)
-        number_x_window = number_x_window + \
-            (1 if np.mod(width, win_size) > 0 else 0)
-
-        ind_subtile = 0
-
-        bimodality_max_set = []
-        coordinate = []
-
-        selected_tile_twele = []
-        selected_tile_chini = []
-        selected_tile_bimodality = []
-
-        # convert linear to dB scale
-        intensity_db = convert_pow2db(intensity)
-
-        # covert gray scale
-        intensity_gray = self.rescale_value(
-            intensity_db,
-            min_value=-35,
-            max_value=10)
-
-        water_area_flag = self.get_water_portion_mask(water_mask)
-
-        mean_int_global = np.nanmean(intensity_gray)
-
-        box_count = 0
-        num_detected_box = 0
-        num_detected_box_sum = 0
-        subrun = 0
-
-        # Initially check if the area under the searching window contains
-        # both water bodies and lands from the reference water map.
-        # if 0.0 < water_coverage < 1 and 0.0 < land_coverage < 1:
-        if water_area_flag:
-            while (num_detected_box_sum <= mininum_tile) and \
-                  (win_size >= minimum_pixel_number):
-
-                subrun += 1
-                number_y_window = np.int16(height / win_size)
-                number_x_window = np.int16(width / win_size)
-
-                # Define step sizes
-                x_step = win_size // 2
-                y_step = win_size // 2
-
-                # Loop through the rectangle array with the sliding window
-                for x_coord in range(0, width - win_size + 1, x_step):
-                    for y_coord in range(0, height - win_size + 1, y_step):
-                        # Grab the small area using the window
-                        x_start = x_coord
-                        x_end = x_coord + win_size
-                        y_start = y_coord
-                        y_end = y_coord + win_size
-
-                        x_end = min(x_end, height)
-                        y_end = min(y_end, width)
-                        box_count = box_count + 1
-
-                        intensity_sub = intensity[x_start:x_end,
-                                                  y_start:y_end]
-
-                        intensity_sub_gray = intensity_gray[x_start:x_end,
-                                                            y_start:y_end]
-
-                        validnum = np.count_nonzero(~np.isnan(intensity_sub))
-
-                        # create subset from water mask
-                        water_mask_sublock = water_mask[:, x_start:x_end,
-                                                        y_start:y_end]
-
-                        # compute valid pixels from subset
-                        water_number_sample_sub = np.count_nonzero(
-                                ~np.isnan(water_mask_sublock[0, :, :]))
-
-                        # compute spatial portion for each polarization
-                        water_area_sublock_flag = self.get_water_portion_mask(
-                            water_mask_sublock)
-
-                        if water_number_sample_sub > 0 \
-                            and water_area_sublock_flag \
-                            and validnum > num_pixel_max:
-
-                            if selection_method in ['twele', 'combined']:
-                                tile_selected_flag, _, _ = \
-                                    self.select_tile_twele(
-                                        intensity_sub_gray,
-                                        mean_int_global)
-                                if tile_selected_flag:
-                                    selected_tile_twele.append(True)
-                                else:
-                                    selected_tile_twele.append(False)
-
-                            if selection_method in ['chini', 'combined']:
-                                # Once 'combined' method is selected,
-                                # the chini test is carried when the
-                                # 'twele' method passed.
-                                if (selection_method in ['combined']) & \
-                                    (not tile_selected_flag):
-
-                                    selected_tile_chini.append(False)
-
-                                else:
-                                    tile_selected_flag = \
-                                        self.select_tile_chini(intensity_sub)
-
-                                    if tile_selected_flag:
-                                        selected_tile_chini.append(True)
-                                    else:
-                                        selected_tile_chini.append(False)
-
-                            if selection_method in ['bimodality', 'combined']:
-
-                                if (selection_method == 'combined') and \
-                                    not tile_selected_flag:
-
-                                    selected_tile_bimodality.append(False)
-                                else:
-                                    _, _, tile_bimode_flag = \
-                                        self.select_tile_bimodality(
-                                            intensity_sub,
-                                            threshold=self.threshold_bimodality)
-
-                                    if tile_bimode_flag:
-                                        selected_tile_bimodality.append(True)
-                                    else:
-                                        selected_tile_bimodality.append(False)
-
-                        else:
-                            bimodality_max_set.append(np.nan)
-                            selected_tile_twele.append(False)
-                            selected_tile_chini.append(False)
-                            selected_tile_bimodality.append(False)
-
-                        # keep coordiates for the searching window.
-                        coordinate.append([ind_subtile,
-                                           x_start,
-                                           x_end,
-                                           y_start,
-                                           y_end])
-                        ind_subtile += 1
-
-                if selection_method in ['twele']:
-                    num_detected_box = np.sum(selected_tile_twele)
-
-                if selection_method in ['chini']:
-                    num_detected_box = np.sum(selected_tile_chini)
-
-                if selection_method in ['bimodality']:
-                    num_detected_box = np.sum(selected_tile_bimodality)
-
-                if selection_method in ['combined']:
-                    selected_tile_merged = np.logical_and(
-                        selected_tile_twele,
-                        selected_tile_chini)
-                    selected_tile_merged = np.logical_and(
-                        selected_tile_merged,
-                        selected_tile_bimodality)
-                    num_detected_box = np.sum(selected_tile_merged)
-
-                if num_detected_box_sum <= mininum_tile:
-                    # try tile-selection with smaller win size
-                    win_size = int(win_size * 0.8)
-                    num_pixel_max = win_size * win_size / 3
-
-                num_detected_box_sum += num_detected_box
+        if np.all(np.isnan(intensity)) or np.all(intensity==0):
+            candidate_tile_coords = []
+            logger.info(f'No valid intensity values found.')
 
         else:
-            logger.info('No water body found')
+            height, width = intensity.shape
+            n_water_masks = water_mask.ndim
+            assert n_water_masks >= 2, "water mask must have at least 2 dimensions."
 
-        if selection_method in ['twele']:
-            selected_tile = selected_tile_twele
-        if selection_method in ['chini']:
-            selected_tile = selected_tile_chini
-        if selection_method in ['bimodality']:
-            selected_tile = selected_tile_bimodality
-        if selection_method == 'combined':
-            selected_tile = np.logical_and(selected_tile_twele,
-                                           selected_tile_chini)
-            selected_tile = np.logical_and(selected_tile,
-                                           selected_tile_bimodality)
+            # create 3 dimensional water mask
+            if n_water_masks == 2:
+                water_mask = np.expand_dims(water_mask, axis=0)
+            _, water_nrow, water_ncol = water_mask.shape
 
-        coordinate = np.array(coordinate)
-        candidate_tile_coords = coordinate[selected_tile]
+            # If image size is smaller than window size,
+            # window size become half of image size
+            if (height <= win_size) | (width <= win_size):
+                win_size0 = win_size
+                win_size = np.min([height, width])
+                logger.info(f'tile size changed {win_size0} -> {win_size}')
+
+            if (height != water_nrow) and (width != water_ncol):
+                raise ValueError("reference water image size differ from intensity image")
+
+            if win_size < minimum_pixel_number:
+                logger.info('tile & image sizes are too small')
+                coordinate = []
+                return coordinate
+
+            # Check if number of pixel is enough
+            num_pixel_max = win_size * win_size / 3
+
+            number_y_window = np.ceil(height / win_size)
+            number_x_window = np.ceil(width / win_size)
+
+            number_y_window = number_y_window + \
+                (1 if np.mod(height, win_size) > 0 else 0)
+            number_x_window = number_x_window + \
+                (1 if np.mod(width, win_size) > 0 else 0)
+
+            ind_subtile = 0
+
+            bimodality_max_set = []
+            coordinate = []
+
+            selected_tile_twele = []
+            selected_tile_chini = []
+            selected_tile_bimodality = []
+
+            # convert linear to dB scale
+            intensity_db = convert_pow2db(intensity)
+
+            # covert gray scale
+            intensity_gray = self.rescale_value(
+                intensity_db,
+                min_value=-35,
+                max_value=10)
+
+            water_area_flag = self.get_water_portion_mask(water_mask)
+
+            mean_int_global = np.nanmean(intensity_gray)
+
+            box_count = 0
+            num_detected_box = 0
+            num_detected_box_sum = 0
+            subrun = 0
+
+            # Initially check if the area under the searching window contains
+            # both water bodies and lands from the reference water map.
+            # if 0.0 < water_coverage < 1 and 0.0 < land_coverage < 1:
+            if water_area_flag:
+                while (num_detected_box_sum <= mininum_tile) and \
+                    (win_size >= minimum_pixel_number):
+
+                    subrun += 1
+                    number_y_window = np.int16(height / win_size)
+                    number_x_window = np.int16(width / win_size)
+
+                    # Define step sizes
+                    x_step = win_size // 2
+                    y_step = win_size // 2
+
+                    # Loop through the rectangle array with the sliding window
+                    for x_coord in range(0, width - win_size + 1, x_step):
+                        for y_coord in range(0, height - win_size + 1, y_step):
+                            # Grab the small area using the window
+                            x_start = x_coord
+                            x_end = x_coord + win_size
+                            y_start = y_coord
+                            y_end = y_coord + win_size
+
+                            x_end = min(x_end, height)
+                            y_end = min(y_end, width)
+                            box_count = box_count + 1
+
+                            intensity_sub = intensity[x_start:x_end,
+                                                    y_start:y_end]
+
+                            intensity_sub_gray = intensity_gray[x_start:x_end,
+                                                                y_start:y_end]
+
+                            validnum = np.count_nonzero(~np.isnan(intensity_sub))
+
+                            # create subset from water mask
+                            water_mask_sublock = water_mask[:, x_start:x_end,
+                                                            y_start:y_end]
+
+                            # compute valid pixels from subset
+                            water_number_sample_sub = np.count_nonzero(
+                                    ~np.isnan(water_mask_sublock[0, :, :]))
+
+                            # compute spatial portion for each polarization
+                            water_area_sublock_flag = self.get_water_portion_mask(
+                                water_mask_sublock)
+
+                            if water_number_sample_sub > 0 \
+                                and water_area_sublock_flag \
+                                and validnum > num_pixel_max:
+
+                                if selection_method in ['twele', 'combined']:
+                                    tile_selected_flag, _, _ = \
+                                        self.select_tile_twele(
+                                            intensity_sub_gray,
+                                            mean_int_global)
+                                    if tile_selected_flag:
+                                        selected_tile_twele.append(True)
+                                    else:
+                                        selected_tile_twele.append(False)
+
+                                if selection_method in ['chini', 'combined']:
+                                    # Once 'combined' method is selected,
+                                    # the chini test is carried when the
+                                    # 'twele' method passed.
+                                    if (selection_method in ['combined']) & \
+                                        (not tile_selected_flag):
+
+                                        selected_tile_chini.append(False)
+
+                                    else:
+                                        tile_selected_flag = \
+                                            self.select_tile_chini(intensity_sub)
+
+                                        if tile_selected_flag:
+                                            selected_tile_chini.append(True)
+                                        else:
+                                            selected_tile_chini.append(False)
+
+                                if selection_method in ['bimodality', 'combined']:
+
+                                    if (selection_method == 'combined') and \
+                                        not tile_selected_flag:
+
+                                        selected_tile_bimodality.append(False)
+                                    else:
+                                        _, _, tile_bimode_flag = \
+                                            self.select_tile_bimodality(
+                                                intensity_sub,
+                                                threshold=self.threshold_bimodality)
+
+                                        if tile_bimode_flag:
+                                            selected_tile_bimodality.append(True)
+                                        else:
+                                            selected_tile_bimodality.append(False)
+
+                            else:
+                                bimodality_max_set.append(np.nan)
+                                selected_tile_twele.append(False)
+                                selected_tile_chini.append(False)
+                                selected_tile_bimodality.append(False)
+
+                            # keep coordiates for the searching window.
+                            coordinate.append([ind_subtile,
+                                            x_start,
+                                            x_end,
+                                            y_start,
+                                            y_end])
+                            ind_subtile += 1
+
+                    if selection_method in ['twele']:
+                        num_detected_box = np.sum(selected_tile_twele)
+
+                    if selection_method in ['chini']:
+                        num_detected_box = np.sum(selected_tile_chini)
+
+                    if selection_method in ['bimodality']:
+                        num_detected_box = np.sum(selected_tile_bimodality)
+
+                    if selection_method in ['combined']:
+                        selected_tile_merged = np.logical_and(
+                            selected_tile_twele,
+                            selected_tile_chini)
+                        selected_tile_merged = np.logical_and(
+                            selected_tile_merged,
+                            selected_tile_bimodality)
+                        num_detected_box = np.sum(selected_tile_merged)
+
+                    if num_detected_box_sum <= mininum_tile:
+                        # try tile-selection with smaller win size
+                        win_size = int(win_size * 0.8)
+                        num_pixel_max = win_size * win_size / 3
+
+                    num_detected_box_sum += num_detected_box
+
+            else:
+                logger.info('No water body found')
+
+            if selection_method in ['twele']:
+                selected_tile = selected_tile_twele
+            if selection_method in ['chini']:
+                selected_tile = selected_tile_chini
+            if selection_method in ['bimodality']:
+                selected_tile = selected_tile_bimodality
+            if selection_method == 'combined':
+                selected_tile = np.logical_and(selected_tile_twele,
+                                            selected_tile_chini)
+                selected_tile = np.logical_and(selected_tile,
+                                            selected_tile_bimodality)
+
+            coordinate = np.array(coordinate)
+            candidate_tile_coords = coordinate[selected_tile]
 
         return candidate_tile_coords
 
@@ -747,7 +753,7 @@ def determine_threshold(
     threshold_idx_array = []
     mode_array = []
 
-    max_threshold = bounds[1]
+    min_threshold, max_threshold = bounds[0], bounds[1]
 
     for coord in candidate_tile_coords:
 
@@ -761,6 +767,9 @@ def determine_threshold(
         intensity_sub = intensity_sub[intensity_sub > -35]
         intensity_sub = remove_invalid(intensity_sub)
 
+        if intensity_sub.size == 0:
+            return global_threshold, glob_mode_thres
+        
         intensity_counts, bins = np.histogram(
             intensity_sub,
             bins=np.linspace(min_intensity_histogram,
@@ -807,7 +816,7 @@ def determine_threshold(
         if not highmaxind_cands.any():
             highmaxind_cands = np.array([np.nanargmax(intensity_counts[idx_threshold:])])
 
-        intensity_counts_cand = intensity_counts[idx_threshold+highmaxind_cands]
+        intensity_counts_cand = intensity_counts[idx_threshold + highmaxind_cands]
         highmaxind = idx_threshold + \
             highmaxind_cands[np.nanargmax(intensity_counts_cand)]
 
@@ -945,7 +954,7 @@ def determine_threshold(
 
         except:
             tri_optimization = False
-            logger.info(f'Trimodal curve Fitting fails in threshold computation.')       
+            logger.info(f'Trimodal curve Fitting fails in threshold computation.')
         if tri_optimization:
             intensity_sub2 = intensity_sub[intensity_sub < tri_second_mode[0]]
             tau_bound_gauss = threshold_otsu(intensity_sub2)
@@ -959,9 +968,13 @@ def determine_threshold(
                 intensity_sub,
                 bins=np.linspace(min_intensity_histogram,
                                  max_intensity_histogram,
-                                 numstep+1),
-                density=False)
-            ratio = np.nanmean(intensity_countspp/intensity_counts)
+                                 numstep + 1),
+                                 density=False)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                ratios = np.where(intensity_counts != 0,
+                                  intensity_countspp / intensity_counts,
+                                  np.nan)
+            ratio = np.nanmean(ratios)
 
             if optimization:
                 diff_dist = intensity_counts - simul_first
@@ -1002,7 +1015,7 @@ def determine_threshold(
                         compare_index1 = (np.abs(bins - threshold)).argmin()
                         compare_index2 = (np.abs(bins - hist_bin)).argmin()
 
-                        rms = np.sqrt(np.mean((intensity_counts_rg[
+                        rms = np.sqrt(np.nanmean((intensity_counts_rg[
                             compare_index1:compare_index2] -
                             simul_first[compare_index1:compare_index2])**2))
                         rms_sss.append(rms)
@@ -1019,7 +1032,9 @@ def determine_threshold(
 
     threshold_array = np.array(threshold_array)
     mode_array = np.array(mode_array)
+
     threshold_array[threshold_array > max_threshold] = np.nan
+    threshold_array[threshold_array < min_threshold] = np.nan
     mode_array[mode_array > max_threshold] = np.nan
 
     global_threshold = threshold_array
@@ -1141,6 +1156,7 @@ def fill_threshold_with_gdal(threshold_array,
                                               (x_arr_tau.flatten(),
                                                y_arr_tau.flatten()),
                                               method='nearest')
+
             if average_tile:
                 data_valid = np.vstack([x_arr_tau.flatten(),
                                         y_arr_tau.flatten(),
@@ -1429,6 +1445,7 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
     tile_selection_object.threshold_twele = tile_selection_twele
     tile_selection_object.threshold_bimodality = \
         tile_selection_bimodality
+
     ## Tile Selection (with water body)
     for polind, pol in enumerate(pol_list):
 
@@ -1454,10 +1471,10 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                 water_variation = 0
             else:
                 water_variation = len(wbdsub_norm[
-                                    (wbdsub_norm < 0.8) &
-                                    (wbdsub_norm > 0.2)])\
-                                    / (wbdsub_norm.shape[0] *
-                                       wbdsub_norm.shape[1])
+                                     (wbdsub_norm < 0.8) &
+                                     (wbdsub_norm > 0.2)])\
+                                     / (wbdsub_norm.shape[0] *
+                                        wbdsub_norm.shape[1])
 
             if water_variation > 0.1:
                 threshold_temp_max = thres_max[polind]
@@ -1473,7 +1490,7 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                 min_intensity_histogram=min_intensity_histogram,
                 max_intensity_histogram=max_intensity_histogram,
                 step_histogram=step_histogram,
-                bounds=[-24, threshold_temp_max],
+                bounds=[-28, threshold_temp_max],
                 method=threshold_method,
                 mutli_threshold=mutli_threshold_flag)
 
@@ -1544,31 +1561,55 @@ def process_block(ii, jj, n_rows_block, n_cols_block, m_rows_block, m_cols_block
                                             ii * block_row,
                                             x_size,
                                             y_size)
+    filt_raster_tif = None
 
     wbd_gdal = gdal.Open(wbd_im_str)
     wbd_sub = wbd_gdal.ReadAsArray(jj * block_col,
                                    ii * block_row,
                                    x_size,
                                    y_size)
-
+    wbd_gdal = None
     threshold_tau_block, mode_tau_block, candidate_tile_coords = \
         run_sub_block(
             image_sub,
             wbd_sub,
             cfg,
             thres_max=thres_max)
-
-    threshold_list = [np.nan_to_num(ind_list, nan=-50).tolist()
-                      for ind_list in threshold_tau_block]
-    mode_list = [np.nan_to_num(ind_list, nan=-50).tolist()
-                 for ind_list in mode_tau_block]
-
+            
     if average_tile_flag:
         threshold_list = [np.nanmean(test_threshold)
-                          for test_threshold in threshold_list]
-        mode_list = [np.nanmean(test_mode) for test_mode in mode_list]
-
+                          if not np.all(np.isnan(test_threshold)) else np.nan
+                          for test_threshold in threshold_tau_block]
+        mode_list = [np.nanmean(test_mode)
+                     if not np.all(np.isnan(test_mode)) else np.nan 
+                     for test_mode in mode_tau_block]
+    else:
+        threshold_list = [np.nan_to_num(ind_list, nan=-50).tolist()
+                        for ind_list in threshold_tau_block]
+        mode_list = [np.nan_to_num(ind_list, nan=-50).tolist()
+                    for ind_list in mode_tau_block]
+        
     return ii, jj, threshold_list, mode_list, candidate_tile_coords
+
+
+def compute_threshold_max_bound(intensity_array,
+                                is_bimodal,
+                                metric_obj=None):
+    int_array_db = convert_pow2db(intensity_array)
+    if is_bimodal:
+        if metric_obj.optimization:
+            int_sub_mean, int_sub_std, _ = metric_obj.first_mode
+        else:
+            thres_temp = threshold_otsu(int_array_db)
+            valid_samples = int_array_db[int_array_db > thres_temp]
+            int_sub_mean = np.nanmean(valid_samples)
+            int_sub_std = np.nanstd(valid_samples)
+    else:
+        int_sub_mean = np.nanmean(int_array_db)
+        int_sub_std = np.nanstd(int_array_db)
+
+    return np.nanmax([np.percentile(int_array_db, 99.5) + int_sub_std * 2,
+                      int_sub_mean + int_sub_std * 2]), int_sub_mean, int_sub_std
 
 
 def run(cfg):
@@ -1652,64 +1693,31 @@ def run(cfg):
     for iter_ind in range(threshold_iteration):
         logger.info(f'iterations : {iter_ind + 1} of {number_iterations}')
 
-        for band_ind in range(0, band_number):
+        for band_ind in range(band_number):
             if pol_list[band_ind] == 'span':
-                # threshold should be lower than 30 dB:
-                # All thresholds can be accepted.
                 thres_max[band_ind] = 30
             else:
-
-                # extract intensity values from the water areas
                 int_water_array = intensity_whole[
                     band_ind, (wbd_whole_norm > permanent_water_value) &
                     (np.nansum(initial_water_set, axis=2) > 1)]
-
-                # remove invalid values from intensity array
                 int_water_array = remove_invalid(int_water_array)
 
-                # process further if int_water_array is not empty.
                 if len(int_water_array):
+                    metric_obj = refine_with_bimodality.BimodalityMetrics(int_water_array)
+                    is_bimodal = metric_obj.compute_metric()
 
-                    # check if the array has the bimodality.
-                    # if bimodality is found, then dark water and bright water
-                    # may coexists in scene.
-                    metric_obj = refine_with_bimodality.BimodalityMetrics(
-                        int_water_array)
-                    bimodal_bool = metric_obj.compute_metric()
-                    if bimodal_bool:
-                        logger.info('Bright water found on images')
-                        logger.info(f'      :{metric_obj.first_mode[0]:.2f} '
-                                    f'vs. {metric_obj.second_mode[0]:.2f}')
-
-                        int_sub_mean, int_sub_std, _ = metric_obj.first_mode
-                        sample_test = convert_pow2db(int_water_array)
-                        sample_test = sample_test[~np.isnan(sample_test)]
-
-                        # compute bound from maximum value
-                        # between 'otsu threshold' and 'mean + 2 * sig'
-                        thres_max[band_ind] = np.nanmax([
-                            threshold_otsu(sample_test),
-                            int_sub_mean + int_sub_std * 2])
-                    else:
-                        # If distribution is close to unimodal distribution
-                        # maximum bound is computed from 'mean + 2 * sig'
-                        int_water_array_db = convert_pow2db(int_water_array)
-                        int_sub_mean = np.nanmean(int_water_array_db)
-                        int_sub_std = np.nanstd(int_water_array_db)
-                        thres_max[band_ind] = int_sub_mean + 2 * int_sub_std
-
+                    thres_max[band_ind], int_sub_mean, int_sub_std = compute_threshold_max_bound(
+                        int_water_array, is_bimodal, metric_obj)
                 else:
-                    int_sub_mean = np.nan
-                    int_sub_std = np.nan
-                    thres_max[band_ind] = np.nan
-                    bimodal_bool = False
+                    int_sub_mean, int_sub_std, thres_max[band_ind] = np.nan, np.nan, np.nan
+                    is_bimodal = False
 
                 logger.info(f'mean  intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {int_sub_mean:.2f}, {bimodal_bool}')
+                            f' {int_sub_mean:.2f}, {is_bimodal}')
                 logger.info(f'std   intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {int_sub_std:.2f}, {bimodal_bool}')
-                logger.info(f'thres intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {thres_max[band_ind]:.2f}, {bimodal_bool}')
+                            f' {int_sub_std:.2f}, {is_bimodal}')
+                logger.info(f'max bound intensity [dB] over water {pol_list[band_ind]}:'
+                            f' {thres_max[band_ind]:.2f}, {is_bimodal}')
 
         block_row = init_threshold_cfg.maximum_tile_size.y
         block_col = init_threshold_cfg.maximum_tile_size.x
@@ -1772,6 +1780,11 @@ def run(cfg):
                 mode_tau_set,
                 block_row,
                 block_col)
+            testtest = threshold_tau_set[:, :, 0]
+            testtest[testtest == -50] = np.nan
+            testtest = threshold_tau_set[:, :, 1]
+            testtest[testtest == -50] = np.nan
+
         else:
             threshold_tau_set = [[], [], []]
             mode_tau_set = [[], [], []]
@@ -1836,9 +1849,9 @@ def run(cfg):
             threshold_tau_dict['array'] = threshold_tau_set
             threshold_tau_dict['subtile_coord'] = window_coord_list
             mode_tau_dict['array'] = mode_tau_set
+
         if not threshold_tau_dict:
             logger.info('No threshold_tau')
-
         # Currently, only 'gdal_grid' method is supported.
         if threshold_extending_method == 'gdal_grid':
             dict_threshold_list = [threshold_tau_dict, mode_tau_dict]

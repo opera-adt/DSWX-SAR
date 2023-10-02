@@ -264,7 +264,8 @@ def run_parallel_region_growing(input_tif_path,
                     region_grow_block,
                     block_param,
                     geotransform=meta_dict['geotransform'],
-                    projection=meta_dict['projection'])
+                    projection=meta_dict['projection'],
+                    datatype='float32')
 
 
 def run(cfg):

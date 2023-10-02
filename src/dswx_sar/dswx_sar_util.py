@@ -589,15 +589,15 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     None. The visualized figure is saved to the specified directory.
     """
     if len(intensity.shape) == 2:
-        Rows, Cols = np.shape(intensity)  
+        rows, cols = np.shape(intensity)  
     elif len(intensity.shape) == 3:
-        _, Rows, Cols = np.shape(intensity)  
+        _, rows, cols = np.shape(intensity)  
     ## Tile Selection (w/o water body)
     
-    nR = np.int16(Rows / block_row) 
-    nC = np.int16(Cols / block_col)
-    mR = np.mod(Rows, block_row)
-    mC = np.mod(Cols, block_col)
+    nR = np.int16(rows / block_row) 
+    nC = np.int16(cols / block_col)
+    mR = np.mod(rows, block_row)
+    mC = np.mod(cols, block_col)
     nR = nR + ( 1 if mR > 0 else 0) 
     nC = nC + ( 1 if mC > 0 else 0) 
     
@@ -611,15 +611,15 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     vmax = np.nanpercentile(intensity,95)
     plt.imshow(intensity, cmap = plt.get_cmap('gray'),vmin=vmin,vmax=vmax)
        
-    threshold_oversample = np.zeros([Rows, Cols])
+    threshold_oversample = np.zeros([rows, cols])
     for ii in range(0,nR):
         for jj in range(0,nC):
             if (ii == nR) and ( mR > 0):
-                iend = Rows
+                iend = rows
             else:
                 iend = (ii + 1) * block_row
             if (jj == nC) and ( mC > 0):
-                jend = Cols
+                jend = cols
             else:
                 jend = (jj + 1) * block_col 
             threshold_oversample[ii*block_row : iend, jj*block_col:jend] = threshold_tile[ii, jj]
@@ -657,10 +657,11 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
     """
     # Determine the dimensions and the number of bands based on the shape of the intensity array
     if len(intensity.shape) == 2:
-        Rows, Cols = intensity.shape
+        rows, cols = intensity.shape
         bands = [intensity]
     else:
         bands = [intensity[i] for i in range(intensity.shape[0])]
+        _, rows, cols = np.shape(intensity)
 
     for band_index, band in enumerate(bands):
         intensity_db = 10 * np.log10(band)
@@ -673,7 +674,7 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
         plt.imshow(intensity_db, cmap='gray', vmin=vmin, vmax=vmax)
         
         # Prepare a matrix for the overlaid threshold values
-        threshold_overlay = np.full((Rows, Cols), np.nan)
+        threshold_overlay = np.full((rows, cols), np.nan)
         
         for threshold, coords in zip(threshold_dict['array'][band_index], threshold_dict['subtile_coord'][band_index]):
             start_row, end_row, start_col, end_col = coords

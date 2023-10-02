@@ -982,7 +982,7 @@ def determine_threshold(
 
                 if len(lowmaxind_cands) > 1:
                     lowmaxind_cands = lowmaxind_cands[-1]
-                diff_dist[:lowmaxind_cands] = np.nan
+                diff_dist[:int(lowmaxind_cands)] = np.nan
                 diff_dist_ind = np.where(diff_dist > 0.05)
 
                 if len(diff_dist_ind[0]) > 0:

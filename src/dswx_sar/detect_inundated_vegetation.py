@@ -9,7 +9,7 @@ import osgeo.gdal as gdal
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar.pre_processing import pol_ratio
-from dswx_sar.masking_with_ancillary import FillMaskLandcover
+from dswx_sar.masking_with_ancillary import FillMaskLandCover
 
 logger = logging.getLogger('dswx_s1_inundated_vegetation')
 
@@ -29,11 +29,11 @@ def run(cfg):
     pol_all_str = '_'.join(pol_list)
     inundated_vege_cfg = processing_cfg.inundated_vegetation
     filter_size = processing_cfg.filter.window_size
-    inundated_vege_ratio_max = inundated_vege_cfg.vv_vh_ratio_max
-    inundated_vege_ratio_min = inundated_vege_cfg.vv_vh_ratio_min
-    inundated_vege_ratio_threshold = inundated_vege_cfg.ratio_threshold
+    inundated_vege_ratio_max = inundated_vege_cfg.dual_pol_ratio_max
+    inundated_vege_ratio_min = inundated_vege_cfg.dual_pol_ratio_min
+    inundated_vege_ratio_threshold = \
+        inundated_vege_cfg.dual_pol_ratio_threshold
     inundated_vege_cross_pol_min = inundated_vege_cfg.cross_pol_min
-    blocksize = inundated_vege_cfg.line_per_block
 
     dual_pol_flag = False
     if (('HH' in pol_list) and ('HV' in pol_list)) or \
@@ -49,8 +49,8 @@ def run(cfg):
         err_str = f'{rtc_dual_path} is not found.'
         raise FileExistsError(err_str)
 
-    if (inundated_vege_ratio_min > inundated_vege_ratio_threshold) \
-        or (inundated_vege_ratio_max < inundated_vege_ratio_threshold):
+    if (inundated_vege_ratio_min > inundated_vege_ratio_threshold) or \
+       (inundated_vege_ratio_max < inundated_vege_ratio_threshold):
         err_str = f'{inundated_vege_ratio_threshold} is not valid.'
         raise ValueError(err_str)
 
@@ -73,42 +73,46 @@ def run(cfg):
     # Currently, inundated vegetation for C-band is available for
     # Herbanceous wetland area
     landcover_path_str = os.path.join(outputdir, 'interpolated_landcover')
-    mask_obj = FillMaskLandcover(landcover_path_str)
-    target_inundated_vege_class = mask_obj.get_mask(mask_label=['Herbaceous wetland'])
+    mask_obj = FillMaskLandCover(landcover_path_str)
+    target_inundated_vege_class = mask_obj.get_mask(
+        mask_label=['Herbaceous wetland'])
 
     target_cross_pol = cross_db > inundated_vege_cross_pol_min
 
-    inundated_vegetation = (filt_ratio_db > inundated_vege_ratio_threshold) & \
-                           target_cross_pol & \
-                           target_inundated_vege_class
+    inundated_vegetation = (
+        filt_ratio_db > inundated_vege_ratio_threshold) & \
+        target_cross_pol & \
+        target_inundated_vege_class
 
     mask_excluded = mask_obj.get_mask(mask_label=[
         'Bare sparse vegetation',
-        'Urban',])
+        'Urban'])
 
     output_data[inundated_vegetation] = 2
     output_data[mask_excluded] = 0
 
     inundated_vege_path = f"{outputdir}/temp_inundated_vegetation.tif"
     print(inundated_vege_path, output_data.shape)
-    dswx_sar_util.save_dswx_product(output_data,
-                inundated_vege_path,
-                geotransform=im_meta['geotransform'],
-                projection=im_meta['projection'],
-                description='Water classification (WTR)',
-                scratch_dir=outputdir)
+    dswx_sar_util.save_dswx_product(
+        output_data,
+        inundated_vege_path,
+        geotransform=im_meta['geotransform'],
+        projection=im_meta['projection'],
+        description='Water classification (WTR)',
+        scratch_dir=outputdir)
 
     if processing_cfg.debug_mode:
         dswx_sar_util.save_raster_gdal(
             data=filt_ratio_db,
-            output_file=os.path.join(outputdir,'intensity_db_ratio.tif'),
+            output_file=os.path.join(outputdir, 'intensity_db_ratio.tif'),
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],
             scratch_dir=outputdir)
 
     t_time_end = time.time()
 
-    logger.info(f'total inundated vegetation mapping time: {t_time_end - t_all} sec')
+    logger.info(
+        f'total inundated vegetation mapping time: {t_time_end - t_all} sec')
 
 
 def main():
@@ -131,6 +135,7 @@ def main():
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
     run(cfg)
+
 
 if __name__ == '__main__':
     main()

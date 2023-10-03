@@ -135,13 +135,12 @@ runconfig:
                 bm_coefficient: 0.7
                 surface_ratio: 0.1
 
-
         inundated_vegetation:
             enabled: True
-            vv_vh_ratio_max: 12
-            vv_vh_ratio_min: 7
+            dual_pol_ratio_max: 12
+            dual_pol_ratio_min: 7
+            dual_pol_ratio_threshold: 8
             cross_pol_min: -26
-
             line_per_block: 300
 
         # debug mode is true, intermediate product is generated.

@@ -1,12 +1,10 @@
 #!/usr/bin/env python
 
 import logging
-import os
-import mimetypes
 import time
-from datetime import datetime
 
-from dswx_sar import (fuzzy_value_computation,
+from dswx_sar import (detect_inundated_vegetation,
+                      fuzzy_value_computation,
                       initial_threshold,
                       masking_with_ancillary,
                       mosaic_rtc_burst,

@@ -660,8 +660,8 @@ def compute_ki_threshold(
         density=True)
     intensity_bins = intensity_bins[:-1]
 
-    intensity_counts = intensity_counts.astype(np.float)
-    intensity_bins = intensity_bins.astype(np.float)
+    intensity_counts = intensity_counts.astype(np.float64)
+    intensity_bins = intensity_bins.astype(np.float64)
 
     intensity_cumsum = np.cumsum(intensity_counts)
     intensity_area = np.cumsum(intensity_counts * intensity_bins)

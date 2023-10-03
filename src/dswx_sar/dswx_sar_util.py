@@ -31,7 +31,7 @@ band_assign_value_dict = {
     'hand_mask': 5,
     'layover_shadow_mask': 6,
     'inundated_vegetation': 7,
-    'no_data': 255
+    'no_data': 120
 }
 
 
@@ -55,7 +55,7 @@ def get_interpreted_dswx_s1_ctable():
     dswx_ctable.SetColorEntry(6, (128, 128, 128))  # Gray - Layover/shadow mask
     dswx_ctable.SetColorEntry(7, (200, 200, 50))  # Gray - Inundated vegetation
 
-    dswx_ctable.SetColorEntry(255, (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
+    dswx_ctable.SetColorEntry(120, (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
 
     return dswx_ctable
 

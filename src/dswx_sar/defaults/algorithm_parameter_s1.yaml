@@ -47,6 +47,7 @@ runconfig:
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
             selection_method: 'combined'
+
             # Thresholds to select tiles showing the boundary between water and nonwater
             # using bimodality strategy. 
             # One values are required for twele method 
@@ -67,7 +68,8 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: True
-            # number of threads to run
+
+            # Number of threads to run
             # -1 represents the all available threads
             number_cpu: -1
             number_iterations: 1
@@ -133,11 +135,12 @@ runconfig:
                 bm_coefficient: 0.7
                 surface_ratio: 0.1
 
-
         inundated_vegetation:
             enabled: True
-            temporal_avg_path:
-            initial_class_path:
+            dual_pol_ratio_max: 12
+            dual_pol_ratio_min: 7
+            dual_pol_ratio_threshold: 8
+            cross_pol_min: -26
             line_per_block: 300
 
         # debug mode is true, intermediate product is generated.

@@ -40,6 +40,7 @@ runconfig:
             minimum_tile_size:
                 x: num(required=False)
                 y: num(required=False)
+
             # Tile selecting strategy to identify the boundary between water and nonwater
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
@@ -126,11 +127,18 @@ runconfig:
 
         refine_with_bimodality:
             minimum_pixel: num(min=0, required=False)
+            thresholds:
+                ashman: num(min=0, required=False)
+                Bhattacharyya_coefficient: num(min=0, required=False)
+                bm_coefficient: num(min=0, required=False)
+                surface_ratio: num(min=0, required=False)
 
         inundated_vegetation:
             enabled: bool(required=False)
-            temporal_avg_path: str(required=False)
-            initial_class_path: str(required=False)
+            dual_pol_ratio_max: num(min=0, max=30, required=False)
+            dual_pol_ratio_min: num(min=0, max=30, required=False)
+            dual_pol_ratio_threshold: num(min=0, max=30, required=False)
+            cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
 
         # If debug mode is true, intermediate product is generated. 

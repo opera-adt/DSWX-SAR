@@ -3,7 +3,8 @@
 import logging
 import time
 
-from dswx_sar import (fuzzy_value_computation,
+from dswx_sar import (detect_inundated_vegetation,
+                      fuzzy_value_computation,
                       initial_threshold,
                       masking_with_ancillary,
                       mosaic_rtc_burst,
@@ -48,12 +49,11 @@ def dswx_s1_workflow(cfg):
         # Land use map
         masking_with_ancillary.run(cfg)
 
-        ### Refinement
+        # Refinement
         refine_with_bimodality.run(cfg)
 
         if processing_cfg.inundated_vegetation.enabled:
-            #[TODO]detect_inundated_vegetation.run(cfg)
-            pass
+            detect_inundated_vegetation.run(cfg)
 
     # save product as mgrs tiles.
     save_mgrs_tiles.run(cfg)

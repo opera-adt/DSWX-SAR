@@ -19,6 +19,10 @@ runconfig:
             drought_erosion_pixel: 10
             # number of pixel to apply dilation for flood case
             flood_dilation_pixel: 16 
+
+        hand:
+            mask_value: 200
+
         mosaic:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
@@ -68,13 +72,11 @@ runconfig:
             # Number of threads to run
             # -1 represents the all available threads
             number_cpu: -1
+            number_iterations: 1
             tile_average: False
 
         fuzzy_value:
             hand:
-                # Area where the height is above the exclusion threshold 
-                # is masked out.
-                excluded_mask: 200
                 # The units of the HAND is meters. 
                 member_min: 0
                 member_max: 15

@@ -321,11 +321,9 @@ def compute_fuzzy_value(intensity,
     min_dem = mu_h
     max_dem = mu_h + (std_h + 2.5) * std_h
     hand[np.isnan(hand)] = 0
-
-    if np.isnan(min_dem):
-        min_dem = fuzzy_option['hand_min']
-    if np.isnan(max_dem):
-        max_dem = fuzzy_option['hand_max']
+    
+    min_dem = np.nanmin([mu_h, fuzzy_option['hand_min']])
+    max_dem = np.nanmax([ mu_h + (std_h + 2.5) * std_h, fuzzy_option['hand_max']])
     logger.info(f'     {min_dem} {max_dem} are used to compute HAND membership')
 
     hand_z = zmf(hand, min_dem, max_dem)
@@ -401,7 +399,7 @@ def run(cfg):
 
     # fuzzy cfg
     fuzzy_cfg = processing_cfg.fuzzy_value
-    option_dict = {'hand_threshold': fuzzy_cfg.hand.excluded_mask,
+    option_dict = {'hand_threshold': processing_cfg.hand.mask_value,
                    'hand_min': fuzzy_cfg.hand.member_min,
                    'hand_max': fuzzy_cfg.hand.member_max,
                    'slope_min': fuzzy_cfg.slope.member_min,

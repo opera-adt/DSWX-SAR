@@ -14,11 +14,9 @@ import numpy as np
 from osgeo import osr, gdal
 from scipy import ndimage
 
-
+from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar import (dswx_sar_util,
                       generate_log)
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-
 
 logger = logging.getLogger('dswx_s1')
 
@@ -75,6 +73,7 @@ def read_metadata_epsg(h5_meta_path):
     meta_dict['epsg'] = epsg
     return meta_dict
 
+
 def save_h5_metadata_to_tif(h5_meta_path,
                             data_path,
                             output_tif_path,
@@ -115,7 +114,7 @@ def save_h5_metadata_to_tif(h5_meta_path,
             geotransform,
             projection,
             scratch_dir=output_dirname,
-            DataType=dtype)
+            datatype=dtype)
     else:
         output_tif_temp_dir_path = os.path.dirname(output_tif_path)
         output_tif_temp_base_path = \
@@ -127,7 +126,7 @@ def save_h5_metadata_to_tif(h5_meta_path,
             geotransform,
             projection,
             scratch_dir=output_tif_temp_dir_path,
-            DataType=dtype)
+            datatype=dtype)
 
         opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
                      xRes=xres,
@@ -136,6 +135,7 @@ def save_h5_metadata_to_tif(h5_meta_path,
                      format='GTIFF')
         gdal.Warp(output_tif_path, output_tif_temp_path, options=opt)
         os.remove(output_tif_temp_path)
+
 
 def requires_reprojection(geogrid_mosaic,
                           rtc_image: str,
@@ -778,23 +778,22 @@ def run(cfg):
             else:
             # layover/shadow mask is saved from hdf5 metadata.
                 temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
-                epsg_output = read_metadata_epsg(metadata_path)['epsg']
-                try:
-                    save_h5_metadata_to_tif(metadata_path,
-                                            data_path=f'{freqA_path}/mask',
-                                            output_tif_path=temp_mask_path,
-                                            epsg_output=epsg_output)
-                except:
-                    save_h5_metadata_to_tif(metadata_path,
-                                            data_path=f'{freqA_path}/layoverShadowMask',
-                                            output_tif_path=temp_mask_path,
-                                            epsg_output=epsg_output)
+                with h5py.File(metadata_path) as meta_src:
+                    if 'mask' in meta_src[freqA_path]:
+                        mask_name = 'mask'
+                    elif 'layoverShadowMask' in meta_src[freqA_path]:
+                        mask_name = 'layoverShadowMask'
+                    else:
+                        raise FileNotFoundError
 
+                save_h5_metadata_to_tif(metadata_path,
+                                        data_path=f'{freqA_path}/{mask_name}',
+                                        output_tif_path=temp_mask_path,
+                                        epsg_output=epsg_output)
                 mask_list.append(temp_mask_path)
 
         # Check if metadata have common values on
         # poliarzation /track number/ direction fields
-
         output_dir_mosaic_raster = scratch_path
         product_prefix = processing_cfg.mosaic.mosaic_prefix
         imagery_extension = 'tif'

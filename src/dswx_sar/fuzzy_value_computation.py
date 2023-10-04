@@ -547,12 +547,6 @@ def run(cfg):
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     datatype='float32')
-                # dswx_sar_util.save_raster_gdal(
-                #     data=raster,
-                #     output_file=output_file_name,
-                #     geotransform=im_meta['geotransform'],
-                #     projection=im_meta['projection'],
-                #     scratch_dir=outputdir)
 
             for polind, pol in enumerate(pol_list):
                 dswx_sar_util.write_raster_block(
@@ -563,13 +557,6 @@ def run(cfg):
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     datatype='float32')
-                # dswx_sar_util.save_raster_gdal(
-                #     data=np.squeeze(intensity_z[polind,:,:]),
-                #     output_file=\
-                #         os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
-                #     geotransform=im_meta['geotransform'],
-                #     projection=im_meta['projection'],
-                #     scratch_dir=outputdir)
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran fuzzy processing in {t_all_elapsed:.3f} seconds")

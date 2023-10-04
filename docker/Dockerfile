@@ -2,7 +2,7 @@ FROM oraclelinux:8
 
 LABEL author="OPERA ADT" \
     description="DSWX-SAR beta release R2" \
-    version="0.2.0-beta"
+    version="0.2.1-beta"
 
 RUN yum -y update &&\
     yum -y install curl &&\
@@ -36,6 +36,7 @@ SHELL ["conda", "run", "-n", "DSWX-SAR", "/bin/bash", "-c"]
 
 WORKDIR /home/dswx_user/OPERA
 
+RUN python -m pip install opencv-python-headless
 # installing OPERA DSWX-SAR
 RUN python -m pip install ./DSWX-SAR &&\
     echo "conda activate DSWX-SAR" >> /home/dswx_user/.bashrc

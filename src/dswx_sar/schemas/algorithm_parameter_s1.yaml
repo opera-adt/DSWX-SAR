@@ -127,6 +127,7 @@ runconfig:
             water_threshold: num(min=0, max=100, required=False)
 
         refine_with_bimodality:
+            number_cpu: num(required=False)
             minimum_pixel: num(min=0, required=False)
             thresholds:
                 ashman: num(min=0, required=False)

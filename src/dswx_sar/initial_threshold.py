@@ -1930,6 +1930,7 @@ def run(cfg):
     filt_raster_tif = None
     wbd_gdal.FlushCache()
     wbd_gdal = None
+    del intensity_whole
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran computing initial threshold in "

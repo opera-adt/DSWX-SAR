@@ -130,6 +130,7 @@ runconfig:
 
         refine_with_bimodality:
             minimum_pixel: 4
+            number_cpu: 1
             thresholds:
                 ashman: 1.5
                 Bhattacharyya_coefficient: 0.97

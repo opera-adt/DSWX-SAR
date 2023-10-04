@@ -737,7 +737,8 @@ def remove_false_water_bimodality_parallel(water_mask,
                                            meta_info=None,
                                            input_dict=None,
                                            minimum_pixel=4,
-                                           debug_mode=False):
+                                           debug_mode=False,
+                                           number_workers=1):
     """
     Remove falsely detected water bimodality from an image in parallel.
     This function identifies and processes areas of water and adjacent lands
@@ -844,7 +845,7 @@ def remove_false_water_bimodality_parallel(water_mask,
                           minimum_pixel, debug_mode)
                           for i in range(len(coord_list))]
 
-            results = Parallel(n_jobs=10)(delayed(process_dark_land_component)(args)
+            results = Parallel(n_jobs=number_workers)(delayed(process_dark_land_component)(args)
                         for args in args_list)
 
             # Assign results computed in parallel into variables
@@ -906,7 +907,8 @@ def fill_gap_water_bimodality_parallel(
         threshold = [0.7, 1.5],
         meta_info=None,
         outputdir=None,
-        input_dict=None):
+        input_dict=None,
+        number_workers=1):
     """Fill gaps in water bodies using bimodality and
     normalized separation metrics in parallel.
 
@@ -996,7 +998,7 @@ def fill_gap_water_bimodality_parallel(
                               input_dict['ref_land'], pol_ind,
                               threshold) for i in range(0, nb_components_water)]
 
-            results = Parallel(n_jobs=10)(delayed(
+            results = Parallel(n_jobs=number_workers)(delayed(
                                         process_bright_water_component)(args)
                                             for args in args_list)
             for res in results:
@@ -1018,13 +1020,14 @@ def fill_gap_water_bimodality_parallel(
             bimodality_set.append(bimodality_image)
             ad_set.append(ad_image)
 
-        # bindary image is created for the pixels that passed two tests.
-        bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set, axis=0)< threshold[1])) \
-            | (np.squeeze(np.nanmean(bimodality_set, axis=0)< threshold [0]))
-        # 0 value in output_water indicates the non-water
-        bimodal_ad_binary[output_water==0] = False
+    # bindary image is created for the pixels that passed two tests.
+    bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set, axis=0)< threshold[1])) \
+        | (np.squeeze(np.nanmean(bimodality_set, axis=0)< threshold [0]))
+    # 0 value in output_water indicates the non-water
+    bimodal_ad_binary[output_water==0] = False
+    del ad_set, bimodality_set
 
-    return bimodality_set, ad_set, bimodal_ad_binary
+    return bimodal_ad_binary
 
 
 def run(cfg):
@@ -1046,6 +1049,7 @@ def run(cfg):
     bhc_threshold = threshold_set.Bhattacharyya_coefficient
     bm_threshold = threshold_set.bm_coefficient
     surface_ratio_threshold = threshold_set.surface_ratio
+    number_workers = bimodality_cfg.number_cpu
 
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_str}.tif")
     no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
@@ -1110,14 +1114,15 @@ def run(cfg):
             meta_info=im_meta,
             input_dict=input_file_dict,
             minimum_pixel=minimum_pixel,
-            debug_mode=processing_cfg.debug_mode)
+            debug_mode=processing_cfg.debug_mode,
+            number_workers=number_workers)
 
     water_bindary = bimodal_binary > 0
     bimodal_binary = None
 
     # Identify gaps within the water bodies and fill the gaps
     # if bimodality exists
-    *_, fill_gap_bindary = \
+    fill_gap_bindary = \
         fill_gap_water_bimodality_parallel(
             water_bindary==0,
             pol_list,
@@ -1125,14 +1130,12 @@ def run(cfg):
                         ashman_threshold],
             meta_info=im_meta,
             outputdir=outputdir,
-            input_dict=input_file_dict)
+            input_dict=input_file_dict,
+            number_workers=number_workers)
 
     water_bindary[fill_gap_bindary] = True
     fill_gap_bindary = None
 
-    no_data_raster = dswx_sar_util.read_geotiff(no_data_geotiff_path)
-    no_data_raster = no_data_raster | \
-        (water_mask_image == band_assign_value_dict['no_data'])
     water_tif_str = os.path.join(
         outputdir, f"bimodality_output_binary_{pol_str}.tif")
     dswx_sar_util.save_dswx_product(water_bindary>0,
@@ -1140,8 +1143,7 @@ def run(cfg):
                   geotransform=im_meta['geotransform'],
                   projection=im_meta['projection'],
                   description='Water classification (WTR)',
-                  scratch_dir=outputdir,
-                  no_data=no_data_raster)
+                  scratch_dir=outputdir)
 
     t_time_end = time.time()
     t_all_elapsed = t_time_end - t_all

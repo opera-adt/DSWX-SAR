@@ -528,7 +528,10 @@ def run(cfg):
     # repackage the water map
     # 1) water map
     water_map = dswx_sar_util.read_geotiff(final_water_path)
-    no_data_raster = water_map == band_assign_value_dict['no_data']
+    no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
+    no_data_raster = dswx_sar_util.read_geotiff(no_data_geotiff_path)
+    no_data_raster = no_data_raster | \
+        (water_map == band_assign_value_dict['no_data'])
 
     # 2) layover/shadow
     layover_shadow_mask_path = \

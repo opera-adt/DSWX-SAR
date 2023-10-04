@@ -730,8 +730,7 @@ def process_bright_water_component(args):
     return bt_value, ad_value, ind_bright_water
 
 
-def remove_false_water_bimodality_parallel(bands,
-                                           water_mask,
+def remove_false_water_bimodality_parallel(water_mask,
                                            pol_list,
                                            thresholds,
                                            outputdir,
@@ -746,8 +745,6 @@ def remove_false_water_bimodality_parallel(bands,
 
     Parameters:
     -----------
-    bands: numpy.ndarray
-        The intensity bands as a 3D NumPy array.
     water_mask: numpy.ndarray
         Boolean or binary mask indicating water areas in the image.
     pol_list: list
@@ -775,14 +772,9 @@ def remove_false_water_bimodality_parallel(bands,
     bimodality_total: numpy.ndarray
         An image indicating the bimodality values across the entire scene.
     """
-    bands = np.asarray(bands)
 
-    if bands.ndim == 3:
-        _, rows, cols = bands.shape
-    elif bands.ndim == 2:
-        rows, cols = np.shape(bands)
-    else:
-        raise ValueError("Unexpected image shape.")
+    rows, cols = meta_info['length'], meta_info['width']
+
     # computes the connected components labeled image of boolean image
     # and also produces a statistics output for each label
     nb_components_water, output_water, stats_water, _ = \
@@ -908,13 +900,13 @@ def remove_false_water_bimodality_parallel(bands,
     return bimodality_total
 
 
-def fill_gap_water_bimodality_parallel(bands,
-                            water_mask,
-                            pol_list,
-                            threshold = [0.7, 1.5],
-                            meta_info=None,
-                            outputdir=None,
-                            input_dict=None):
+def fill_gap_water_bimodality_parallel(
+        water_mask,
+        pol_list,
+        threshold = [0.7, 1.5],
+        meta_info=None,
+        outputdir=None,
+        input_dict=None):
     """Fill gaps in water bodies using bimodality and
     normalized separation metrics in parallel.
 
@@ -924,8 +916,6 @@ def fill_gap_water_bimodality_parallel(bands,
     and combines the metrics to create a binary image indicating water gaps.
 
     Parameters:
-        bands (numpy.ndarray):
-            The intensity bands as a 3D or 2D NumPy array.
         water_mask (numpy.ndarray):
             The binary water mask as a 2D NumPy array.
         pol_list (list):
@@ -952,15 +942,9 @@ def fill_gap_water_bimodality_parallel(bands,
                 A binary 2D NumPy array indicating the water gaps.
 
     """
-    if bands.ndim == 3:
-        _, rows, cols = np.shape(bands)
-    elif bands.ndim == 2:
-        rows, cols = np.shape(bands)
-        bands = bands[np.newaxis, :, :]
-    else:
-        raise ValueError("Unexpected image shape.")
+    rows, cols = meta_info['length'], meta_info['width']
 
-    out_boundary = np.isnan(np.sum(bands, axis=0))
+    out_boundary = dswx_sar_util.read_geotiff(input_dict['no_data'])
     water_mask[out_boundary] = 0
     # computes the connected components labeled image of boolean image
     # and also produces a statistics output for each label
@@ -1033,11 +1017,12 @@ def fill_gap_water_bimodality_parallel(bands,
 
             bimodality_set.append(bimodality_image)
             ad_set.append(ad_image)
-            # bindary image is created for the pixels that passed two tests.
-            bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set,axis=0)< threshold[1])) \
-                | (np.squeeze(np.nanmean(bimodality_set,axis=0)< threshold [0]))
-            # 0 value in output_water indicates the non-water
-            bimodal_ad_binary[output_water==0] = False
+
+        # bindary image is created for the pixels that passed two tests.
+        bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set, axis=0)< threshold[1])) \
+            | (np.squeeze(np.nanmean(bimodality_set, axis=0)< threshold [0]))
+        # 0 value in output_water indicates the non-water
+        bimodal_ad_binary[output_water==0] = False
 
     return bimodality_set, ad_set, bimodal_ad_binary
 
@@ -1063,12 +1048,15 @@ def run(cfg):
     surface_ratio_threshold = threshold_set.surface_ratio
 
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_str}.tif")
-    band_set = dswx_sar_util.read_geotiff(filt_im_str)
+    no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
     im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
-    intensity = dswx_sar_util.read_geotiff(filt_im_str)
 
-    if im_meta['band_number'] == 1:
-        intensity = intensity[np.newaxis, :, :]
+    dswx_sar_util.get_invalid_area(
+        filt_im_str,
+        no_data_geotiff_path,
+        projection=im_meta['projection'],
+        geotransform=im_meta['geotransform'],
+        scratch_dir=outputdir)
 
     # read the result of landcover masindex_array_to_imageg
     water_map_tif_str =  os.path.join(outputdir,
@@ -1081,7 +1069,6 @@ def run(cfg):
     landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 
     reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
-    wbd = dswx_sar_util.read_geotiff(reference_water_gdal_str)
 
     # Identify the non-water area from Landcover map
     if 'openSea' in landcover_label:
@@ -1106,58 +1093,54 @@ def run(cfg):
                        'landcover': landcover_map_tif_str,
                        'reference_water': reference_water_gdal_str,
                        'water_mask': water_map_tif_str,
-                       'ref_land':ref_land_str}
+                       'ref_land': ref_land_str,
+                       'no_data': no_data_geotiff_path}
 
     # Identify waters that have not existed and
     # remove if bimodality does not exist
     bimodal_binary = \
-        remove_false_water_bimodality_parallel(band_set,
-                                 water_mask_image==1,
-                                 pol_list=[co_pol],
-                                 thresholds=[ashman_threshold,
-                                             bhc_threshold,
-                                             surface_ratio_threshold,
-                                             bm_threshold],
-                                 outputdir=outputdir,
-                                 meta_info=im_meta,
-                                 input_dict=input_file_dict,
-                                 minimum_pixel=minimum_pixel,
-                                 debug_mode=processing_cfg.debug_mode)
+        remove_false_water_bimodality_parallel(
+            water_mask_image==1,
+            pol_list=[co_pol],
+            thresholds=[ashman_threshold,
+                        bhc_threshold,
+                        surface_ratio_threshold,
+                        bm_threshold],
+            outputdir=outputdir,
+            meta_info=im_meta,
+            input_dict=input_file_dict,
+            minimum_pixel=minimum_pixel,
+            debug_mode=processing_cfg.debug_mode)
 
     water_bindary = bimodal_binary > 0
+    bimodal_binary = None
 
     # Identify gaps within the water bodies and fill the gaps
     # if bimodality exists
     *_, fill_gap_bindary = \
-        fill_gap_water_bimodality_parallel(band_set,
-                            bimodal_binary==0,
-                            pol_list,
-                            threshold=[bm_threshold,
-                                       ashman_threshold],
-                            meta_info=im_meta,
-                            outputdir=outputdir,
-                            input_dict=input_file_dict)
+        fill_gap_water_bimodality_parallel(
+            water_bindary==0,
+            pol_list,
+            threshold=[bm_threshold,
+                        ashman_threshold],
+            meta_info=im_meta,
+            outputdir=outputdir,
+            input_dict=input_file_dict)
 
     water_bindary[fill_gap_bindary] = True
+    fill_gap_bindary = None
 
-    water_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
-
-    landcover_mask_excluded = \
-        water_mask_image == band_assign_value_dict['landcover_mask']
-    dark_land = np.logical_and(landcover_mask_excluded, water_bindary)
-    no_data_raster = np.isnan(
-        np.squeeze(np.nanmean(band_set, axis=0)))
+    no_data_raster = dswx_sar_util.read_geotiff(no_data_geotiff_path)
     no_data_raster = no_data_raster | \
         (water_mask_image == band_assign_value_dict['no_data'])
     water_tif_str = os.path.join(
         outputdir, f"bimodality_output_binary_{pol_str}.tif")
     dswx_sar_util.save_dswx_product(water_bindary>0,
                   water_tif_str,
-                  geotransform=water_meta['geotransform'],
-                  projection=water_meta['projection'],
+                  geotransform=im_meta['geotransform'],
+                  projection=im_meta['projection'],
                   description='Water classification (WTR)',
                   scratch_dir=outputdir,
-                  dark_land=dark_land,
                   no_data=no_data_raster)
 
     t_time_end = time.time()

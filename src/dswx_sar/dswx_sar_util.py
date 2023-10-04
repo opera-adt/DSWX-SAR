@@ -307,6 +307,44 @@ def change_epsg_tif(input_tif, output_tif, epsg_output):
     gdal.Warp(output_tif, input_tif, options=opt)
 
 
+def get_invalid_area(geotiff_path,
+                     output_path=None,
+                     geotransform=None,
+                     projection=None, 
+                     scratch_dir=None):
+    """get invalid areas (NaN) from GeoTiff and save it 
+    to new GeoTiff
+    Parameters
+    ----------
+    geotiff_path: str
+        full path for filename to get invalid area
+    output_file: str
+        full path for filename to save invalid area
+    geotransform: gdal
+        gdaltransform information
+    projection: gdal
+        projection object
+    scratch_dir: str
+        temporary file path to process COG file.
+    """
+    image = read_geotiff(geotiff_path)
+    if image.ndim == 3:
+        no_data_raster = np.isnan(
+            np.squeeze(image[0, :, :]))
+    else:
+        no_data_raster = np.isnan(image)
+
+    if output_path and geotransform and projection and scratch_dir:
+        save_dswx_product(no_data_raster,
+                          output_path,
+                          geotransform,
+                          projection,
+                          scratch_dir=scratch_dir)
+    else:
+        print('Not enough inforamtion are not given for GeoTiff.')
+    return no_data_raster
+
+
 def get_meta_from_tif(tif_file_name):
     """Read metadata from geotiff
     Parameters
@@ -359,17 +397,30 @@ def get_raster_block(raster_path, block_param):
     '''
     # Open input data using GDAL to get raster length
     ds_data = gdal.Open(raster_path, gdal.GA_Update)
-    data_block = ds_data.GetRasterBand(1).ReadAsArray(
-                                            0,
-                                            block_param.read_start_line,
-                                            block_param.data_width,
-                                            block_param.read_length)
 
-    # Pad igram_block with zeros according to pad_length/pad_width
-    data_block = np.pad(data_block, block_param.block_pad,
-                        mode='constant', constant_values=0)
+    # Number of bands in the raster
+    num_bands = ds_data.RasterCount
+    # List to store blocks from each band
+    data_blocks = []
+    for i in range(num_bands):
+        band = ds_data.GetRasterBand(i+1)
+        data_block = band.ReadAsArray(
+            0,
+            block_param.read_start_line,
+            block_param.data_width,
+            block_param.read_length)
+        
+        # Pad data_block with zeros according to pad_length/pad_width
+        data_block = np.pad(data_block, block_param.block_pad, 
+                            mode='constant', constant_values=0)
+        
+        data_blocks.append(data_block)
+    data_blocks = np.array(data_blocks)
 
-    return data_block
+    if num_bands == 1:
+        data_blocks = np.squeeze(data_blocks)
+
+    return data_blocks
 
 
 def write_raster_block(out_raster, data,

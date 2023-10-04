@@ -75,6 +75,7 @@ runconfig:
             number_cpu: num(required=False)
 
         fuzzy_value:
+            line_per_block: num(min=1, required=False)
             hand: 
                 # Min and max values for hand are automatically calculated
                 # from input HAND, but they are not given,

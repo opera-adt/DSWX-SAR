@@ -76,6 +76,7 @@ runconfig:
             tile_average: False
 
         fuzzy_value:
+            line_per_block: 200
             hand:
                 # The units of the HAND is meters. 
                 member_min: 0

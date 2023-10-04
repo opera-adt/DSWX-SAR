@@ -77,8 +77,8 @@ setup(
              'src/dswx_sar/dswx_comparison.py'],
     install_requires=['argparse', 'numpy', 'yamale',
                       'scipy', 'pytest', 'requests',
-                      'h5py', 'scikit-image', 'mgrs', 'pyproj'],
-                    #   'opencv'],
+                      'h5py', 'scikit-image', 'mgrs', 'pyproj',
+                      'opencv-python'],
     url='https://github.com/opera-adt/DSWX-SAR',
     license='Copyright by the California Institute of Technology.'
     ' ALL RIGHTS RESERVED.',

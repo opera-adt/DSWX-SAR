@@ -76,6 +76,7 @@ runconfig:
             tile_average: False
 
         fuzzy_value:
+            line_per_block: 200
             hand:
                 # The units of the HAND is meters. 
                 member_min: 0
@@ -129,6 +130,7 @@ runconfig:
 
         refine_with_bimodality:
             minimum_pixel: 4
+            number_cpu: 1
             thresholds:
                 ashman: 1.5
                 Bhattacharyya_coefficient: 0.97

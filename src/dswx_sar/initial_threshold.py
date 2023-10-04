@@ -1869,44 +1869,41 @@ def run(cfg):
                     no_data=-50,
                     average_tile=average_threshold_flag)
 
-            intensity = dswx_sar_util.read_geotiff(filt_im_str)
-            if intensity.ndim == 2:
-                intensity = intensity[np.newaxis, :, :]
-
         # create initial map for iteration method
-        initial_water_set = np.zeros([height, width, len(pol_list)])
+        if processing_cfg.debug_mode:
+            initial_water_set = np.zeros([height, width, len(pol_list)])
 
-        for polind, pol in enumerate(pol_list):
-            if threshold_extending_method == 'gdal_grid':
-                thresh_file_str = os.path.join(outputdir,
-                                               f"int_threshold_filled_{pol}.tif")
-                threshold_grid = dswx_sar_util.read_geotiff(thresh_file_str)
+            for polind, pol in enumerate(pol_list):
+                if threshold_extending_method == 'gdal_grid':
+                    thresh_file_str = os.path.join(outputdir,
+                                                f"int_threshold_filled_{pol}.tif")
+                    threshold_grid = dswx_sar_util.read_geotiff(thresh_file_str)
 
-            initial_water_binary = convert_pow2db(np.squeeze(
-                intensity[polind, :, :])) < threshold_grid
-            no_data_raster = np.squeeze(intensity[polind, :, :]) == 0
+                initial_water_binary = convert_pow2db(np.squeeze(
+                    intensity_whole[polind, :, :])) < threshold_grid
+                no_data_raster = np.squeeze(intensity_whole[polind, :, :]) == 0
 
-            initial_water_set[:, :, polind] = initial_water_binary
+                initial_water_set[:, :, polind] = initial_water_binary
 
-            water_tif_str = os.path.join(outputdir,
-                                         f"initial_water_{pol}_{iter_ind}.tif")
+                water_tif_str = os.path.join(outputdir,
+                                            f"initial_water_{pol}_{iter_ind}.tif")
 
-            dswx_sar_util.save_dswx_product(
-                initial_water_binary,
-                water_tif_str,
-                geotransform=water_meta['geotransform'],
-                projection=water_meta['projection'],
-                description='Water classification (WTR)',
-                scratch_dir=outputdir,
-                no_data=no_data_raster)
+                dswx_sar_util.save_dswx_product(
+                    initial_water_binary,
+                    water_tif_str,
+                    geotransform=water_meta['geotransform'],
+                    projection=water_meta['projection'],
+                    description='Water classification (WTR)',
+                    scratch_dir=outputdir,
+                    no_data=no_data_raster)
 
-            dswx_sar_util.save_raster_gdal(
-                data=threshold_grid,
-                output_file=os.path.join(outputdir,
-                                         f"int_threshold_filled_{pol}_georef.tif"),
-                geotransform=water_meta['geotransform'],
-                projection=water_meta['projection'],
-                scratch_dir=outputdir)
+                dswx_sar_util.save_raster_gdal(
+                    data=threshold_grid,
+                    output_file=os.path.join(outputdir,
+                                            f"int_threshold_filled_{pol}_georef.tif"),
+                    geotransform=water_meta['geotransform'],
+                    projection=water_meta['projection'],
+                    scratch_dir=outputdir)
 
         if processing_cfg.debug_mode:
 
@@ -1919,7 +1916,7 @@ def run(cfg):
             else:
                 for band_ind2 in range(band_number):
                     dswx_sar_util.block_threshold_visulaization(
-                        np.squeeze(intensity[band_ind2, :, :]),
+                        np.squeeze(intensity_whole[band_ind2, :, :]),
                         block_row,
                         block_col,
                         threshold_tau_set[:, :, band_ind2],
@@ -1930,6 +1927,7 @@ def run(cfg):
     filt_raster_tif = None
     wbd_gdal.FlushCache()
     wbd_gdal = None
+    del intensity_whole
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran computing initial threshold in "

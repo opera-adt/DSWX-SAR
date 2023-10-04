@@ -269,7 +269,7 @@ def run(cfg):
         dem_mean = np.nanmean(dem_subset)
         if (dem_mean == 0) | np.isnan(dem_mean):
             raise ValueError
-
+        del dem_subset
     # check if the interpolated landcover exists ###
     landcover_interpolated_path = Path(os.path.join(scratch_dir,
                                                     'interpolated_landcover'))
@@ -401,6 +401,7 @@ def run(cfg):
         geotransform=im_meta['geotransform'],
         projection=im_meta['projection'],
         scratch_dir=scratch_dir)
+    del intensity_filt
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran pre-processing in {t_all_elapsed:.3f} seconds")

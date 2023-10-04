@@ -39,9 +39,38 @@ def compute_slope_dem(dem):
     slope_angle = np.arctan(np.sqrt(
         (sobelx / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_X) ** 2 +
         (sobely / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_Y) ** 2)) * RAD_TO_DEG
+
     return slope_angle
 
 
+def create_slope_angle_geotiff(dem_path,
+                               slope_path,
+                               geotransform,
+                               projection,
+                               scrath_dir):
+    """create Geotiff File for slope angel
+    Parameters
+    ----------
+    dem_path: str
+        GeoTiff path for filename to read input dem
+    slope_path: str
+        full path for filename to save the slope angle
+    geotransform: gdal
+        gdaltransform information
+    projection: gdal
+        projection object
+    scratch_dir: str
+        temporary file path to process COG file.
+    """
+    dem = dswx_sar_util.read_geotiff(dem_path)
+    slope = compute_slope_dem(dem)
+    dswx_sar_util.save_raster_gdal(
+        data=slope,
+        output_file=slope_path,
+        geotransform=geotransform,
+        projection=projection,
+        scratch_dir=scrath_dir)
+    
 def smf(values, minv, maxv):
     ''' Generate S-shape function for the given values
 
@@ -149,7 +178,8 @@ def compute_fuzzy_value(intensity,
                         pol_list,
                         outputdir,
                         workflow,
-                        fuzzy_option):
+                        fuzzy_option,
+                        block_param):
     '''Compute fuzzy values from intensity, dem,
     reference water, and HAND
 
@@ -195,6 +225,9 @@ def compute_fuzzy_value(intensity,
             'high_frequent_water_max':
                 maximum value for the reference water to define
                 area where water extent changes frequently
+    block_param: BlockParam
+        Object specifying size of block and where to read from raster,
+        and amount of padding for the read array
 
     Returns
     -------
@@ -228,8 +261,10 @@ def compute_fuzzy_value(intensity,
         thresh_valley_str = os.path.join(outputdir, f"int_threshold_filled_{pol}.tif")
         thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol}.tif")
 
-        valley_threshold_raster = dswx_sar_util.read_geotiff(thresh_valley_str)
-        peak_threshold_raster = dswx_sar_util.read_geotiff(thresh_peak_str)
+        valley_threshold_raster = dswx_sar_util.get_raster_block(
+            thresh_valley_str, block_param)
+        peak_threshold_raster = dswx_sar_util.get_raster_block(
+            thresh_peak_str, block_param)
 
         intensity_band = np.squeeze(intensity[int_id, :, :])
 
@@ -316,17 +351,11 @@ def compute_fuzzy_value(intensity,
 
     # Compute HAND membership
     logger.info('compute hand z membership')
-    mu_h = np.nanmean(hand[initial_map == 1])
-    std_h = np.nanstd(hand[initial_map == 1])
-    min_dem = mu_h
-    max_dem = mu_h + (std_h + 2.5) * std_h
     hand[np.isnan(hand)] = 0
-    
-    min_dem = np.nanmin([mu_h, fuzzy_option['hand_min']])
-    max_dem = np.nanmax([ mu_h + (std_h + 2.5) * std_h, fuzzy_option['hand_max']])
-    logger.info(f'     {min_dem} {max_dem} are used to compute HAND membership')
+    logger.info(f"     {fuzzy_option['hand_min']} {fuzzy_option['hand_max']}"
+                " are used to compute HAND membership")
 
-    hand_z = zmf(hand, min_dem, max_dem)
+    hand_z = zmf(hand, fuzzy_option['hand_min'], fuzzy_option['hand_max'])
 
     # compute slope membership
     logger.info('compute slope z membership')
@@ -399,6 +428,7 @@ def run(cfg):
 
     # fuzzy cfg
     fuzzy_cfg = processing_cfg.fuzzy_value
+    lines_per_block = fuzzy_cfg.line_per_block
     option_dict = {'hand_threshold': processing_cfg.hand.mask_value,
                    'hand_min': fuzzy_cfg.hand.member_min,
                    'hand_max': fuzzy_cfg.hand.member_max,
@@ -416,90 +446,117 @@ def run(cfg):
 
     workflow = processing_cfg.dswx_workflow
 
-    # Read filtered RTC image
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_all_str}.tif")
-    im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
-    intensity = dswx_sar_util.read_geotiff(filt_im_str)
-    if im_meta['band_number'] == 1:
-        intensity = intensity[np.newaxis, :, :]
-
-    mean_intensity = np.nanmean(intensity, axis=0)
-    no_data_raster = np.isnan(mean_intensity)
-
-    # Read Ancillary files
     dem_gdal_str = os.path.join(outputdir, 'interpolated_DEM')
-    interpdem = dswx_sar_util.read_geotiff(dem_gdal_str)
-
     hand_gdal_str = os.path.join(outputdir, 'interpolated_hand')
-    interphand = dswx_sar_util.read_geotiff(hand_gdal_str)
-
     landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover')
-    landcover_map = dswx_sar_util.read_geotiff(landcover_gdal_str)
-    landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
-
     reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
-    wbd = dswx_sar_util.read_geotiff(reference_water_gdal_str)
-    wbd = np.array(wbd, dtype='float32')
-    wbd[wbd == ref_no_data] = np.nan
-    # normalize water occurrence/seasonality value
-    wbd = wbd / ref_water_max
-
-    # Compute slope angle from DEM
-    slope = compute_slope_dem(interpdem)
-
-    # compute fuzzy value
-    fuzzy_avgvalue, intensity_z, hand_z, slope_z, area_s, ref_water, copol_only = \
-        compute_fuzzy_value(
-            intensity=10*np.log10(intensity),
-            slope=slope,
-            hand=interphand,
-            landcover=landcover_map,
-            landcover_label=landcover_label,
-            reference_water=wbd,
-            pol_list=pol_list,
-            outputdir=outputdir,
-            fuzzy_option=option_dict,
-            workflow=workflow)
-
-    fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
-    fuzzy_avgvalue[no_data_raster] = -1
+    slope_gdal_str = os.path.join(outputdir, 'slope')
 
     # Output of Fuzzy_computation
-    fuzzy_output_str = os.path.join(outputdir,
-                                    f"fuzzy_image_{pol_all_str}.tif")
+    fuzzy_output_str = os.path.join(
+        outputdir,
+        f"fuzzy_image_{pol_all_str}.tif")
 
-    dswx_sar_util.save_raster_gdal(
-        data=fuzzy_avgvalue,
-        output_file=fuzzy_output_str,
+    # read metadata including geotransform, projection, size
+    im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
+
+    create_slope_angle_geotiff(
+        dem_gdal_str,
+        slope_gdal_str,
         geotransform=im_meta['geotransform'],
         projection=im_meta['projection'],
-        scratch_dir=outputdir)
+        scrath_dir=outputdir)
 
-    if processing_cfg.debug_mode:
+    landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 
-        rasters_to_save = [('hand_z', hand_z),
-                           ('slope_z', slope_z),
-                           ('area_s', area_s),
-                           ('ref_water', ref_water),
-                           ('copol_only', copol_only)]
+    data_shape = [im_meta['length'], im_meta['width']]
+    pad_shape = (0, 0)
+    block_params = dswx_sar_util.block_param_generator(
+        lines_per_block,
+        data_shape,
+        pad_shape)
 
-        for raster_name, raster in rasters_to_save:
-            output_file_name = os.path.join(outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
-            dswx_sar_util.save_raster_gdal(
-                data=raster,
-                output_file=output_file_name,
-                geotransform=im_meta['geotransform'],
-                projection=im_meta['projection'],
-                scratch_dir=outputdir)
+    for block_param in block_params:
+        intensity = dswx_sar_util.get_raster_block(
+            filt_im_str, block_param)
+        if im_meta['band_number'] == 1:
+            intensity = intensity[np.newaxis, :, :]
+        mean_intensity = np.nanmean(intensity, axis=0)
+        no_data_raster = np.isnan(mean_intensity)
 
-        for polind, pol in enumerate(pol_list):
-            dswx_sar_util.save_raster_gdal(
-                data=np.squeeze(intensity_z[polind,:,:]),
-                output_file=\
-                    os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
-                geotransform=im_meta['geotransform'],
-                projection=im_meta['projection'],
-                scratch_dir=outputdir)
+        # Read Ancillary files
+        interphand = dswx_sar_util.get_raster_block(
+            hand_gdal_str, block_param)
+
+        landcover_map = dswx_sar_util.get_raster_block(
+            landcover_gdal_str, block_param)
+
+        wbd = dswx_sar_util.get_raster_block(
+            reference_water_gdal_str, block_param)
+        wbd = np.array(wbd, dtype='float32')
+        wbd[wbd == ref_no_data] = np.nan
+        # normalize water occurrence/seasonality value
+        wbd = wbd / ref_water_max
+
+        # Compute slope angle from DEM
+        slope = dswx_sar_util.get_raster_block(
+            slope_gdal_str, block_param)
+
+        # compute fuzzy value
+        fuzzy_avgvalue, intensity_z, hand_z, slope_z, area_s, ref_water, copol_only = \
+            compute_fuzzy_value(
+                intensity=10*np.log10(intensity),
+                slope=slope,
+                hand=interphand,
+                landcover=landcover_map,
+                landcover_label=landcover_label,
+                reference_water=wbd,
+                pol_list=pol_list,
+                outputdir=outputdir,
+                fuzzy_option=option_dict,
+                workflow=workflow,
+                block_param=block_param)
+
+        fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
+        fuzzy_avgvalue[no_data_raster] = -1
+
+
+        dswx_sar_util.write_raster_block(
+            out_raster=fuzzy_output_str,
+            data=fuzzy_avgvalue,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='float32')
+
+        if processing_cfg.debug_mode:
+
+            rasters_to_save = [('hand_z', hand_z),
+                            ('slope_z', slope_z),
+                            ('area_s', area_s),
+                            ('ref_water', ref_water),
+                            ('copol_only', copol_only)]
+
+            for raster_name, raster in rasters_to_save:
+                output_file_name = os.path.join(outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
+                dswx_sar_util.write_raster_block(
+                    out_raster=output_file_name,
+                    data=raster,
+                    block_param=block_param,
+                    geotransform=im_meta['geotransform'],
+                    projection=im_meta['projection'],
+                    datatype='float32')
+
+            for polind, pol in enumerate(pol_list):
+                dswx_sar_util.write_raster_block(
+                    out_raster=\
+                        os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
+                    data=np.squeeze(intensity_z[polind,:,:]),
+                    block_param=block_param,
+                    geotransform=im_meta['geotransform'],
+                    projection=im_meta['projection'],
+                    datatype='float32')
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran fuzzy processing in {t_all_elapsed:.3f} seconds")

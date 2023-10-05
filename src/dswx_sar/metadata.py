@@ -173,7 +173,7 @@ def compute_spatial_coverage(data_array):
         Spatial coverage as a percentage.
     """
     total_pixels = data_array.size
-    invalid_pixels = np.sum(data_array == 255)
+    invalid_pixels = np.sum(data_array == band_assign_value_dict['no_data'])
     valid_pixels = total_pixels - invalid_pixels
 
     return round(valid_pixels / total_pixels * 100, 4)
@@ -198,7 +198,7 @@ def compute_layover_shadow_coverage(data_array, spatial_coverage):
     layover_shadow_pixels = np.sum(data_array == band_assign_value_dict['layover_shadow_mask'])
 
     if spatial_coverage > 0:
-        return round(layover_shadow_pixels / (spatial_coverage / 100 * data_array.size) * 100, 4)
+        return round(layover_shadow_pixels / (spatial_coverage * data_array.size), 4)
     else:
         return np.nan
 
@@ -266,6 +266,7 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
 
     # save datetime 'YYYY-MM-DDTHH:MM:SSZ'
     dswx_metadata_dict['PROCESSING_DATETIME'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    dswx_metadata_dict['POLARIZATION'] = cfg.groups.processing.polarizations
 
     return dswx_metadata_dict
 

@@ -31,9 +31,16 @@ band_assign_value_dict = {
     'hand_mask': 5,
     'layover_shadow_mask': 6,
     'inundated_vegetation': 7,
-    'no_data': 120
+    'no_data': 120,
+    'ocean_mask': 254
 }
 
+band_assign_value_conf_dict = {
+    'no_data': 120,
+    'hand_mask': 252,
+    'layover_shadow_mask': 253,
+    'ocean_mask': 254,
+}
 
 def get_interpreted_dswx_s1_ctable():
     """Get colortable for DSWx-S1 products
@@ -144,6 +151,7 @@ def save_raster_gdal(data, output_file, geotransform,
 def save_dswx_product(wtr, output_file, geotransform,
                       projection, scratch_dir='.',
                       description=None, metadata=None,
+                      is_conf=False, datatype='uint8',
                       **dswx_processed_bands):
     """Save DSWx product for assigned classes with colortable
     Parameters
@@ -165,29 +173,37 @@ def save_dswx_product(wtr, output_file, geotransform,
     """
     shape = wtr.shape
     driver = gdal.GetDriverByName("GTiff")
-    wtr = np.asarray(wtr, dtype=np.byte)
+    wtr = np.asarray(wtr, dtype=datatype)
     dswx_processed_bands_keys = dswx_processed_bands.keys()
     print(f'Saving dswx product : {output_file} ')
 
-    for band_key in band_assign_value_dict.keys():
+    if is_conf:
+        band_value_dict = band_assign_value_conf_dict
+    else:
+        band_value_dict = band_assign_value_dict
+
+    for band_key in band_value_dict.keys():
         if band_key.lower() in dswx_processed_bands_keys:
-            dswx_product_value = band_assign_value_dict[band_key]
+            dswx_product_value = band_value_dict[band_key]
             wtr[dswx_processed_bands[band_key.lower()]==1] = dswx_product_value
             print(f'    {band_key.lower()} found {dswx_product_value}')
+    gdal_type = np2gdal_conversion[str(datatype)]
 
-    gdal_ds = driver.Create(output_file, shape[1], shape[0], 1, gdal.GDT_Byte)
+    gdal_ds = driver.Create(output_file, 
+                            shape[1], shape[0], 1, gdal_type)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
 
     gdal_band = gdal_ds.GetRasterBand(1)
     gdal_band.WriteArray(wtr)
-    gdal_band.SetNoDataValue(255)
+    gdal_band.SetNoDataValue(band_value_dict['no_data'])
     gdal_band.SetMetadata(metadata)
     # set color table and color interpretation
-    dswx_ctable = get_interpreted_dswx_s1_ctable()
-    gdal_band.SetRasterColorTable(dswx_ctable)
-    gdal_band.SetRasterColorInterpretation(
-        gdal.GCI_PaletteIndex)
+    if not is_conf:
+        dswx_ctable = get_interpreted_dswx_s1_ctable()
+        gdal_band.SetRasterColorTable(dswx_ctable)
+        gdal_band.SetRasterColorInterpretation(
+            gdal.GCI_PaletteIndex)
 
     if description is not None:
         gdal_band.SetDescription(description)

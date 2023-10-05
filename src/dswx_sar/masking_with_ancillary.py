@@ -18,7 +18,7 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 
-logger = logging.getLogger('dswx_S1')
+logger = logging.getLogger('dswx_s1')
 
 def get_label_landcover_esa_10():
     '''Get integer number information what they represent

@@ -175,15 +175,15 @@ def find_intersecting_burst_with_bbox(ref_bbox,
                                      right,
                                      top)
             rtc_polygon = Polygon([(left, bottom),
-                                    (left, top),
-                                    (right, top),
-                                    (right, bottom)])
+                                   (left, top),
+                                   (right, top),
+                                   (right, bottom)])
 
         # Check if bursts intersect the reference polygon
         if ref_polygon.intersects(rtc_polygon) or \
            ref_polygon.overlaps(rtc_polygon):
             overlapped_rtc_dir_list.append(input_dir)
-            
+
     return overlapped_rtc_dir_list
 
 
@@ -227,6 +227,7 @@ def crop_and_save_mgrs_tile(
     """
     input_tif_obj = gdal.Open(source_tif_path)
     band = input_tif_obj.GetRasterBand(1)
+    no_data_value = band.GetNoDataValue()
 
     # Retrieve spatial resolution from input TIFF
     xspacing = input_tif_obj.GetGeoTransform()[1]
@@ -244,12 +245,13 @@ def crop_and_save_mgrs_tile(
         yRes=yspacing,
         outputBounds=output_bbox,
         resampleAlg=interpolation_method,
+        dstNodata=no_data_value,
         format='GTIFF')
 
     gdal.Warp(output_tif_file_path,
               source_tif_path,
               options=warp_options)
-    
+
     _populate_statics_metadata_datasets(metadata,
                                         output_tif_file_path)
 
@@ -555,7 +557,7 @@ def run(cfg):
     full_bwtr_water_set_path = \
         os.path.join(outputdir, 'full_water_binary_BWTR_set.tif')
     full_conf_water_set_path = \
-        os.path.join(outputdir, f'fuzzy_image_{pol_str}.tif')
+        os.path.join(outputdir, f'full_water_binary_CONF_set.tif')
 
     # 4) inundated_vegetation
     if processing_cfg.inundated_vegetation.enabled:
@@ -611,6 +613,23 @@ def run(cfg):
             description='Binary Water classification (BWTR)',
             scratch_dir=outputdir,
             inundated_vegetation=inundated_vegetation == 2,
+            layover_shadow_mask=layover_shadow_mask > 0,
+            hand_mask=hand_mask,
+            no_data=no_data_raster)
+    
+        fuzzy_value = dswx_sar_util.read_geotiff(
+            os.path.join(outputdir, f'fuzzy_image_{pol_str}.tif'))
+        conf_value = np.round(fuzzy_value * 100)
+
+        dswx_sar_util.save_dswx_product(
+            conf_value,
+            full_conf_water_set_path,
+            geotransform=water_meta['geotransform'],
+            projection=water_meta['projection'],
+            description='Confidence values (CONF)',
+            scratch_dir=outputdir,
+            is_conf=True,
+            datatype='uint8',
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             no_data=no_data_raster)

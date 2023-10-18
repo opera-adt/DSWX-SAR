@@ -772,7 +772,7 @@ def run(cfg):
             metadata_path = glob.glob(f'{input_dir}/*h5')[0]
             metadata_list.append(metadata_path)
 
-            layover_path = glob.glob(f'{input_dir}/*_layover_shadow_mask.tif')
+            layover_path = glob.glob(f'{input_dir}/*_mask.tif')
             if len(layover_path) > 0:
                 mask_list.append(layover_path[0])
             else:

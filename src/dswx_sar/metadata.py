@@ -5,6 +5,8 @@ import os
 
 import h5py
 import numpy as np
+import rasterio
+import re
 
 from dswx_sar.version import VERSION as SOFTWARE_VERSION
 from dswx_sar.dswx_sar_util import (band_assign_value_dict,
@@ -26,55 +28,57 @@ DEFAULT_METADATA = {
 }
 
 
-def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
+def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
     """Copy metadata dictionary from RTC metadata.
 
     Parameters
     ----------
-    h5path_list : list
+    metapath_list : list
         List of metadata HDF5 file paths.
     dswx_metadata_dict : collections.OrderedDict
         Metadata dictionary to populate.
     """
     metadata_dict = defaultdict(list)
 
-    metadata_rtc_fields = {
-        'orbitPassDirection': 'str',
-        'burstID': 'str',
-        'productVersion': 'float',
-        'zeroDopplerStartTime': 'str',
-        'trackNumber': 'int',
-        'absoluteOrbitNumber': 'int'
-    }
-
-    # Mapping from RTC metadata to DSWx metadata
     dswx_meta_mapping = {
-        'orbitPassDirection': 'ORBIT_PASS_DIRECTION',
-        'burstID': 'BURST_ID',
-        'productVersion': 'RTC_PRODUCT_VERSION',
-        'zeroDopplerStartTime': 'SENSING_TIME',
-        'trackNumber': 'TRACK_NUMBER',
-        'absoluteOrbitNumber': 'ABSOLUTE_ORBIT_NUMBER'
+        'ORBIT_PASS_DIRECTION': 'RTC_ORBIT_PASS_DIRECTION',
+        'BURST_ID': 'RTC_BURST_ID',
+        'INPUT_L1_SLC_GRANULES': 'RTC_INPUT_L1_SLC_GRANULES',
+        'PRODUCT_VERSION': 'RTC_PRODUCT_VERSION',
+        'ZERO_DOPPLER_START_TIME': 'RTC_SENSING_START_TIME',
+        'ZERO_DOPPLER_END_TIME': 'RTC_SENSING_END_TIME',
+        'TRACK_NUMBER': 'RTC_TRACK_NUMBER',
+        'ABSOLUTE_ORBIT_NUMBER': 'RTC_ABSOLUTE_ORBIT_NUMBER',
+        'QA_RFI_INFO_AVAILABLE': 'RTC_QA_RFI_INFO_AVAILABLE',
     }
+    # Collect metadata from overlapped bursts
+    dswx_metadata_dict['RTC_INPUT_LIST'] = []
+    for meta_path in metapath_list:
+        dswx_metadata_dict['RTC_INPUT_LIST'].append(os.path.basename(meta_path))
 
-    for h5_meta_path in h5path_list:
-        with h5py.File(h5_meta_path) as src:
-            for field, dtype in metadata_rtc_fields.items():
-                if dtype == 'str':
-                    value = str(src[f'/identification/{field}'].asstr()[...])
-                elif dtype == 'float':
-                    value = float(src[f'/identification/{field}'][...])
-                else:
-                    value = int(src[f'/identification/{field}'][...])
-                metadata_dict[field].append(value)
+        with rasterio.open(meta_path) as src:
+            # Accessing tags (additional metadata) of specific band (e.g., band 1)
+            tags = src.tags(0)
+            for field in dswx_meta_mapping.keys():
+                metadata_dict[field].append(tags[field])
 
     for rtc_field, dswx_field in dswx_meta_mapping.items():
         values = metadata_dict[rtc_field]
 
-        if dswx_field == 'SENSING_TIME':
-            start, end = _get_date_range(values)
-            dswx_metadata_dict['SENSING_START'] = start
-            dswx_metadata_dict['SENSING_END'] = end
+        if rtc_field == 'ZERO_DOPPLER_START_TIME':
+            sensing_start = _get_date_range(values, mode='min')
+            dswx_metadata_dict[dswx_field] = sensing_start
+
+        elif rtc_field == 'ZERO_DOPPLER_END_TIME':
+            sensing_end = _get_date_range(values, mode='max')
+            dswx_metadata_dict[dswx_field] = sensing_end
+
+        elif rtc_field == 'QA_RFI_INFO_AVAILABLE':
+            # Convert string to boolean
+            bool_list = [item.lower() == 'true' for item in values]
+            dswx_metadata_dict[dswx_field] = any(bool_list)
+            dswx_metadata_dict['RTC_QA_RFI_NUMBER_OF_BURSTS'] = np.sum(bool_list)
+
         else:
             if len(set(values)) == 1:
                 dswx_metadata_dict[dswx_field] = values[0]
@@ -82,13 +86,19 @@ def _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict):
                 dswx_metadata_dict[dswx_field] = ', '.join(values)
 
 
-def _get_date_range(dates):
+def _get_date_range(dates, mode='min'):
     """Converts and returns the min and max date from a list of date strings."""
     input_date_format = "%Y-%m-%dT%H:%M:%S"
     output_date_format = "%Y-%m-%dT%H:%M:%SZ"
     date_objects = [datetime.strptime(date[:19], input_date_format) for date in dates]
-    return datetime.strftime(min(date_objects), output_date_format), \
-           datetime.strftime(max(date_objects), output_date_format)
+
+    if mode == 'min':
+        return datetime.strftime(min(date_objects), output_date_format)
+    elif mode == 'max':
+        return datetime.strftime(max(date_objects), output_date_format)
+    else:
+        err_msg = 'Only min and max is supported.'
+        raise ValueError(err_msg)
 
 
 def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
@@ -131,24 +141,65 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
     cfg: object
         Configuration object containing processing metadata.
     """
-
+    processing_cfg = cfg.groups.processing
     try:
-        processing_cfg = cfg.groups.processing
         # Mapping for simple key-value assignments
         threshold_mapping = {
             'otsu': 'OTSU',
             'ki': 'Kittler-Illingworth',
             'rg': 'Region-growning based threshold'
         }
+        initial_threshold_cfg = processing_cfg.initial_threshold
+        masking_ancillary_cfg = processing_cfg.masking_ancillary
+        fuzzy_value_cfg = processing_cfg.fuzzy_value
+        inundated_vegetation_cfg = processing_cfg.inundated_vegetation
+        refine_with_bimodality_cfg = processing_cfg.refine_with_bimodality
+
         dswx_metadata_dict.update({
             'PROCESSING_INFORMATION_POLARIZATION': processing_cfg.polarizations,
             'PROCESSING_INFORMATION_FILTER': 'Enhanced Lee filter',
-            'PROCESSING_INFORMATION_THRESHOLDING': threshold_mapping.get(processing_cfg.initial_threshold.threshold_method),
-            'PROCESSING_INFORMATION_TILE_SELECTION': processing_cfg.initial_threshold.selection_method,
-            'PROCESSING_INFORMATION_MULTI_THRESHOLD': processing_cfg.initial_threshold.multi_threshold,
-            'PROCESSING_INFORMATION_FUZZY_SEED': processing_cfg.region_growing.initial_threshold,
-            'PROCESSING_INFORMATION_FUZZY_TOLERANCE': processing_cfg.region_growing.relaxed_threshold,
-            'PROCESSING_INFORMATION_INUNDATED_VEGETATION': processing_cfg.inundated_vegetation.enabled
+            'PROCESSING_INFORMATION_FILTER_ENABLED': processing_cfg.filter.enabled,
+            'PROCESSING_INFORMATION_FILTER_WINDOW_SIZE': processing_cfg.filter.window_size,
+
+            'PROCESSING_INFORMATION_THRESHOLDING': threshold_mapping.get(initial_threshold_cfg.threshold_method),
+            'PROCESSING_INFORMATION_THRESHOLD_TILE_SELECTION': initial_threshold_cfg.selection_method,
+            'PROCESSING_INFORMATION_THRESHOLD_TILE_AVERAGE': initial_threshold_cfg.tile_average,
+            'PROCESSING_INFORMATION_THRESHOLD_MULTI_THRESHOLD': initial_threshold_cfg.multi_threshold,
+            'PROCESSING_INFORMATION_THRESHOLD_BIMODALITY': initial_threshold_cfg.tile_selection_bimodality,
+            'PROCESSING_INFORMATION_THRESHOLD_TWELE': initial_threshold_cfg.tile_selection_twele,
+
+            'PROCESSING_INFORMATION_REGION_GROWING_INITIAL_SEED': processing_cfg.region_growing.initial_threshold,
+            'PROCESSING_INFORMATION_REGION_GROWING_RELAXED_THRESHOLD': processing_cfg.region_growing.relaxed_threshold,
+
+            'PROCESSING_INFORMATION_MASKING_ANCILLARY_CO_POL_THRESHOLD': masking_ancillary_cfg.co_pol_threshold,
+            'PROCESSING_INFORMATION_MASKING_ANCILLARY_CROSS_POL_THRESHOLD': masking_ancillary_cfg.cross_pol_threshold,
+            'PROCESSING_INFORMATION_MASKING_ANCILLARY_WATER_THRESHOLD': masking_ancillary_cfg.water_threshold,
+
+            'PROCESSING_INFORMATION_FUZZY_VALUE_HAND': [fuzzy_value_cfg.hand.member_min,
+                                                        fuzzy_value_cfg.hand.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_SLOPE': [fuzzy_value_cfg.slope.member_min,
+                                                        fuzzy_value_cfg.slope.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_REFERENCE_WATER': [fuzzy_value_cfg.reference_water.member_min,
+                                                        fuzzy_value_cfg.reference_water.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_AREA': [fuzzy_value_cfg.area.member_min,
+                                                        fuzzy_value_cfg.area.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_DARK_AREA': [fuzzy_value_cfg.dark_area.cross_land,
+                                                        fuzzy_value_cfg.dark_area.cross_water],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_HIGH_FREQUENT_AREA': [fuzzy_value_cfg.high_frequent_water.water_min_value,
+                                                             fuzzy_value_cfg.high_frequent_water.water_max_value],
+
+            'PROCESSING_INFORMATION_REFINE_BIMODALITY_MINIMUM_PIXEL': refine_with_bimodality_cfg.minimum_pixel,
+            'PROCESSING_INFORMATION_REFINE_BIMODALITY_THRESHOLD': [refine_with_bimodality_cfg.thresholds.ashman,
+                                                                   refine_with_bimodality_cfg.thresholds.Bhattacharyya_coefficient,
+                                                                   refine_with_bimodality_cfg.thresholds.bm_coefficient,
+                                                                   refine_with_bimodality_cfg.thresholds.surface_ratio,],
+
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION': inundated_vegetation_cfg.enabled,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_MAX': inundated_vegetation_cfg.dual_pol_ratio_max,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_MIN': inundated_vegetation_cfg.dual_pol_ratio_min,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_THRESHOLD': inundated_vegetation_cfg.dual_pol_ratio_threshold,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_CROSS_POL_MIN': inundated_vegetation_cfg.cross_pol_min
+
         })
     except AttributeError as e:
         print(f"Attribute error occurred: {e}")
@@ -266,21 +317,21 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
 
     # save datetime 'YYYY-MM-DDTHH:MM:SSZ'
     dswx_metadata_dict['PROCESSING_DATETIME'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
-    dswx_metadata_dict['POLARIZATION'] = cfg.groups.processing.polarizations
 
     return dswx_metadata_dict
 
 
-def gather_rtc_files(rtc_dirs):
+def gather_rtc_files(rtc_dirs, pol):
     """
     Given directories containing RTC files, gather all h5 files.
     """
-    h5_files = []
+    tif_files = []
     for rtc_input_dir in rtc_dirs:
-        rtc_h5_file = glob.glob(os.path.join(rtc_input_dir, '*.h5'))
-        if rtc_h5_file:
-            h5_files.append(rtc_h5_file[0])
-    return h5_files
+        rtc_tif_file = glob.glob(os.path.join(rtc_input_dir, f'*{pol}*.tif'))
+        if rtc_tif_file:
+            tif_files.append(rtc_tif_file[0])
+    if tif_files:
+        return tif_files
 
 
 def create_dswx_sar_metadata(cfg, rtc_dirs, product_version=None):
@@ -308,8 +359,9 @@ def create_dswx_sar_metadata(cfg, rtc_dirs, product_version=None):
 
     # Add metadata related to ancillary data
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
+    pol_list = cfg.groups.processing.polarizations
 
-    h5path_list = gather_rtc_files(rtc_dirs)
+    h5path_list = gather_rtc_files(rtc_dirs, pol_list[0])
     _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict)
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)

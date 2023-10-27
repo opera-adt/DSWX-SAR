@@ -34,7 +34,7 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
     Parameters
     ----------
     metapath_list : list
-        List of metadata HDF5 file paths.
+        List of metadata GeoTIFF file paths.
     dswx_metadata_dict : collections.OrderedDict
         Metadata dictionary to populate.
     """
@@ -52,53 +52,62 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
         'QA_RFI_INFO_AVAILABLE': 'RTC_QA_RFI_INFO_AVAILABLE',
     }
     # Collect metadata from overlapped bursts
-    dswx_metadata_dict['RTC_INPUT_LIST'] = []
+    dswx_metadata_dict['RTC_INPUT_LIST'] = [
+        os.path.basename(meta_path) for meta_path in metapath_list]
+
     for meta_path in metapath_list:
-        dswx_metadata_dict['RTC_INPUT_LIST'].append(os.path.basename(meta_path))
 
         with rasterio.open(meta_path) as src:
             # Accessing tags (additional metadata) of specific band (e.g., band 1)
             tags = src.tags(0)
-            for field in dswx_meta_mapping.keys():
-                metadata_dict[field].append(tags[field])
+            for rtc_field, dswx_field in dswx_meta_mapping.items():
+                metadata_dict[rtc_field].append(tags[rtc_field])
 
     for rtc_field, dswx_field in dswx_meta_mapping.items():
         values = metadata_dict[rtc_field]
 
-        if rtc_field == 'ZERO_DOPPLER_START_TIME':
-            sensing_start = _get_date_range(values, mode='min')
-            dswx_metadata_dict[dswx_field] = sensing_start
-
-        elif rtc_field == 'ZERO_DOPPLER_END_TIME':
-            sensing_end = _get_date_range(values, mode='max')
-            dswx_metadata_dict[dswx_field] = sensing_end
+        if rtc_field in ['ZERO_DOPPLER_START_TIME', 'ZERO_DOPPLER_END_TIME']:
+            mode = 'min' if rtc_field == 'ZERO_DOPPLER_START_TIME' else 'max'
+            sensing_time = _get_date_range(values, mode=mode)
+            dswx_metadata_dict[dswx_field] = sensing_time
 
         elif rtc_field == 'QA_RFI_INFO_AVAILABLE':
-            # Convert string to boolean
             bool_list = [item.lower() == 'true' for item in values]
             dswx_metadata_dict[dswx_field] = any(bool_list)
             dswx_metadata_dict['RTC_QA_RFI_NUMBER_OF_BURSTS'] = np.sum(bool_list)
 
         else:
-            if len(set(values)) == 1:
-                dswx_metadata_dict[dswx_field] = values[0]
-            else:
-                dswx_metadata_dict[dswx_field] = ', '.join(values)
+            dswx_metadata_dict[dswx_field] = \
+                values[0] if len(set(values)) == 1 else ', '.join(values)
 
 
 def _get_date_range(dates, mode='min'):
-    """Converts and returns the min and max date from a list of date strings."""
+    """
+    Converts a list of date strings to datetime objects and
+    returns either the minimum or maximum date.
+
+    Parameters:
+    dates (list of str):
+        A list of date strings in the format "%Y-%m-%dT%H:%M:%S".
+    mode (str, optional):
+        Determines whether to return the minimum or maximum date.
+        Accepts 'min' or 'max'. Defaults to 'min'.
+
+    Returns:
+    str:
+        The minimum or maximum date in the format "%Y-%m-%dT%H:%M:%SZ",
+        depending on the mode.
+    """
     input_date_format = "%Y-%m-%dT%H:%M:%S"
     output_date_format = "%Y-%m-%dT%H:%M:%SZ"
     date_objects = [datetime.strptime(date[:19], input_date_format) for date in dates]
 
-    if mode == 'min':
-        return datetime.strftime(min(date_objects), output_date_format)
-    elif mode == 'max':
-        return datetime.strftime(max(date_objects), output_date_format)
+    mode_functions = {'min': min, 'max': max}
+
+    if mode in mode_functions:
+        return datetime.strftime(mode_functions[mode](date_objects), output_date_format)
     else:
-        err_msg = 'Only min and max is supported.'
-        raise ValueError(err_msg)
+        raise ValueError('Invalid mode. Only "min" and "max" are supported.')
 
 
 def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):

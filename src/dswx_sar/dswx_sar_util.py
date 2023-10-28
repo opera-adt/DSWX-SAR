@@ -223,7 +223,7 @@ def _save_as_cog(filename,
                  flag_compress=True,
                  ovr_resamp_algorithm=None,
                  compression='DEFLATE',
-                 nbits=None):
+                 nbits=16):
     """Save (overwrite) a GeoTIFF file as a cloud-optimized GeoTIFF.
 
     Parameters

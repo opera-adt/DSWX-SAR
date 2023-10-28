@@ -5,6 +5,27 @@ K_DEFAULT = 1.0
 CU_DEFAULT = 0.523
 CMAX_DEFAULT = 1.73
 
+def masked_convolve2d(array, window, *args, **kwargs):
+    '''Perform convolution without spreading nan value to the neighbor pixels
+
+    Parameters
+    ----------
+    array: numpy.ndarray
+        2 dimensional array
+    window: integer
+        2 dimensional window 
+    '''
+    frames_complex = np.zeros_like(array, dtype=np.complex64)
+    frames_complex[np.isnan(array)] = np.array((1j))
+    frames_complex[np.bitwise_not(np.isnan(array))] = array[np.bitwise_not(np.isnan(array))]
+    
+    convolved_array = signal.convolve(frames_complex, window, *args, **kwargs)
+    convolved_array[np.imag(convolved_array)>0.2] = np.nan
+    convolved_array = convolved_array.real.astype(np.float32)
+    
+    return convolved_array
+
+
 def compute_window_mean_std(arr, winsize):
     '''
     Compute mean and standard deviation within window size
@@ -25,9 +46,11 @@ def compute_window_mean_std(arr, winsize):
         std array
     '''
     window = np.ones([winsize, winsize]) / (winsize * winsize)
-    mean = signal.convolve2d(arr, window, mode='same')
-    c2 = signal.convolve2d(arr*arr, window, mode='same')
-    std = ((c2 - mean*mean)**.5)
+    arr_masked = np.ma.masked_equal(arr, np.nan)
+    mean = masked_convolve2d(arr_masked, window, mode='same')
+    c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
+
+    std = (c2 - mean * mean) ** .5
 
     return mean, std
 

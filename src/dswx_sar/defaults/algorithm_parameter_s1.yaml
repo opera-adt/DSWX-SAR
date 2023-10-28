@@ -26,6 +26,10 @@ runconfig:
         mosaic:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
+            # Burst Mosaic options
+            #   - average : overlapped areas are averaged. 
+            #   - first : choose one burst without average. 
+            mosaic_mode: 'first'
 
         # Flag to turn on/off the filtering for RTC image.
         # The enhanced Lee filter is available.

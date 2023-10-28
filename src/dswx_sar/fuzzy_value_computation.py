@@ -557,6 +557,32 @@ def run(cfg):
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     datatype='float32')
+    
+    if processing_cfg.debug_mode:
+
+        for raster_name, _ in rasters_to_save:
+            filename = os.path.join(
+                outputdir, 
+                f"fuzzy_{raster_name}_{pol_all_str}.tif")
+            if not filename.endswith('.tif'):
+                continue
+            logger.info(f'    processing file: {filename}')
+            dswx_sar_util._save_as_cog(
+                filename,
+                outputdir,
+                logger,
+                compression='DEFLATE',
+                nbits=16)
+
+        for pol in pol_list:
+            filename = os.path.join(
+                outputdir, f"fuzzy_intensity_{pol}.tif")
+            dswx_sar_util._save_as_cog(
+                filename,
+                outputdir,
+                logger,
+                compression='DEFLATE',
+                nbits=16)
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran fuzzy processing in {t_all_elapsed:.3f} seconds")

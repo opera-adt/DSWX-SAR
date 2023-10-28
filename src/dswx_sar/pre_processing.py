@@ -351,15 +351,19 @@ def run(cfg):
 
     # apply SAR filtering
     filter_size = processing_cfg.filter.window_size
+    filter_flag = processing_cfg.filter.enabled
     intensity_filt = []
 
     for ii, pol in enumerate(pol_list):
-
-        temp_filt = filter_SAR.lee_enhanced_filter(
-                        np.squeeze(intensity[ii, :, :]),
-                        win_size=filter_size)
-        temp_filt[temp_filt == 0] = np.nan
-        intensity_filt.append(temp_filt)
+        if filter_flag:
+            filtered_intensity = filter_SAR.lee_enhanced_filter(
+                            np.squeeze(intensity[ii, :, :]),
+                            win_size=filter_size)
+            filtered_intensity[filtered_intensity == 0] = np.nan
+            intensity_filt.append(filtered_intensity)
+        else:
+            filtered_intensity = intensity[ii, :, :]
+            intensity_filt.append(filtered_intensity)
 
         if processing_cfg.debug_mode:
 
@@ -369,12 +373,12 @@ def run(cfg):
                 immin, immax = 0, 0.4
             else:
                 immin, immax = -30, 0
-            dswx_sar_util.intensity_display(temp_filt, scratch_dir, pol, immin, immax)
+            dswx_sar_util.intensity_display(filtered_intensity, scratch_dir, pol, immin, immax)
 
             if pol in ['ratio', 'coherence']:
 
                 dswx_sar_util.save_raster_gdal(
-                    data=temp_filt,
+                    data=filtered_intensity,
                     output_file=os.path.join(scratch_dir,
                                              'intensity_{}.tif'.format(pol)),
                     geotransform=im_meta['geotransform'],
@@ -383,7 +387,7 @@ def run(cfg):
             else:
 
                 dswx_sar_util.save_raster_gdal(
-                    data=10*np.log10(temp_filt),
+                    data=10 * np.log10(filtered_intensity),
                     output_file=os.path.join(scratch_dir,
                                              'intensity_{}_db.tif'.format(pol)),
                     geotransform=im_meta['geotransform'],

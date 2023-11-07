@@ -1,3 +1,4 @@
+import ast
 from collections import defaultdict
 from datetime import datetime
 import glob
@@ -61,7 +62,16 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
             # Accessing tags (additional metadata) of specific band (e.g., band 1)
             tags = src.tags(0)
             for rtc_field, dswx_field in dswx_meta_mapping.items():
-                metadata_dict[rtc_field].append(tags[rtc_field])
+                rtc_meta_content = tags[rtc_field]
+
+                if rtc_field == 'INPUT_L1_SLC_GRANULES':
+                    rtc_meta_content = rtc_meta_content[2:-2]
+                # rtc_meta_content = ast.literal_eval(tags[rtc_field])
+                # rtc_meta_content = ast.literal_eval(tags[rtc_field])
+                # # if isinstance(rtc_meta_content, list):
+                # #     rtc_meta_content = str(rtc_meta_content)
+                # metadata_dict[rtc_field].append(rtc_meta_content)
+                metadata_dict[rtc_field].append(rtc_meta_content)
 
     for rtc_field, dswx_field in dswx_meta_mapping.items():
         values = metadata_dict[rtc_field]
@@ -77,8 +87,9 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
             dswx_metadata_dict['RTC_QA_RFI_NUMBER_OF_BURSTS'] = np.sum(bool_list)
 
         else:
+            dswx_contents = set(values)
             dswx_metadata_dict[dswx_field] = \
-                values[0] if len(set(values)) == 1 else ', '.join(values)
+                values[0] if len(dswx_contents) == 1 else ', '.join(dswx_contents)
 
 
 def _get_date_range(dates, mode='min'):
@@ -342,8 +353,38 @@ def gather_rtc_files(rtc_dirs, pol):
     if tif_files:
         return tif_files
 
+def collect_burst_id(rtc_dirs, pol):
+    """
+    Collect burst IDs from RTC files for a specific polarization.
 
-def create_dswx_sar_metadata(cfg, rtc_dirs, product_version=None):
+    Parameters
+    ----------
+    rtc_dirs : list
+        List of directories containing RTC files.
+    pol : str
+        The polarization for which to collect burst IDs
+        (e.g., 'HH', 'VV', 'HV', 'VH').
+
+    Returns
+    -------
+    list
+        A list of unique burst IDs found in the RTC files
+        for the specified polarization.
+    """
+    rtc_list = gather_rtc_files(rtc_dirs, pol)
+    burst_id_list = []
+    for rtc_file in rtc_list:
+        with rasterio.open(rtc_file) as src:
+            # Accessing tags (additional metadata) of specific band (e.g., band 1)
+            tags = src.tags(0)
+            burst_id_list.append(tags['BURST_ID'])
+
+    return list(set(burst_id_list))
+
+def create_dswx_sar_metadata(cfg,
+                             rtc_dirs,
+                             product_version=None,
+                             extra_meta_data=None):
     """
     Create dictionary containing metadata.
 
@@ -355,6 +396,9 @@ def create_dswx_sar_metadata(cfg, rtc_dirs, product_version=None):
         List of directories containing RTC files.
     product_version: str, optional
         Version of the DSWx product. Defaults to None.
+    extra_meta_data: dict, optional
+        Additional metadata to merge with dswx_metadata_dict.
+        Defaults to None.
 
     Returns
     -------
@@ -375,5 +419,7 @@ def create_dswx_sar_metadata(cfg, rtc_dirs, product_version=None):
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)
     _populate_processing_metadata_datasets(dswx_metadata_dict, cfg)
-
+    # Merge extra_meta_data with dswx_metadata_dict if provided
+    if extra_meta_data is not None:
+        dswx_metadata_dict.update(extra_meta_data)
     return dswx_metadata_dict

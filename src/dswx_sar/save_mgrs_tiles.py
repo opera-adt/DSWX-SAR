@@ -21,6 +21,7 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_sar_util import band_assign_value_dict
 from dswx_sar.dswx_runconfig import RunConfig, _get_parser
 from dswx_sar.metadata import (create_dswx_sar_metadata,
+                               collect_burst_id,
                                _populate_statics_metadata_datasets)
 
 logger = logging.getLogger('dswx_s1')
@@ -334,7 +335,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
     mgrs_list = ast.literal_eval(most_overlapped['mgrs_tiles'])
 
-    return list(set(mgrs_list))
+    return list(set(mgrs_list)), most_overlapped
 
 
 def get_intersecting_mgrs_tiles_list(image_tif: str):
@@ -649,10 +650,27 @@ def run(cfg):
                 no_data=no_data_raster)
 
     # Get list of MGRS tiles overlapped with mosaic RTC image
+    mgrs_meta_dict = {}
+
     if database_bool:
-        mgrs_tile_list = get_intersecting_mgrs_tiles_list_from_db(
+        mgrs_tile_list, most_overlapped = get_intersecting_mgrs_tiles_list_from_db(
             mgrs_collection_file=mgrs_collection_db_path,
             image_tif=final_water_path)
+        maximum_burst = most_overlapped['number_of_bursts']
+        expected_burst_list = most_overlapped['bursts']
+
+        logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
+        actual_burst_id = collect_burst_id(input_list,
+                                           processing_cfg.polarizations[0])
+        number_burst = len(actual_burst_id)
+        mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_BURSTS'] = \
+            maximum_burst
+        mgrs_meta_dict['MGRS_COLLECTION_ACTUAL_NUMBER_OF_BURSTS'] = \
+            number_burst
+        missing_burst = len(list(set(expected_burst_list) - set(actual_burst_id)))
+        mgrs_meta_dict['MGRS_COLLECTION_MISSING_NUMBER_OF_BURSTS'] = \
+            missing_burst
+        
     else:
         mgrs_tile_list = get_intersecting_mgrs_tiles_list(
             image_tif=final_water_path)
@@ -688,7 +706,8 @@ def run(cfg):
                 dswx_metadata_dict = create_dswx_sar_metadata(
                     cfg,
                     overlapped_burst,
-                    product_version=product_version)
+                    product_version=product_version,
+                    extra_meta_data=mgrs_meta_dict)
 
                 dswx_name_format_prefix = (f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_'
                                            f'{date_str_id}_{processing_time}_'

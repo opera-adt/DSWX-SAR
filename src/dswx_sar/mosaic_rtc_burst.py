@@ -721,7 +721,11 @@ def run(cfg):
 
     scratch_path = cfg.groups.product_path_group.scratch_path
     input_list = cfg.groups.input_file_group.input_file_path
+    mosaic_cfg = cfg.groups.processing.mosaic
 
+    mosaic_mode = mosaic_cfg.mosaic_mode
+    product_prefix = processing_cfg.mosaic.mosaic_prefix
+    imagery_extension = 'tif'
     os.makedirs(scratch_path, exist_ok=True)
 
     # number of input directories and files
@@ -772,7 +776,7 @@ def run(cfg):
             metadata_path = glob.glob(f'{input_dir}/*h5')[0]
             metadata_list.append(metadata_path)
 
-            layover_path = glob.glob(f'{input_dir}/*_layover_shadow_mask.tif')
+            layover_path = glob.glob(f'{input_dir}/*mask.tif')
             if len(layover_path) > 0:
                 mask_list.append(layover_path[0])
             else:
@@ -784,30 +788,26 @@ def run(cfg):
                     elif 'layoverShadowMask' in meta_src[freqA_path]:
                         mask_name = 'layoverShadowMask'
                     else:
-                        raise FileNotFoundError
-
-                save_h5_metadata_to_tif(metadata_path,
-                                        data_path=f'{freqA_path}/{mask_name}',
-                                        output_tif_path=temp_mask_path,
-                                        epsg_output=epsg_output)
-                mask_list.append(temp_mask_path)
+                        mask_name = None
+                if mask_name is not None:
+                    save_h5_metadata_to_tif(metadata_path,
+                                            data_path=f'{freqA_path}/{mask_name}',
+                                            output_tif_path=temp_mask_path,
+                                            epsg_output=epsg_output)
+                    mask_list.append(temp_mask_path)
+            if not mask_list:
+                logger.warning('mask layer is not found!')
 
         # Check if metadata have common values on
         # poliarzation /track number/ direction fields
         output_dir_mosaic_raster = scratch_path
-        product_prefix = processing_cfg.mosaic.mosaic_prefix
-        imagery_extension = 'tif'
 
-        # mosaic_mode = 'bursts_center'
-        mosaic_mode = 'first'
-        # mosaic_mode = 'average'
         # Mosaic sub-bursts imagery
         logger.info(f'mosaicking files:')
         rtc_burst_imagery_list = []
 
         for pol in pol_list:
             if pol in ['VV', 'VH', 'HV', 'HH']:
-                output_imagery_filename_list = []
                 rtc_burst_imagery_list = []
 
                 for input_ind, input_dir in enumerate(input_list):
@@ -829,7 +829,7 @@ def run(cfg):
                         (f'{output_dir_mosaic_raster}/{product_prefix}_{pol}.'
                         f'{imagery_extension}')
                     logger.info(f'    {geo_pol_filename}')
-                    output_imagery_filename_list.append(geo_pol_filename)
+                    output_file_list.append(geo_pol_filename)
 
                     mosaic_single_output_file(
                         rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
@@ -840,6 +840,7 @@ def run(cfg):
             (f'{output_dir_mosaic_raster}/{product_prefix}_layovershadow_mask.'
                 f'{imagery_extension}')
         logger.info(f'    {geo_mask_filename}')
+        output_file_list.append(geo_mask_filename)
 
         mosaic_single_output_file(
             mask_list, nlooks_list, geo_mask_filename,
@@ -855,7 +856,7 @@ def run(cfg):
                     continue
                 logger.info(f'    processing file: {filename}')
                 dswx_sar_util._save_as_cog(filename, scratch_path, logger,
-                            compression='ZSTD',
+                            compression='DEFLATE',
                             nbits=16)
 
             nlook_files = glob.glob(f'{scratch_path}/*nLooks_*.tif')

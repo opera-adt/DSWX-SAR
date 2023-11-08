@@ -1181,28 +1181,28 @@ def fill_threshold_with_gdal(threshold_array,
                 fpar.write(f'<OGRVRTLayer name="data_thres_{pol}_{filename}">\n')
                 fpar.write(f"    <SrcDataSource>{csv_file_str}</SrcDataSource>\n")
                 fpar.write('    <GeometryType>wkbPoint</GeometryType>\n')
-                fpar.write('    <GeometryField separator=" " encoding="PointFromColumns" x="field_1" y="field_2" z="field_3"/>\n')
+                fpar.write('    <GeometryField encoding="PointFromColumns" x="field_1" y="field_2" z="field_3"/>\n')
                 fpar.write('</OGRVRTLayer>\n')
                 fpar.write('</OGRVRTDataSource>')
 
             if average_tile:
                 gdal_grid_str = \
-                    f"gdal_grid -zfield field_3 -l " \
+                    "gdal_grid -zfield field_3 -l " \
                     f"data_thres_{pol}_{filename} {vrt_file}  {tif_file_str}" \
                     f" -txe 0 {cols} -tye 0 {rows} -a invdist:power=0.500:" \
-                    f"smoothing=1.0:radius1=" \
+                    "smoothing=1.0:radius1=" \
                     f"{threshold_array['block_row']*2}:radius2=" \
                     f"{threshold_array['block_col']*2}:angle=0.000000:" \
-                    f"max_points=0:min_points=1:nodata=0.000000 " \
-                    f"            -outsize {cols} {rows}"
+                    "max_points=0:min_points=1:nodata=0.000000 " \
+                    f" -outsize {cols} {rows} -ot Float32"
             else:
                 gdal_grid_str = \
-                    f"gdal_grid -zfield field_3 " \
+                    "gdal_grid -zfield field_3 " \
                     f"-l data_thres_{pol}_{filename} {vrt_file}  {tif_file_str} " \
                     f" -txe 0 {cols} -tye 0 {rows} " \
                     f" -a invdist:power=0.5000000:smoothing=1.000000:radius1={400*2}" \
                     f":radius2={400*2}:angle=0.000000:max_points=0:min_points=1:" \
-                    f"nodata=0.000 -outsize {cols} {rows}"
+                    f"nodata=0.000 -outsize {cols} {rows} -ot Float32"
 
             os.system(gdal_grid_str)
             threshold_raster.append(dswx_sar_util.read_geotiff(tif_file_str))
@@ -1904,8 +1904,6 @@ def run(cfg):
                     geotransform=water_meta['geotransform'],
                     projection=water_meta['projection'],
                     scratch_dir=outputdir)
-
-        if processing_cfg.debug_mode:
 
             if not average_threshold_flag:
                 dswx_sar_util.block_threshold_visulaization_rg(

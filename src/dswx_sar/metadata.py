@@ -1,13 +1,10 @@
-import ast
 from collections import defaultdict
 from datetime import datetime
 import glob
 import os
 
-import h5py
 import numpy as np
 import rasterio
-import re
 
 from dswx_sar.version import VERSION as SOFTWARE_VERSION
 from dswx_sar.dswx_sar_util import (band_assign_value_dict,
@@ -21,6 +18,7 @@ DEFAULT_METADATA = {
     'SOFTWARE_VERSION': SOFTWARE_VERSION,
     'PROJECT': 'OPERA',
     'INSTITUTION': 'NASA JPL',
+    'CONTACT_INFORMATION': 'operasds@jpl.nasa.gov',
     'PRODUCT_LEVEL': '3',
     'PRODUCT_TYPE': UNKNOWN,
     'PRODUCT_SOURCE': UNKNOWN,
@@ -63,14 +61,9 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
             tags = src.tags(0)
             for rtc_field, dswx_field in dswx_meta_mapping.items():
                 rtc_meta_content = tags[rtc_field]
-
+                # 'INPUT_L1_SLC_GRANULES' in RTC GeoTIFF has [' ']. 
                 if rtc_field == 'INPUT_L1_SLC_GRANULES':
                     rtc_meta_content = rtc_meta_content[2:-2]
-                # rtc_meta_content = ast.literal_eval(tags[rtc_field])
-                # rtc_meta_content = ast.literal_eval(tags[rtc_field])
-                # # if isinstance(rtc_meta_content, list):
-                # #     rtc_meta_content = str(rtc_meta_content)
-                # metadata_dict[rtc_field].append(rtc_meta_content)
                 metadata_dict[rtc_field].append(rtc_meta_content)
 
     for rtc_field, dswx_field in dswx_meta_mapping.items():
@@ -343,11 +336,27 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
 
 def gather_rtc_files(rtc_dirs, pol):
     """
-    Given directories containing RTC files, gather all h5 files.
+    Given directories containing RTC files,
+    gather all TIF files of the polarization `pol`.
+    Parameters
+    ----------
+    rtc_dirs : list
+        List of directories containing RTC files.
+    pol : str
+        The polarization for which to collect burst IDs
+        (e.g., 'HH', 'VV', 'HV', 'VH').
+
+    Returns
+    -------
+    list
+        A list of the RTC files
+        for the specified polarization.
     """
     tif_files = []
     for rtc_input_dir in rtc_dirs:
-        rtc_tif_file = glob.glob(os.path.join(rtc_input_dir, f'*{pol}*.tif'))
+        # Assuming that the RTC naming convention include the polarizations.
+        rtc_tif_file = glob.glob(
+            os.path.join(rtc_input_dir, f'*{pol.upper()}*.tif'))
         if rtc_tif_file:
             tif_files.append(rtc_tif_file[0])
     if tif_files:

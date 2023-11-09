@@ -7,7 +7,6 @@ import os
 import time
 
 import geopandas as gpd
-import h5py
 import mgrs
 import numpy as np
 from osgeo import gdal, osr
@@ -21,6 +20,7 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_sar_util import band_assign_value_dict
 from dswx_sar.dswx_runconfig import RunConfig, _get_parser
 from dswx_sar.metadata import (create_dswx_sar_metadata,
+                               collect_burst_id,
                                _populate_statics_metadata_datasets)
 
 logger = logging.getLogger('dswx_s1')
@@ -155,9 +155,12 @@ def find_intersecting_burst_with_bbox(ref_bbox,
 
     overlapped_rtc_dir_list = []
     for input_dir in input_rtc_dirs:
-        copol_rtc_path = glob.glob(f'{input_dir}/*_VV.tif')[0]
+        copol_rtc_path_iter = glob.iglob(f'{input_dir}/*_VV*.tif')
+        copol_rtc_path = next(copol_rtc_path_iter)
+
         if not copol_rtc_path:
-            copol_rtc_path = glob.glob(f'{input_dir}/*_HH.tif')[0]
+            copol_rtc_path_iter = glob.iglob(f'{input_dir}/*_HH*.tif')
+            copol_rtc_path = next(copol_rtc_path_iter)
 
         with rasterio.open(copol_rtc_path) as src:
             epsg_code = int(src.crs.data['init'].split(':')[1])
@@ -287,11 +290,12 @@ def get_intersecting_mgrs_tiles_list_from_db(
     ----------
     mgrs_list: list
         List of intersecting MGRS tiles.
+    most_overlapped : GeoSeries
+        The record of the MGRS tile with the maximum overlap area.
     """
     # Load the raster data
     with rasterio.open(image_tif) as src:
-        epsg_code = int(src.crs.data['init'].split(':')[1])
-
+        epsg_code = src.crs.to_epsg() or 4326
         # Get bounds of the raster data
         left, bottom, right, top = src.bounds
 
@@ -299,7 +303,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
         if epsg_code != 4326:
             left, bottom, right, top = transform_bounds(
                                                 src.crs,
-                                                {'init': 'EPSG:4326'},
+                                                'EPSG:4326',
                                                 left,
                                                 bottom,
                                                 right,
@@ -334,7 +338,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
     mgrs_list = ast.literal_eval(most_overlapped['mgrs_tiles'])
 
-    return list(set(mgrs_list))
+    return list(set(mgrs_list)), most_overlapped
 
 
 def get_intersecting_mgrs_tiles_list(image_tif: str):
@@ -457,6 +461,7 @@ def run(cfg):
     # Processing parameters
     processing_cfg = cfg.groups.processing
     pol_str = '_'.join(processing_cfg.polarizations)
+    co_pol = processing_cfg.copol
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
     hand_mask = processing_cfg.hand.mask_value
@@ -485,18 +490,17 @@ def run(cfg):
 
     if mosaic_flag:
         logger.info(f'Number of bursts to process: {num_input_path}')
-        id_path = '/identification/'
-        data_path = '/data/'
         date_str_list = []
         for input_dir in input_list:
             # Find HDF5 metadata
-            metadata_path = glob.glob(f'{input_dir}/*h5')[0]
-            with h5py.File(metadata_path) as meta_h5:
-                date_str = meta_h5[f'{id_path}/zeroDopplerStartTime'][()]
-                platform = meta_h5[f'{id_path}/platform'][()]
-                resolution = meta_h5[f'{data_path}/xCoordinateSpacing'][()]
-            date_str_list.append(date_str)
-        date_str_list = [x.decode() for x in date_str_list]
+            metadata_path_iter = glob.iglob(f'{input_dir}/*{co_pol}*.tif')
+            metadata_path = next(metadata_path_iter)
+            with rasterio.open(metadata_path) as src:
+                tags = src.tags(0)
+                date_str = tags['ZERO_DOPPLER_START_TIME']
+                platform = tags['PLATFORM']
+                resolution = src.transform[0]
+                date_str_list.append(date_str)
 
         input_date_format = "%Y-%m-%dT%H:%M:%S"
         output_date_format = "%Y%m%dT%H%M%SZ"
@@ -616,7 +620,7 @@ def run(cfg):
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             no_data=no_data_raster)
-    
+
         fuzzy_value = dswx_sar_util.read_geotiff(
             os.path.join(outputdir, f'fuzzy_image_{pol_str}.tif'))
         conf_value = np.round(fuzzy_value * 100)
@@ -649,10 +653,27 @@ def run(cfg):
                 no_data=no_data_raster)
 
     # Get list of MGRS tiles overlapped with mosaic RTC image
+    mgrs_meta_dict = {}
+
     if database_bool:
-        mgrs_tile_list = get_intersecting_mgrs_tiles_list_from_db(
+        mgrs_tile_list, most_overlapped = get_intersecting_mgrs_tiles_list_from_db(
             mgrs_collection_file=mgrs_collection_db_path,
             image_tif=final_water_path)
+        maximum_burst = most_overlapped['number_of_bursts']
+        expected_burst_list = most_overlapped['bursts']
+
+        logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
+        actual_burst_id = collect_burst_id(input_list,
+                                           processing_cfg.polarizations[0])
+        number_burst = len(actual_burst_id)
+        mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_BURSTS'] = \
+            maximum_burst
+        mgrs_meta_dict['MGRS_COLLECTION_ACTUAL_NUMBER_OF_BURSTS'] = \
+            number_burst
+        missing_burst = len(list(set(expected_burst_list) - set(actual_burst_id)))
+        mgrs_meta_dict['MGRS_COLLECTION_MISSING_NUMBER_OF_BURSTS'] = \
+            missing_burst
+
     else:
         mgrs_tile_list = get_intersecting_mgrs_tiles_list(
             image_tif=final_water_path)
@@ -688,7 +709,8 @@ def run(cfg):
                 dswx_metadata_dict = create_dswx_sar_metadata(
                     cfg,
                     overlapped_burst,
-                    product_version=product_version)
+                    product_version=product_version,
+                    extra_meta_data=mgrs_meta_dict)
 
                 dswx_name_format_prefix = (f'OPERA_L3_DSWx-S1_T{mgrs_tile_id}_'
                                            f'{date_str_id}_{processing_time}_'

@@ -79,4 +79,52 @@ runconfig:
             output_imagery_compression: DEFLATE
             output_imagery_nbits: 32
 
+        browse_image_group:
+
+            # Save a full-res Cloud-Optimized GEOTIFF DSWx-S1 browse image and
+            # a modified-resolution PNG of the browse image for DSWx-S1
+            save_browse: True
+
+            # Setting `browse_image_height` and `browse_image_width` equal
+            # will maintain this original HLS and DSWx-HLS aspect ratio
+            # of 3660 pixels x 3660 pixels for the PNG browse image.
+            # If these fields are left empty, 1024 x 1024 will be used.
+
+            # Height in pixels for the PNG browse image
+            browse_image_height: 1024
+
+            # Width in pixels for the PNG browse image
+            browse_image_width: 1024
+
+            # Flag to exclude the Partial Surface Water Aggressive (PSW-Agg)
+            # class in the browse image. If True, PSW-Agg pixels will 
+            # appear as Not Water. If False, this class will be displayed
+            # in the browse image, same as in WTR. Default is False.
+            exclude_psw_aggressive_in_browse: True
+
+            # Define how Not Water (e.g. land) appears in the browse image.
+            # Defaults to 'white'.
+            # Options are: 'white', 'nodata'
+            #   'white'         : Not Water pixels will be white
+            #   'nodata'        : Not Water pixels will be marked as not having
+            #                     valid data, and will be fully transparent
+            not_water_in_browse: 'white'
+
+            # Define how cloud appears in the browse image.
+            # Defaults to 'gray'.
+            # Options are: 'gray', 'nodata'
+            #   'gray'          : cloud pixels will be opaque gray
+            #   'nodata'        : cloud pixels will be marked as not having
+            #                     valid data, and will be fully transparent
+            cloud_in_browse: 'gray'
+
+            # Define how snow appears in the browse image.
+            # Defaults to 'cyan'.
+            # Options are: 'cyan', 'gray', 'nodata'
+            #   'cyan'          : snow will be opaque cyan
+            #   'gray'          : snow will be opaque gray
+            #   'nodata'        : snow pixels will be marked as not having
+            #                     valid data, and will be fully transparent
+            snow_in_browse: 'cyan'
+
         log_file: None

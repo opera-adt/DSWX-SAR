@@ -444,7 +444,7 @@ def run(cfg):
 
     t_all = time.time()
     product_path_group_cfg = cfg.groups.product_path_group
-    outputdir = product_path_group_cfg.scratch_path
+    scratch_dir = product_path_group_cfg.scratch_path
     sas_outputdir = product_path_group_cfg.sas_output_path
     product_version = product_path_group_cfg.product_version
 
@@ -461,10 +461,17 @@ def run(cfg):
     dswx_workflow = processing_cfg.dswx_workflow
     hand_mask = processing_cfg.hand.mask_value
 
+    # Static ancillary database
     static_ancillary_file_group_cfg = cfg.groups.static_ancillary_file_group
     mgrs_db_path = static_ancillary_file_group_cfg.mgrs_database_file
     mgrs_collection_db_path = \
         static_ancillary_file_group_cfg.mgrs_collection_database_file
+
+    # Browse image options
+    browser_image_cfg = cfg.groups.browse_image_group
+    browse_image_flag = browser_image_cfg.save_browse
+    browse_image_height = browser_image_cfg.browse_image_height
+    browse_image_width = browser_image_cfg.browse_image_width
 
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
@@ -515,12 +522,12 @@ def run(cfg):
     # Depending on the workflow, the final product are different.
     if dswx_workflow == 'opera_dswx_s1':
         final_water_path = \
-            os.path.join(outputdir,
+            os.path.join(scratch_dir,
                          f'bimodality_output_binary_{pol_str}.tif')
     else:
         # twele's workflow
         final_water_path = \
-            os.path.join(outputdir,
+            os.path.join(scratch_dir,
                          f'region_growing_output_binary_{pol_str}.tif')
 
     # metadata for final product
@@ -530,14 +537,14 @@ def run(cfg):
     # repackage the water map
     # 1) water map
     water_map = dswx_sar_util.read_geotiff(final_water_path)
-    no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
+    no_data_geotiff_path = os.path.join(scratch_dir, f"no_data_area_{pol_str}.tif")
     no_data_raster = dswx_sar_util.read_geotiff(no_data_geotiff_path)
     no_data_raster = no_data_raster | \
         (water_map == band_assign_value_dict['no_data'])
 
     # 2) layover/shadow
     layover_shadow_mask_path = \
-        os.path.join(outputdir, 'mosaic_layovershadow_mask.tif')
+        os.path.join(scratch_dir, 'mosaic_layovershadow_mask.tif')
 
     if os.path.exists(layover_shadow_mask_path):
         layover_shadow_mask = \
@@ -549,20 +556,20 @@ def run(cfg):
 
     # 3) hand excluded
     hand = dswx_sar_util.read_geotiff(
-        os.path.join(outputdir, 'interpolated_hand'))
+        os.path.join(scratch_dir, 'interpolated_hand'))
     hand_mask = hand > hand_mask
 
     full_wtr_water_set_path = \
-        os.path.join(outputdir, 'full_water_binary_WTR_set.tif')
+        os.path.join(scratch_dir, 'full_water_binary_WTR_set.tif')
     full_bwtr_water_set_path = \
-        os.path.join(outputdir, 'full_water_binary_BWTR_set.tif')
+        os.path.join(scratch_dir, 'full_water_binary_BWTR_set.tif')
     full_conf_water_set_path = \
-        os.path.join(outputdir, f'full_water_binary_CONF_set.tif')
+        os.path.join(scratch_dir, f'full_water_binary_CONF_set.tif')
 
     # 4) inundated_vegetation
     if processing_cfg.inundated_vegetation.enabled:
         inundated_vegetation = dswx_sar_util.read_geotiff(
-            os.path.join(outputdir, "temp_inundated_vegetation.tif"))
+            os.path.join(scratch_dir, "temp_inundated_vegetation.tif"))
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
@@ -576,11 +583,11 @@ def run(cfg):
 
         region_grow_map = \
             dswx_sar_util.read_geotiff(
-                os.path.join(outputdir,
+                os.path.join(scratch_dir,
                              f'region_growing_output_binary_{pol_str}.tif'))
         landcover_map =\
             dswx_sar_util.read_geotiff(
-                os.path.join(outputdir,
+                os.path.join(scratch_dir,
                              f'refine_landcover_binary_{pol_str}.tif'))
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
@@ -594,7 +601,7 @@ def run(cfg):
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Water classification (WTR)',
-            scratch_dir=outputdir,
+            scratch_dir=scratch_dir,
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
@@ -611,14 +618,14 @@ def run(cfg):
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Binary Water classification (BWTR)',
-            scratch_dir=outputdir,
+            scratch_dir=scratch_dir,
             inundated_vegetation=inundated_vegetation == 2,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             no_data=no_data_raster)
     
         fuzzy_value = dswx_sar_util.read_geotiff(
-            os.path.join(outputdir, f'fuzzy_image_{pol_str}.tif'))
+            os.path.join(scratch_dir, f'fuzzy_image_{pol_str}.tif'))
         conf_value = np.round(fuzzy_value * 100)
 
         dswx_sar_util.save_dswx_product(
@@ -627,7 +634,7 @@ def run(cfg):
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Confidence values (CONF)',
-            scratch_dir=outputdir,
+            scratch_dir=scratch_dir,
             is_conf=True,
             datatype='uint8',
             layover_shadow_mask=layover_shadow_mask > 0,
@@ -643,7 +650,7 @@ def run(cfg):
                 geotransform=water_meta['geotransform'],
                 projection=water_meta['projection'],
                 description='Water classification (WTR)',
-                scratch_dir=outputdir,
+                scratch_dir=scratch_dir,
                 layover_shadow_mask=layover_shadow_mask > 0,
                 hand_mask=hand_mask,
                 no_data=no_data_raster)
@@ -702,6 +709,7 @@ def run(cfg):
                 output_mgrs_bwtr = f'{dswx_name_format_prefix}_B01_BWTR.tif'
                 output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_WTR.tif'
                 output_mgrs_conf = f'{dswx_name_format_prefix}_B03_CONF.tif'
+                output_mgrs_browse = f'{dswx_name_format_prefix}_BROWSE.png'
 
                 # Crop full size of BWTR, WTR, CONF file
                 # and save them into MGRS tile grid
@@ -709,17 +717,17 @@ def run(cfg):
                                         full_wtr_water_set_path,
                                         full_conf_water_set_path]
 
-                full_output_file_paths = [output_mgrs_bwtr,
-                                        output_mgrs_wtr,
-                                        output_mgrs_conf]
+                output_file_paths = [output_mgrs_bwtr,
+                                     output_mgrs_wtr,
+                                     output_mgrs_conf]
 
-                for full_input_file_path, full_output_file_path in zip(
-                    full_input_file_paths, full_output_file_paths
+                for full_input_file_path, output_file_path in zip(
+                    full_input_file_paths, output_file_paths
                 ):
                     crop_and_save_mgrs_tile(
                         source_tif_path=full_input_file_path,
                         output_dir_path=sas_outputdir,
-                        output_tif_name=full_output_file_path,
+                        output_tif_name=output_file_path,
                         output_bbox=mgrs_bbox,
                         output_epsg=epsg_output,
                         output_format=output_imagery_format,
@@ -727,6 +735,18 @@ def run(cfg):
                         cog_compression=output_imagery_compression,
                         cog_nbits=output_imagery_nbits,
                         interpolation_method='nearest')
+
+                if browse_image_flag:
+                    dswx_sar_util.create_browse_image(
+                        water_geotiff_filename=os.path.join(
+                            sas_outputdir, output_mgrs_wtr),
+                        output_dir_path=sas_outputdir,
+                        browser_filename=output_mgrs_browse,
+                        browse_image_height=browse_image_height,
+                        browse_image_width=browse_image_width,
+                        scratch_dir=scratch_dir)
+
+
 
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran save_mgrs_tiles in "

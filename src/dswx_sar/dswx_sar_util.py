@@ -1035,7 +1035,13 @@ def create_browse_image(water_geotiff_filename,
                         browser_filename,
                         browse_image_height,
                         browse_image_width,
-                        scratch_dir):
+                        scratch_dir,
+                        flag_collapse_wtr_classes=True,
+                        exclude_inundated_vegetation=False,
+                        set_not_water_to_nodata=False,
+                        set_hand_mask_to_nodata=False,
+                        set_layover_shadow_to_nodata=False,
+                        set_ocean_masked_to_nodata=False):
     """
     Process a water-related GeoTIFF file to create a browse image.
 
@@ -1061,6 +1067,23 @@ def create_browse_image(water_geotiff_filename,
         The width of the output browse image.
     scratch_dir : str 
         The directory path used for temporary storage during processing.
+   flag_collapse_wtr_classes : bool, optional
+        Flag to collapse water classes if set to True. Default is True.
+    exclude_inundated_vegetation : bool, optional
+        Flag to exclude inundated vegetation from processing if set to True. 
+        Default is False.
+    set_not_water_to_nodata : bool, optional
+        Flag to set non-water pixels to NoData value if set to True. 
+        Default is False.
+    set_hand_mask_to_nodata : bool, optional
+        Flag to set HAND mask pixels to NoData value if set to True. 
+        Default is False.
+    set_layover_shadow_to_nodata : bool, optional
+        Flag to set layover and shadow pixels to NoData value if set to True. 
+        Default is False.
+    set_ocean_masked_to_nodata : bool, optional
+        Flag to set ocean-masked pixels to NoData value if set to True. 
+        Default is False.
 
     Returns
     --------
@@ -1077,12 +1100,12 @@ def create_browse_image(water_geotiff_filename,
 
     browse_arr = _compute_browse_array(
         masked_interpreted_water_layer=wtr_layer,  # WTR layer
-        flag_collapse_wtr_classes=True,
-        exclude_inundated_vegetation=False,
-        set_not_water_to_nodata=False,
-        set_hand_mask_to_nodata=False,
-        set_layover_shadow_to_nodata=False,
-        set_ocean_masked_to_nodata=False)
+        flag_collapse_wtr_classes=flag_collapse_wtr_classes,
+        exclude_inundated_vegetation=exclude_inundated_vegetation,
+        set_not_water_to_nodata=set_not_water_to_nodata,
+        set_hand_mask_to_nodata=set_hand_mask_to_nodata,
+        set_layover_shadow_to_nodata=set_layover_shadow_to_nodata,
+        set_ocean_masked_to_nodata=set_ocean_masked_to_nodata,)
 
     # Form color table
     browse_ctable = get_interpreted_dswx_s1_ctable()

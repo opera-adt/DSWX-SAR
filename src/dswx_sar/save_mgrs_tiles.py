@@ -473,6 +473,13 @@ def run(cfg):
     browse_image_height = browser_image_cfg.browse_image_height
     browse_image_width = browser_image_cfg.browse_image_width
 
+    flag_collapse_wtr_classes=browser_image_cfg.flag_collapse_wtr_classes
+    exclude_inundated_vegetation=browser_image_cfg.exclude_inundated_vegetation
+    set_not_water_to_nodata=browser_image_cfg.set_not_water_to_nodata
+    set_hand_mask_to_nodata=browser_image_cfg.set_hand_mask_to_nodata
+    set_layover_shadow_to_nodata=browser_image_cfg.set_layover_shadow_to_nodata
+    set_ocean_masked_to_nodata=browser_image_cfg.set_ocean_masked_to_nodata
+
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
 
@@ -744,7 +751,13 @@ def run(cfg):
                         browser_filename=output_mgrs_browse,
                         browse_image_height=browse_image_height,
                         browse_image_width=browse_image_width,
-                        scratch_dir=scratch_dir)
+                        scratch_dir=scratch_dir,
+                        flag_collapse_wtr_classes=flag_collapse_wtr_classes,
+                        exclude_inundated_vegetation=exclude_inundated_vegetation,
+                        set_not_water_to_nodata=set_not_water_to_nodata,
+                        set_hand_mask_to_nodata=set_hand_mask_to_nodata,
+                        set_layover_shadow_to_nodata=set_layover_shadow_to_nodata,
+                        set_ocean_masked_to_nodata=set_ocean_masked_to_nodata)
 
 
 

@@ -11,7 +11,7 @@ from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 from dswx_sar.pre_processing import pol_ratio
 from dswx_sar.masking_with_ancillary import FillMaskLandCover
 
-logger = logging.getLogger('dswx_s1_inundated_vegetation')
+logger = logging.getLogger('dswx_s1')
 
 
 def run(cfg):
@@ -92,7 +92,6 @@ def run(cfg):
     output_data[mask_excluded] = 0
 
     inundated_vege_path = f"{outputdir}/temp_inundated_vegetation.tif"
-    print(inundated_vege_path, output_data.shape)
     dswx_sar_util.save_dswx_product(
         output_data,
         inundated_vege_path,

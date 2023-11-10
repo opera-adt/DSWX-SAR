@@ -128,7 +128,8 @@ def extract_bbox_with_buffer(
 
     sizes = stats_water[1:, -1]
     bboxes = stats_water[1:, :4]
-
+    print('extract bbox', np.shape(sizes))
+    print('extract bbox2', np.shape(bboxes))
     coord_list = []
     for i, (x, y, w, h) in enumerate(bboxes):
         # additional buffer areas should be balanced with the object area.
@@ -202,12 +203,12 @@ def check_water_land_mixture(args):
         water_mask = np.squeeze(water_mask)
 
     change_flag = False
+    # label for water object computed from cv2 start from 1.
+    target_water = water_label == i + 1
+    intensity_array = int_linear[target_water]
 
-    if size > minimum_pixel:
-        # lebel for water object computed from cv2 start from 1.
-        target_water = water_label == i + 1
+    if (size > minimum_pixel) and (intensity_array.size > 0):
 
-        intensity_array = int_linear[target_water]
         invalid_mask = (np.isnan(intensity_array) | (intensity_array==0))
 
         # check if the area has bimodality
@@ -251,8 +252,8 @@ def check_water_land_mixture(args):
                     iterations=add_iter,
                     mask=out_boundary_sub)
                 dark_water_linear = int_linear[dark_mask_buffer]
-                hist_min = np.percentile(10 * np.log10(dark_water_linear), 1)
-                hist_max = np.percentile(10 * np.log10(dark_water_linear), 99)
+                hist_min = np.nanpercentile(10 * np.log10(dark_water_linear), 1)
+                hist_max = np.nanpercentile(10 * np.log10(dark_water_linear), 99)
 
                 # Check if the candidates of 'dark water' has distinct backscattering
                 # compared to the adjacent pixels using bimodality
@@ -288,8 +289,8 @@ def check_water_land_mixture(args):
                     mask=out_boundary_sub)
                 bright_water_linear = int_linear[bright_mask_buffer]
                 bright_water_linear[bright_water_linear == 0] = np.nan
-                hist_min = np.percentile(10 * np.log10(bright_water_linear), 2)
-                hist_max = np.percentile(10 * np.log10(bright_water_linear), 98)
+                hist_min = np.nanpercentile(10 * np.log10(bright_water_linear), 2)
+                hist_max = np.nanpercentile(10 * np.log10(bright_water_linear), 98)
                 metric_obj_local = refine_with_bimodality.BimodalityMetrics(
                     bright_water_linear,
                     hist_min=hist_min,
@@ -360,7 +361,7 @@ def split_extended_water_parallel(
 
     # check if the objects have heterogeneous characteristics (bimodality)
     # If so, split the objects using multi-otsu thresholds and check bimodality.
-    results = Parallel(n_jobs=10)(delayed(check_water_land_mixture)(args)
+    results = Parallel(n_jobs=-1)(delayed(check_water_land_mixture)(args)
                                   for args in args_list)
 
     # If water need to be refined (change_flat=True), then update the water mask.

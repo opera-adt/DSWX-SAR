@@ -253,7 +253,7 @@ def run(cfg):
     if not dem_interpolated_path.is_file():
         logger.info('interpolated dem : not found ')
 
-        if os.path.isfile(dem_file):
+        if os.path.isfile(dem_file) or dem_file.startswith('/vsis3/'):
             logger.info('interpolated dem file was not found')
             ancillary_reloc.relocate(dem_file,
                                      'interpolated_DEM',

@@ -205,7 +205,8 @@ def validate_group_dict(group_cfg: dict) -> None:
                             ref_water_path, hand_path]
 
     for path in ancillary_file_paths:
-        check_file_path(path)
+        if not path.startswith('/vsis3/'):
+            check_file_path(path)
 
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions

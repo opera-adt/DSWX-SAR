@@ -790,6 +790,7 @@ def remove_false_water_bimodality_parallel(water_mask,
                     output_file=water_label_str,
                     geotransform=meta_info['geotransform'],
                     projection=meta_info['projection'],
+                    datatype='int32',
                     scratch_dir=outputdir)
 
     bimodality_set = []
@@ -963,6 +964,7 @@ def fill_gap_water_bimodality_parallel(
                     output_file=water_label_str,
                     geotransform=meta_info['geotransform'],
                     projection=meta_info['projection'],
+                    datatype='int32',
                     scratch_dir=outputdir)
 
     bimodality_set = []
@@ -1040,7 +1042,6 @@ def run(cfg):
     pol_list = processing_cfg.polarizations
     pol_str = '_'.join(pol_list)
     co_pol = processing_cfg.copol
-    cross_pol = processing_cfg.crosspol
 
     bimodality_cfg = processing_cfg.refine_with_bimodality
     minimum_pixel = bimodality_cfg.minimum_pixel
@@ -1079,7 +1080,8 @@ def run(cfg):
         landcover_not_water = (landcover_map != landcover_label['openSea']) &\
              (landcover_map != landcover_label['Permanent water bodies'])
     else:
-        landcover_not_water = (landcover_map != landcover_label['Permanent water bodies'])
+        landcover_not_water = (landcover_map != landcover_label['Permanent water bodies']) &\
+                              (landcover_map != landcover_label['No_data'])
 
     ref_land_str = os.path.join(outputdir,
                                 f'landcover_not_water_{pol_str}.tif')

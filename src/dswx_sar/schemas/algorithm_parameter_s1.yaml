@@ -51,7 +51,7 @@ runconfig:
             # 2) min value and 3) max value of mean of subtiles / mean of tiles
             tile_selection_twele: list(required=False)
             # Thresholds to select tiles showing the boundary between water and nonwater
-            # using bimodality strategy. 
+            # using bimodality strategy.
             # One values are required for bimodality method
             tile_selection_bimodality: num(required=False)
             # Strategy to interpolate the tile-based thresholds.
@@ -66,8 +66,8 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
-            # Flag to average the thresholds within the tile. 
-            # The output thresholds are assigned to each tile. 
+            # Flag to average the thresholds within the tile.
+            # The output thresholds are assigned to each tile.
             tile_average: bool(required=False)
             number_iterations: num(required=False)
             # Number of threads to run
@@ -76,7 +76,7 @@ runconfig:
 
         fuzzy_value:
             line_per_block: num(min=1, required=False)
-            hand: 
+            hand:
                 # Min and max values for hand are automatically calculated
                 # from input HAND, but they are not given,
                 # below values are used.
@@ -86,14 +86,14 @@ runconfig:
             slope:
                 member_min: num(required=False)
                 member_max: num(required=False)
-            # Membership bound for reference water                
+            # Membership bound for reference water
             reference_water:
                 # Minimum reference water value for membership
                 member_min: num(required=False)
                 # Maximum reference water value for membership
                 member_max: num(required=False)
             # Membership bound for area of initial water bodies.
-            # Area membership is only required for 'twele' workflow. 
+            # Area membership is only required for 'twele' workflow.
             area:
                 member_min: num(required=False)
                 member_max: num(required=False)
@@ -111,7 +111,7 @@ runconfig:
                 water_min_value: num(required=False)
                 # Maximum value for high frequent water
                 water_max_value: num(required=False)
-                        
+
         region_growing:
             # Seed value for region growing start
             initial_threshold: num(min=0, max=1, required=False)
@@ -125,6 +125,7 @@ runconfig:
             cross_pol_threshold: num(min=-30, max=10, required=False)
             # Reference water threshold value for dark land candidates
             water_threshold: num(min=0, max=100, required=False)
+            minimum_pixel: num(min=0, required=False)
 
         refine_with_bimodality:
             number_cpu: num(required=False)
@@ -143,5 +144,5 @@ runconfig:
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
 
-        # If debug mode is true, intermediate product is generated. 
+        # If debug mode is true, intermediate product is generated.
         debug_mode: bool(required=False)

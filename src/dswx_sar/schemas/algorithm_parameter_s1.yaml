@@ -125,6 +125,7 @@ runconfig:
             cross_pol_threshold: num(min=-30, max=10, required=False)
             # Reference water threshold value for dark land candidates
             water_threshold: num(min=0, max=100, required=False)
+            minimum_pixel: num(min=0, required=False)
 
         refine_with_bimodality:
             number_cpu: num(required=False)

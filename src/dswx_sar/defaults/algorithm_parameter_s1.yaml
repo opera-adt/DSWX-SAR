@@ -131,6 +131,7 @@ runconfig:
             cross_pol_threshold: -22.8
             # reference water threshold value for dark land candidates
             water_threshold: 
+            number_cpu: 1
 
         refine_with_bimodality:
             minimum_pixel: 4

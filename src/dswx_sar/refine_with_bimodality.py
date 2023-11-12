@@ -1078,7 +1078,7 @@ def run(cfg):
     # Identify the non-water area from Landcover map
     if 'openSea' in landcover_label:
         landcover_not_water = (landcover_map != landcover_label['openSea']) &\
-             (landcover_map != landcover_label['Permanent water bodies']) 
+             (landcover_map != landcover_label['Permanent water bodies'])
     else:
         landcover_not_water = (landcover_map != landcover_label['Permanent water bodies']) &\
                               (landcover_map != landcover_label['No_data'])

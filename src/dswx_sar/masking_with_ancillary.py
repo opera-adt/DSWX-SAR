@@ -128,8 +128,7 @@ def extract_bbox_with_buffer(
 
     sizes = stats_water[1:, -1]
     bboxes = stats_water[1:, :4]
-    print('extract bbox', np.shape(sizes))
-    print('extract bbox2', np.shape(bboxes))
+
     coord_list = []
     for i, (x, y, w, h) in enumerate(bboxes):
         # additional buffer areas should be balanced with the object area.

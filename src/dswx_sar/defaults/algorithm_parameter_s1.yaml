@@ -18,7 +18,7 @@ runconfig:
             # number of pixel to apply erosion for drought case
             drought_erosion_pixel: 10
             # number of pixel to apply dilation for flood case
-            flood_dilation_pixel: 16 
+            flood_dilation_pixel: 16
 
         hand:
             mask_value: 200
@@ -27,8 +27,8 @@ runconfig:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
             # Burst Mosaic options
-            #   - average : overlapped areas are averaged. 
-            #   - first : choose one burst without average. 
+            #   - average : overlapped areas are averaged.
+            #   - first : choose one burst without average.
             mosaic_mode: 'first'
 
         # Flag to turn on/off the filtering for RTC image.
@@ -53,11 +53,11 @@ runconfig:
             selection_method: 'combined'
 
             # Thresholds to select tiles showing the boundary between water and nonwater
-            # using bimodality strategy. 
-            # One values are required for twele method 
+            # using bimodality strategy.
+            # One values are required for twele method
             tile_selection_twele: [0.09, 0.8, 0.97]
             # Thresholds to select tiles showing the boundary between water and nonwater
-            # using bimodality strategy. 
+            # using bimodality strategy.
             # One values are required for bimodality method
             tile_selection_bimodality: 0.7
             # Stratey to interpolate the tile-based thresholds.
@@ -82,23 +82,23 @@ runconfig:
         fuzzy_value:
             line_per_block: 200
             hand:
-                # The units of the HAND is meters. 
+                # The units of the HAND is meters.
                 member_min: 0
                 member_max: 15
             # membership bound for slope angle
             slope:
-                # The units of the slope is degree. 
+                # The units of the slope is degree.
                 member_min: 0.5
                 member_max: 15
-            # membership bound for reference water                
+            # membership bound for reference water
             reference_water:
                 # Minimum reference water value for membership
                 member_min: 0.8
                 # Maximum reference water value for membership
                 member_max: 0.95
             # membership bound for area of initial water bodies
-            # area membership is only required for 'twele' workflow. 
-            # area unit is pixel number. 
+            # area membership is only required for 'twele' workflow.
+            # area unit is pixel number.
             area:
                 member_min: 0
                 member_max: 40
@@ -130,7 +130,7 @@ runconfig:
             co_pol_threshold: -14.6
             cross_pol_threshold: -22.8
             # reference water threshold value for dark land candidates
-            water_threshold: 
+            water_threshold:
             number_cpu: 1
 
         refine_with_bimodality:

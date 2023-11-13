@@ -202,12 +202,12 @@ def check_water_land_mixture(args):
         water_mask = np.squeeze(water_mask)
 
     change_flag = False
+    # label for water object computed from cv2 start from 1.
+    target_water = water_label == i + 1
+    intensity_array = int_linear[target_water]
 
-    if size > minimum_pixel:
-        # lebel for water object computed from cv2 start from 1.
-        target_water = water_label == i + 1
+    if (size > minimum_pixel) and (intensity_array.size > 0):
 
-        intensity_array = int_linear[target_water]
         invalid_mask = (np.isnan(intensity_array) | (intensity_array==0))
 
         # check if the area has bimodality
@@ -251,8 +251,8 @@ def check_water_land_mixture(args):
                     iterations=add_iter,
                     mask=out_boundary_sub)
                 dark_water_linear = int_linear[dark_mask_buffer]
-                hist_min = np.percentile(10 * np.log10(dark_water_linear), 1)
-                hist_max = np.percentile(10 * np.log10(dark_water_linear), 99)
+                hist_min = np.nanpercentile(10 * np.log10(dark_water_linear), 1)
+                hist_max = np.nanpercentile(10 * np.log10(dark_water_linear), 99)
 
                 # Check if the candidates of 'dark water' has distinct backscattering
                 # compared to the adjacent pixels using bimodality
@@ -288,8 +288,8 @@ def check_water_land_mixture(args):
                     mask=out_boundary_sub)
                 bright_water_linear = int_linear[bright_mask_buffer]
                 bright_water_linear[bright_water_linear == 0] = np.nan
-                hist_min = np.percentile(10 * np.log10(bright_water_linear), 2)
-                hist_max = np.percentile(10 * np.log10(bright_water_linear), 98)
+                hist_min = np.nanpercentile(10 * np.log10(bright_water_linear), 2)
+                hist_max = np.nanpercentile(10 * np.log10(bright_water_linear), 98)
                 metric_obj_local = refine_with_bimodality.BimodalityMetrics(
                     bright_water_linear,
                     hist_min=hist_min,
@@ -311,7 +311,8 @@ def split_extended_water_parallel(
         pol_ind: int,
         outputdir: str,
         meta_info: dict,
-        input_dict: dict) -> np.ndarray:
+        input_dict: dict,
+        number_workers : int) -> np.ndarray:
     """Split extended water areas into smaller subsets based on
     bounding boxes with buffer.
 
@@ -360,7 +361,7 @@ def split_extended_water_parallel(
 
     # check if the objects have heterogeneous characteristics (bimodality)
     # If so, split the objects using multi-otsu thresholds and check bimodality.
-    results = Parallel(n_jobs=10)(delayed(check_water_land_mixture)(args)
+    results = Parallel(n_jobs=number_workers)(delayed(check_water_land_mixture)(args)
                                   for args in args_list)
 
     # If water need to be refined (change_flat=True), then update the water mask.
@@ -379,6 +380,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
         outputdir: str,
         meta_info: dict,
         spatial_coverage_threshold: float = 0.5,
+        number_workers: int = -1,
     ) -> np.ndarray:
     """Compute spatial coverage of water areas based on ancillary information.
 
@@ -444,7 +446,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
 
     # Output consists of index and 2D image consisting of True/Flase.
     # True represents the land and False represents not-land.
-    results = Parallel(n_jobs=10)(delayed(compute_spatial_coverage)(args)
+    results = Parallel(n_jobs=number_workers)(delayed(compute_spatial_coverage)(args)
                                   for args in args_list)
     for i, test_output_i in results:
         test_output[i] = test_output_i
@@ -513,7 +515,8 @@ def run(cfg):
 
     water_cfg = processing_cfg.reference_water
     ref_water_max = water_cfg.max_value
-    ref_no_data = water_cfg.no_data_value
+    masking_ancillary_cfg = processing_cfg.masking_ancillary
+    number_workers = masking_ancillary_cfg.number_cpu
 
     landcover_cfg = processing_cfg.masking_ancillary
 
@@ -588,7 +591,8 @@ def run(cfg):
         co_pol_ind,
         outputdir,
         water_meta,
-        input_file_dict)
+        input_file_dict,
+        number_workers)
 
     # 4) re-define false water candidate estimated from 'split_extended_water_parallel'
     # by considering the spatial coverage with the ancillary files
@@ -598,15 +602,12 @@ def run(cfg):
                     ref_water=interp_wbd/ref_water_max,
                     mask_landcover=mask_excluded_landcover,
                     outputdir=outputdir,
-                    meta_info=water_meta)
+                    meta_info=water_meta,
+                    number_workers=number_workers)
 
     dark_land = (mask_water_image == 1) | mask_excluded
 
     water_map[dark_land] = 0
-
-    # areas where pixeles are "no_data" in both reference water map and landcover
-    landcover_nodata = mask_obj.get_mask(mask_label=['No_data'])
-    no_data_area = (interp_wbd == ref_no_data) & (landcover_nodata)
 
     water_tif_str = os.path.join(outputdir,
                                  f"refine_landcover_binary_{pol_str}.tif")
@@ -617,8 +618,7 @@ def run(cfg):
         projection=water_meta['projection'],
         description='Water classification (WTR)',
         scratch_dir=outputdir,
-        dark_land=dark_land,
-        no_data=no_data_area)
+        dark_land=dark_land)
 
     if processing_cfg.debug_mode:
 

@@ -300,7 +300,9 @@ def _save_as_cog(filename,
     shutil.move(temp_file, filename)
 
 
-def change_epsg_tif(input_tif, output_tif, epsg_output):
+def change_epsg_tif(input_tif, output_tif, epsg_output,
+                    resample_method='nearest',
+                    output_nodata='NaN'):
     """Resample the input geotiff image to new EPSG code.
     Parameters
     ----------
@@ -314,8 +316,8 @@ def change_epsg_tif(input_tif, output_tif, epsg_output):
     metadata = get_meta_from_tif(input_tif)
     opt = gdal.WarpOptions(
         dstSRS=f'EPSG:{epsg_output}',
-        resampleAlg='nearest',
-        dstNodata='Nan',
+        resampleAlg=resample_method,
+        dstNodata=output_nodata,
         xRes=metadata['geotransform'][1],
         yRes=metadata['geotransform'][5],
         format='GTIFF')

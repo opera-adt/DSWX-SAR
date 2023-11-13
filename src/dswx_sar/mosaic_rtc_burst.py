@@ -765,7 +765,7 @@ def run(cfg):
 
         for ind, input_dir in enumerate(input_list):
 
-            first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}*.tif')
+            first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')
             first_rtc_path = next(first_rtc_path_iter)
             if first_rtc_path:
                 rtc_meta = dswx_sar_util.get_meta_from_tif(first_rtc_path)
@@ -783,7 +783,8 @@ def run(cfg):
             # find HDF5 metadata
             layover_path = glob.glob(f'{input_dir}/*mask.tif')
             temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
-
+            # If both `*_mask.tif` and `*.h5` exists in RTC-S1 burst product directory:
+            # The metadata in `*_mask.tif` has priority over HDF5 file.
             if len(layover_path) > 0:
                 logger.info('Layover/shadow GeoTIFF is found.')
                 if epsg_output != epsg_list[ind]:

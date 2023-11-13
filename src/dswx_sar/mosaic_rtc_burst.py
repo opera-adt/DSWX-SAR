@@ -793,14 +793,14 @@ def run(cfg):
                         output_tif=temp_mask_path,
                         epsg_output=epsg_output,
                         output_nodata=255)
-
                     mask_list.append(temp_mask_path)
                 else:
                     mask_list.append(layover_path[0])
 
             else:
+                # If mask GeoTiff is not available,
+                # layover/shadow mask may be saved in hdf5 metadata.
                 metadata_path = glob.glob(f'{input_dir}/*h5')[0]
-                # layover/shadow mask is saved from hdf5 metadata.
                 logger.info('Metadata HDF5 is found.')
 
                 with h5py.File(metadata_path) as meta_src:
@@ -860,7 +860,7 @@ def run(cfg):
         if mask_list:
             geo_mask_filename = \
                 (f'{output_dir_mosaic_raster}/{product_prefix}_layovershadow_mask.'
-                    f'{imagery_extension}')
+                 f'{imagery_extension}')
             logger.info(f'    {geo_mask_filename}')
             output_file_list.append(geo_mask_filename)
             mosaic_single_output_file(

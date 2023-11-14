@@ -1069,11 +1069,11 @@ def run(cfg):
     water_mask_image = dswx_sar_util.read_geotiff(water_map_tif_str)
 
     # read landcover map
-    landcover_map_tif_str = os.path.join(outputdir, 'interpolated_landcover')
+    landcover_map_tif_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     landcover_map = dswx_sar_util.read_geotiff(landcover_map_tif_str)
     landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 
-    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
+    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
 
     # Identify the non-water area from Landcover map
     if 'openSea' in landcover_label:

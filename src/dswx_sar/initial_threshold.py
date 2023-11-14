@@ -1653,7 +1653,7 @@ def run(cfg):
     height, width = filt_raster_tif.RasterYSize, filt_raster_tif.RasterXSize
 
     # READ relocated reference water
-    wbd_im_str = os.path.join(outputdir, 'interpolated_wbd')
+    wbd_im_str = os.path.join(outputdir, 'interpolated_wbd.tif')
     wbd_gdal = gdal.Open(wbd_im_str)
 
     # compute the statistics of intensity.

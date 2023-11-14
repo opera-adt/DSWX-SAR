@@ -329,8 +329,6 @@ def compute_fuzzy_value(intensity,
         else:
             change_ind = co_pol_ind
 
-        logger.info('Cross pol is replaced with co-pol and span '
-                    'over the controversial area')
         # Cross-polarization intensity is replaced with co- (or span-) polarizations
         # where water varation is high and areas are dark/flat.
         intensity_z_set[cross_pol_ind][high_frequent_water] = \
@@ -350,25 +348,15 @@ def compute_fuzzy_value(intensity,
     nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
 
     # Compute HAND membership
-    logger.info('compute hand z membership')
     hand[np.isnan(hand)] = 0
-    logger.info(f"     {fuzzy_option['hand_min']} {fuzzy_option['hand_max']}"
-                " are used to compute HAND membership")
-
     hand_z = zmf(hand, fuzzy_option['hand_min'], fuzzy_option['hand_max'])
 
     # compute slope membership
-    logger.info('compute slope z membership')
-    logger.info(f"      {fuzzy_option['slope_min']} {fuzzy_option['slope_max']}"
-                " are used to compute slope membership")
     slope_z = zmf(slope,
                   fuzzy_option['slope_min'],
                   fuzzy_option['slope_max'])
 
     # Compute area membership
-    logger.info('area s membership')
-    logger.info(f"      {fuzzy_option['area_min']} {fuzzy_option['area_max']}"
-                " are used to compute area membership")
     handem = hand < fuzzy_option['hand_threshold']
     wbsmask = (initial_map == 1) & (handem)
     watermap = calculate_water_area(wbsmask)
@@ -377,9 +365,6 @@ def compute_fuzzy_value(intensity,
                 fuzzy_option['area_max'])
 
     # Reference water map membership
-    logger.info('reference s membership')
-    logger.info(f"      {fuzzy_option['reference_water_min']} {fuzzy_option['reference_water_max']}"
-                " are used to compute reference water membership")
     reference_water_s = smf(reference_water,
                             fuzzy_option['reference_water_min'],
                             fuzzy_option['reference_water_max'])
@@ -444,14 +429,31 @@ def run(cfg):
                    'high_frequent_water_max': fuzzy_cfg.high_frequent_water.water_max_value
     }
 
+
     workflow = processing_cfg.dswx_workflow
 
+    logger.info('compute slope z membership')
+    logger.info(f"      {option_dict['slope_min']} {option_dict['slope_max']}"
+                " are used to compute slope membership")
+
+    logger.info('reference s membership')
+    logger.info(f"      {option_dict['reference_water_min']} {option_dict['reference_water_max']}"
+                " are used to compute reference water membership")
+
+    logger.info('compute hand z membership')
+    logger.info(f"     {option_dict['hand_min']} {option_dict['hand_max']}"
+                " are used to compute HAND membership")
+
+    logger.info('area s membership')
+    logger.info(f"      {option_dict['area_min']} {option_dict['area_max']}"
+                " are used to compute area membership")
+
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_all_str}.tif")
-    dem_gdal_str = os.path.join(outputdir, 'interpolated_DEM')
-    hand_gdal_str = os.path.join(outputdir, 'interpolated_hand')
-    landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover')
-    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
-    slope_gdal_str = os.path.join(outputdir, 'slope')
+    dem_gdal_str = os.path.join(outputdir, 'interpolated_DEM.tif')
+    hand_gdal_str = os.path.join(outputdir, 'interpolated_hand.tif')
+    landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover.tif')
+    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
+    slope_gdal_str = os.path.join(outputdir, 'slope.tif')
 
     # Output of Fuzzy_computation
     fuzzy_output_str = os.path.join(

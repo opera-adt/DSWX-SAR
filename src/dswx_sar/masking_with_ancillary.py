@@ -531,12 +531,12 @@ def run(cfg):
     band_set = dswx_sar_util.read_geotiff(filt_im_str)
 
     # Reference water map
-    interp_wbd_str = os.path.join(outputdir, 'interpolated_wbd')
+    interp_wbd_str = os.path.join(outputdir, 'interpolated_wbd.tif')
     interp_wbd = dswx_sar_util.read_geotiff(interp_wbd_str)
     interp_wbd = np.array(interp_wbd, dtype='float32')
 
     # Worldcover map
-    landcover_path_str = os.path.join(outputdir, 'interpolated_landcover')
+    landcover_path_str = os.path.join(outputdir, 'interpolated_landcover.tif')
 
     # Identify target areas from landcover
     mask_obj = FillMaskLandCover(landcover_path_str)

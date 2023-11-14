@@ -553,7 +553,7 @@ def run(cfg):
 
     # 3) hand excluded
     hand = dswx_sar_util.read_geotiff(
-        os.path.join(outputdir, 'interpolated_hand'))
+        os.path.join(outputdir, 'interpolated_hand.tif'))
     hand_mask = hand > hand_mask
 
     full_wtr_water_set_path = \

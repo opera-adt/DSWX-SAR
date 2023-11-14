@@ -447,10 +447,10 @@ def run(cfg):
     workflow = processing_cfg.dswx_workflow
 
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_all_str}.tif")
-    dem_gdal_str = os.path.join(outputdir, 'interpolated_DEM')
-    hand_gdal_str = os.path.join(outputdir, 'interpolated_hand')
-    landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover')
-    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
+    dem_gdal_str = os.path.join(outputdir, 'interpolated_DEM.tif')
+    hand_gdal_str = os.path.join(outputdir, 'interpolated_hand.tif')
+    landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover.tif')
+    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
     slope_gdal_str = os.path.join(outputdir, 'slope')
 
     # Output of Fuzzy_computation

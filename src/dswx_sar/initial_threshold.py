@@ -1051,12 +1051,6 @@ def determine_threshold(
                             rms_sss.append(np.nan)
                             rms_sss.append(hist_bin)
 
-                        # rms = np.sqrt(np.nanmean((intensity_counts_rg[
-                        #     compare_index1:compare_index2] -
-                        #     simul_first[compare_index1:compare_index2])**2))
-                        # rms_sss.append(rms)
-                        # rms_xx.append(hist_bin)
-
                 min_rms_ind = np.where(rms_sss)
                 rg_tolerance = rms_xx[min_rms_ind[0][0]]
                 threshold = (rg_tolerance + threshold) / 2
@@ -1761,7 +1755,9 @@ def run(cfg):
     threshold_iteration = number_iterations
     initial_water_set = np.ones([height, width, len(pol_list)])
 
-    if water_portion > 0.99:
+    if water_portion == 1:
+        # If the areas cover only water,
+        # then use the very high threshold to classify all pixels as water. 
         for band_ind in range(band_number):
             pol_str = pol_list[band_ind]
             thresh_file_str = os.path.join(outputdir,

@@ -126,11 +126,16 @@ runconfig:
             line_per_block: 400
 
         masking_ancillary:
+            land_cover_darkland_list: ['Bare sparse vegetation', 'Urban', 'Moss and lichen']
+            land_cover_darkland_extension_list: ['Grassland', 'Shrubs']
             # VV and VH threshold values for dark land candidates
             co_pol_threshold: -14.6
             cross_pol_threshold: -22.8
             # reference water threshold value for dark land candidates
-            water_threshold:
+            water_threshold: 0.05
+            extended_darkland: True
+            hand_variation_mask: True
+            hand_variation_threshold: 2.5
             number_cpu: 1
 
         refine_with_bimodality:

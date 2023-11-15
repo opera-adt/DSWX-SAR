@@ -126,6 +126,13 @@ runconfig:
             # Reference water threshold value for dark land candidates
             water_threshold: num(min=0, max=100, required=False)
             minimum_pixel: num(min=0, required=False)
+            extended_darkland: bool(required=False)
+            # Assuming the height of the water/land boundaries has low
+            # variation, the standard deviation is estimated along the boundaries
+            # and removed if the std is high. 
+            hand_variation_mask: bool(required=False)
+            hand_variation_threshold: num(min=0, max=100, required=False)
+            number_cpu: num(required=False)
 
         refine_with_bimodality:
             number_cpu: num(required=False)

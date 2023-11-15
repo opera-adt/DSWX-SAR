@@ -679,10 +679,10 @@ def process_bright_water_component(args):
         bands_str, ref_land_str, pol_ind, threshold = args
 
     # bounding box covering the bright waters
-    row , _, col, _ = bounds
+    x_off , _, y_off, _ = bounds
     width = bounds[1] - bounds[0]
     height = bounds[3] - bounds[2]
-    window = Window(row, col, width, height)
+    window = Window(x_off, y_off, width, height)
 
     image_paths = [landcover_str, bands_str,
                    output_water_str, ref_land_str]

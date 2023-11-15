@@ -70,7 +70,7 @@ def create_slope_angle_geotiff(dem_path,
         geotransform=geotransform,
         projection=projection,
         scratch_dir=scrath_dir)
-    
+
 def smf(values, minv, maxv):
     ''' Generate S-shape function for the given values
 
@@ -90,6 +90,10 @@ def smf(values, minv, maxv):
     '''
     center_value = (minv + maxv) / 2
     output= np.zeros(np.shape(values), dtype='float32')
+
+    if isinstance(minv, np.ndarray):
+        eps = 1e-5
+        maxv[minv == maxv] = maxv[minv == maxv] + eps
 
     membership_left = 2 * ((values - minv) / (maxv - minv))**2
     output[(values >= minv) & (values <= center_value)] = \
@@ -122,6 +126,10 @@ def zmf(values, minv, maxv):
     '''
     center_value = (minv + maxv) / 2
     output = np.zeros(np.shape(values))
+
+    if isinstance(minv, np.ndarray):
+        eps = 1e-5
+        maxv[minv == maxv] = maxv[minv == maxv] + eps
 
     membership_left = 1 - 2 * ((values - minv) / (maxv - minv))**2
     mask_left = (values >= minv) & (values <= center_value)
@@ -313,7 +321,7 @@ def compute_fuzzy_value(intensity,
     cross_pol_ind = []
 
     # When dual-polarizations are available, cross-polarization intensity
-    # is replaced by the co-polarization over the challenging areas. 
+    # is replaced by the co-polarization over the challenging areas.
     if ('HH' in pol_list and 'HV' in pol_list) or \
        ('VV' in pol_list and 'VH' in pol_list):
         for polindex, pol in enumerate(pol_list):
@@ -329,7 +337,7 @@ def compute_fuzzy_value(intensity,
         else:
             change_ind = co_pol_ind
 
-        logger.info('Cross pol is replaced with co-pol and span '
+        logger.info('--Cross pol is replaced with co-pol and span '
                     'over the controversial area')
         # Cross-polarization intensity is replaced with co- (or span-) polarizations
         # where water varation is high and areas are dark/flat.
@@ -402,8 +410,6 @@ def compute_fuzzy_value(intensity,
                    (hand_z + slope_z + area_s)  / 3 * 0.5)
     }
     avgvalue = method_dict[workflow]()
-    mask = np.squeeze(np.nansum(intensity, axis=0)) == 0
-    avgvalue[mask] = 0
 
     return avgvalue, intensity_z_set, hand_z, \
         slope_z, area_s, reference_water_s, copol_only
@@ -452,6 +458,8 @@ def run(cfg):
     landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover')
     reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
     slope_gdal_str = os.path.join(outputdir, 'slope')
+    no_data_raster_path = os.path.join(outputdir,
+                                       f"no_data_area_{pol_all_str}.tif")
 
     # Output of Fuzzy_computation
     fuzzy_output_str = os.path.join(
@@ -477,13 +485,15 @@ def run(cfg):
         data_shape,
         pad_shape)
 
-    for block_param in block_params:
+    for block_ind, block_param in enumerate(block_params):
+        logger.info(f'fuzzy logic computation block {block_ind}')
         intensity = dswx_sar_util.get_raster_block(
             filt_im_str, block_param)
         if im_meta['band_number'] == 1:
             intensity = intensity[np.newaxis, :, :]
-        mean_intensity = np.nanmean(intensity, axis=0)
-        no_data_raster = np.isnan(mean_intensity)
+
+        no_data_raster = dswx_sar_util.get_raster_block(
+            no_data_raster_path, block_param)
 
         # Read Ancillary files
         interphand = dswx_sar_util.get_raster_block(
@@ -502,7 +512,7 @@ def run(cfg):
         # Compute slope angle from DEM
         slope = dswx_sar_util.get_raster_block(
             slope_gdal_str, block_param)
-
+        print('slope', np.shape(slope))
         # compute fuzzy value
         fuzzy_avgvalue, intensity_z, hand_z, slope_z, area_s, ref_water, copol_only = \
             compute_fuzzy_value(
@@ -519,8 +529,7 @@ def run(cfg):
                 block_param=block_param)
 
         fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
-        fuzzy_avgvalue[no_data_raster] = -1
-
+        fuzzy_avgvalue[no_data_raster==1] = -1
 
         dswx_sar_util.write_raster_block(
             out_raster=fuzzy_output_str,
@@ -532,11 +541,12 @@ def run(cfg):
 
         if processing_cfg.debug_mode:
 
-            rasters_to_save = [('hand_z', hand_z),
-                            ('slope_z', slope_z),
-                            ('area_s', area_s),
-                            ('ref_water', ref_water),
-                            ('copol_only', copol_only)]
+            rasters_to_save = [
+                ('hand_z', hand_z),
+                ('slope_z', slope_z),
+                ('area_s', area_s),
+                ('ref_water', ref_water),
+                ('copol_only', copol_only)]
 
             for raster_name, raster in rasters_to_save:
                 output_file_name = os.path.join(outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
@@ -557,12 +567,12 @@ def run(cfg):
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     datatype='float32')
-    
+
     if processing_cfg.debug_mode:
 
         for raster_name, _ in rasters_to_save:
             filename = os.path.join(
-                outputdir, 
+                outputdir,
                 f"fuzzy_{raster_name}_{pol_all_str}.tif")
             if not filename.endswith('.tif'):
                 continue

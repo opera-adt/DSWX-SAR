@@ -50,7 +50,10 @@ def compute_window_mean_std(arr, winsize):
     mean = masked_convolve2d(arr_masked, window, mode='same')
     c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
 
-    std = (c2 - mean * mean) ** .5
+    var = (c2 - mean * mean)
+    eps = 1e-10
+    var = np.where(var < 0, eps, var)
+    std = var ** .5
 
     return mean, std
 

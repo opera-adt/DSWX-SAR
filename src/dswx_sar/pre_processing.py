@@ -407,6 +407,15 @@ def run(cfg):
         scratch_dir=scratch_dir)
     del intensity_filt
 
+    no_data_geotiff_path = os.path.join(scratch_dir, 
+                                        f"no_data_area_{pol_all_str}.tif")
+    dswx_sar_util.get_invalid_area(
+        os.path.join(scratch_dir, filtered_images_str),
+        no_data_geotiff_path,
+        projection=im_meta['projection'],
+        geotransform=im_meta['geotransform'],
+        scratch_dir=scratch_dir)
+
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran pre-processing in {t_all_elapsed:.3f} seconds")
 

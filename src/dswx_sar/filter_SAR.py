@@ -51,6 +51,9 @@ def compute_window_mean_std(arr, winsize):
     c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
 
     var = (c2 - mean * mean)
+
+    # The negative number in sqrt is replaced
+    # with the negligibly small number.
     eps = 1e-10
     var = np.where(var < 0, eps, var)
     std = var ** .5

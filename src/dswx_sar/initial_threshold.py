@@ -1644,17 +1644,16 @@ def compute_threshold_max_bound(intensity_array,
 
 def create_geotiff_with_one_value(outpath, shape, filled_value):
     """
-    Create a new GeoTIFF filled with zeros for the specified tile.
+    Create a new GeoTIFF file filled with a specified value.
+
     Parameters:
     ----------
-    tile: tuple
-        A tuple (x, y) representing the top-left corner of the tile.
-    outpath:
-        The path to save the new GeoTIFF.
-    size: tuple
-        A tuple representing the width and height of the tile in degrees.
-    resolution: float
-        The resolution of the raster (i.e., pixel size).
+    outpath: str
+        The file path where the new GeoTIFF will be saved.
+    shape: tuple
+        A tuple (height, width) representing the dimensions of the GeoTIFF.
+    filled_value: float
+        The value with which the GeoTIFF will be filled.
     """
     # Set up the new file's spatial properties
     height, width= shape
@@ -1665,7 +1664,7 @@ def create_geotiff_with_one_value(outpath, shape, filled_value):
 
     # Write zeros to the raster band
     band = ds.GetRasterBand(1)
-    band.WriteArray(np.zeros([height, width], dtype=np.float32) * filled_value)
+    band.WriteArray(np.full((height, width), filled_value, dtype=np.float32))
     band.FlushCache()
 
     ds = None  # Close the file

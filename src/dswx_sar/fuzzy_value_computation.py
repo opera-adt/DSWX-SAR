@@ -18,6 +18,7 @@ SOBEL_KERNEL_SIZE = 3
 PIXEL_RESOLUTION_X = 30  # Replace with appropriate value
 PIXEL_RESOLUTION_Y = 30  # Replace with appropriate value
 RAD_TO_DEG = 180 / np.pi
+EPS = 1e-10
 
 def compute_slope_dem(dem):
     '''Calculate slope angle from DEM
@@ -91,9 +92,12 @@ def smf(values, minv, maxv):
     center_value = (minv + maxv) / 2
     output= np.zeros(np.shape(values), dtype='float32')
 
+    # When using numpy arrays for min and max values in 
+    # a membership function, identical elements in these 
+    # arrays are replaced with a slightly higher number
+    # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
-        eps = 1e-5
-        maxv[minv == maxv] = maxv[minv == maxv] + eps
+        maxv[minv == maxv] = maxv[minv == maxv] + EPS
 
     membership_left = 2 * ((values - minv) / (maxv - minv))**2
     output[(values >= minv) & (values <= center_value)] = \
@@ -127,9 +131,12 @@ def zmf(values, minv, maxv):
     center_value = (minv + maxv) / 2
     output = np.zeros(np.shape(values))
 
+    # When using numpy arrays for min and max values in 
+    # a membership function, identical elements in these 
+    # arrays are replaced with a slightly higher number
+    # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
-        eps = 1e-5
-        maxv[minv == maxv] = maxv[minv == maxv] + eps
+        maxv[minv == maxv] = maxv[minv == maxv] + EPS
 
     membership_left = 1 - 2 * ((values - minv) / (maxv - minv))**2
     mask_left = (values >= minv) & (values <= center_value)

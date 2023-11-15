@@ -146,7 +146,7 @@ class AncillaryRelocation:
                                yRes=yspacing,
                                outputBounds=[W, S, E, N],
                                resampleAlg=method,
-                               format='ENVI')
+                               format='GTIFF')
 
         gdal.Warp(output_tif_str, input_tif_str, options=opt)
 
@@ -241,14 +241,14 @@ def run(cfg):
 
     # Check if the interpolated water body file exists
     wbd_interpolated_path = Path(os.path.join(scratch_dir,
-                                              'interpolated_wbd'))
+                                              'interpolated_wbd.tif'))
     if not wbd_interpolated_path.is_file():
         logger.info('interpolated wbd file was not found')
-        ancillary_reloc.relocate(wbd_file, 'interpolated_wbd', method='near')
+        ancillary_reloc.relocate(wbd_file, 'interpolated_wbd.tif', method='near')
 
     # Check if the interpolated DEM exists
     dem_interpolated_path = Path(os.path.join(scratch_dir,
-                                              'interpolated_DEM'))
+                                              'interpolated_DEM.tif'))
     dem_reprocessing_flag = False
     if not dem_interpolated_path.is_file():
         logger.info('interpolated dem : not found ')
@@ -256,7 +256,7 @@ def run(cfg):
         if os.path.isfile(dem_file):
             logger.info('interpolated dem file was not found')
             ancillary_reloc.relocate(dem_file,
-                                     'interpolated_DEM',
+                                     'interpolated_DEM.tif',
                                      method='near')
         else:
             raise FileNotFoundError
@@ -265,22 +265,22 @@ def run(cfg):
     if not dem_reprocessing_flag:
         dem_subset = dswx_sar_util.read_geotiff(
                         os.path.join(scratch_dir,
-                                     'interpolated_DEM'))
+                                     'interpolated_DEM.tif'))
         dem_mean = np.nanmean(dem_subset)
         if (dem_mean == 0) | np.isnan(dem_mean):
             raise ValueError
         del dem_subset
     # check if the interpolated landcover exists ###
     landcover_interpolated_path = Path(os.path.join(scratch_dir,
-                                                    'interpolated_landcover'))
+                                                    'interpolated_landcover.tif'))
     if not landcover_interpolated_path.is_file():
         ancillary_reloc.relocate(landcover_file,
-                                 'interpolated_landcover',
+                                 'interpolated_landcover.tif',
                                  method='near')
 
     # Check if the interpolated HAND exists
     hand_interpolated_path = os.path.join(scratch_dir,
-                                          'interpolated_hand')
+                                          'interpolated_hand.tif')
     if not os.path.isfile(hand_interpolated_path):
 
         # Check if compuated HAND exists
@@ -290,7 +290,7 @@ def run(cfg):
             # args.hand_file = os.path.join(args.scratch_dir, 'temp_hand.tif')
 
         ancillary_reloc.relocate(hand_file,
-                                 'interpolated_hand',
+                                 'interpolated_hand.tif',
                                  method='near')
 
     intensity = []

@@ -72,7 +72,7 @@ def run(cfg):
 
     # Currently, inundated vegetation for C-band is available for
     # Herbanceous wetland area
-    landcover_path_str = os.path.join(outputdir, 'interpolated_landcover')
+    landcover_path_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     mask_obj = FillMaskLandCover(landcover_path_str)
     target_inundated_vege_class = mask_obj.get_mask(
         mask_label=['Herbaceous wetland'])

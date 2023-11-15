@@ -289,8 +289,8 @@ def compute_fuzzy_value(intensity,
         if pol in ['VH', 'HV']:
             pol_threshold = fuzzy_option['dark_area_land']
             water_threshold = fuzzy_option['dark_area_water']
-            low_backscatter = (intensity[int_id, :, :] < pol_threshold) & \
-                              (intensity[int_id, :, :] > water_threshold)
+            low_backscatter = (intensity[int_id, :, :] < pol_threshold) #& \
+                            #   (intensity[int_id, :, :] > water_threshold)
             # Low backscattering candidates
             low_backscatter_cand &= low_backscatter
             dark_water_cand &= intensity[int_id, :, :] < water_threshold
@@ -317,6 +317,8 @@ def compute_fuzzy_value(intensity,
             (reference_water < fuzzy_option['high_frequent_water_max']) & \
             (low_backscatter_cand)
 
+    dark_water = (dark_water_cand) & \
+                 (reference_water > fuzzy_option['high_frequent_water_max'])
     co_pol_ind = []
     cross_pol_ind = []
 
@@ -348,8 +350,8 @@ def compute_fuzzy_value(intensity,
 
         # Co-polarization intensity is replaced with cross polarizations
         # where very dark water exists.
-        intensity_z_set[change_ind][dark_water_cand] = \
-            intensity_z_set[cross_pol_ind][dark_water_cand]
+        intensity_z_set[change_ind][dark_water] = \
+            intensity_z_set[cross_pol_ind][dark_water]
 
     copol_only = (high_frequent_water == 1) | \
                  (landcover_flat_area==1)
@@ -512,7 +514,7 @@ def run(cfg):
         # Compute slope angle from DEM
         slope = dswx_sar_util.get_raster_block(
             slope_gdal_str, block_param)
-        print('slope', np.shape(slope))
+
         # compute fuzzy value
         fuzzy_avgvalue, intensity_z, hand_z, slope_z, area_s, ref_water, copol_only = \
             compute_fuzzy_value(

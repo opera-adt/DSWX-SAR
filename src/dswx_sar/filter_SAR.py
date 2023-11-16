@@ -56,7 +56,7 @@ def compute_window_mean_std(arr, winsize):
 
     # The negative number in sqrt is replaced
     # with the negligibly small number to avoid numpy warning message.
-    var = np.where(var < 0, Constants.eps, var)
+    var = np.where(var < 0, Constants.negligible_value, var)
     std = var ** .5
 
     return mean, std

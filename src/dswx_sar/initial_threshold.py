@@ -666,8 +666,8 @@ def compute_ki_threshold(
 
     intensity_counts = intensity_counts.astype(np.float64)
     intensity_bins = intensity_bins.astype(np.float64)
-
-    eps = 1e-10  # A small constant value
+    # A small constant value
+    eps = dswx_sar_util.Constants.negligible_value
 
     intensity_cumsum = np.cumsum(intensity_counts)
     # Replace zeros and negative numbers with 'eps'
@@ -774,7 +774,7 @@ def determine_threshold(
     threshold_array = []
     threshold_idx_array = []
     mode_array = []
-    eps = 1e-10
+    eps = dswx_sar_util.Constants.negligible_value
     min_threshold, max_threshold = bounds[0], bounds[1]
 
     for coord in candidate_tile_coords:

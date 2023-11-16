@@ -18,7 +18,6 @@ SOBEL_KERNEL_SIZE = 3
 PIXEL_RESOLUTION_X = 30  # Replace with appropriate value
 PIXEL_RESOLUTION_Y = 30  # Replace with appropriate value
 RAD_TO_DEG = 180 / np.pi
-EPS = 1e-10
 
 def compute_slope_dem(dem):
     '''Calculate slope angle from DEM
@@ -97,7 +96,13 @@ def smf(values, minv, maxv):
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
-        maxv[minv == maxv] = maxv[minv == maxv] + EPS
+        diff = maxv - minv
+        number_strange = np.nansum(diff <= 0)
+        if number_strange > 0:
+            logger.info(f'{number_strange} pixels have minimum values' \
+                        'larger than maximum values')
+            minv[diff <= 0] = maxv[diff <= 0] - \
+                dswx_sar_util.Constants.negligible_value
 
     membership_left = 2 * ((values - minv) / (maxv - minv))**2
     output[(values >= minv) & (values <= center_value)] = \
@@ -128,7 +133,6 @@ def zmf(values, minv, maxv):
     output : numpy.ndarray
         rescaled value from z-shape membership function
     '''
-    center_value = (minv + maxv) / 2
     output = np.zeros(np.shape(values))
 
     # When using numpy arrays for min and max values in 
@@ -136,7 +140,15 @@ def zmf(values, minv, maxv):
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
-        maxv[minv == maxv] = maxv[minv == maxv] + EPS
+        diff = maxv - minv
+        number_strange = np.nansum(diff <= 0)
+        if number_strange > 0:
+            logger.info(f'{number_strange} pixels have minimum values' \
+                        'larger than maximum values')
+            minv[diff <= 0] = maxv[diff <= 0] - \
+                dswx_sar_util.Constants.negligible_value
+
+    center_value = (minv + maxv) / 2
 
     membership_left = 1 - 2 * ((values - minv) / (maxv - minv))**2
     mask_left = (values >= minv) & (values <= center_value)
@@ -468,7 +480,7 @@ def run(cfg):
     landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
     slope_gdal_str = os.path.join(outputdir, 'slope.tif')
-      no_data_raster_path = os.path.join(outputdir,
+    no_data_raster_path = os.path.join(outputdir,
                                          f"no_data_area_{pol_all_str}.tif")
 
     # Output of Fuzzy_computation

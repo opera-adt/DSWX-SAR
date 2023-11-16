@@ -45,7 +45,7 @@ band_assign_value_conf_dict = {
 @dataclass
 class Constants:
     # negligible number to avoid the zero-division warning. 
-    eps : float = 1e-5
+    negligible_value : float = 1e-5
 
 def get_interpreted_dswx_s1_ctable():
     """Get colortable for DSWx-S1 products

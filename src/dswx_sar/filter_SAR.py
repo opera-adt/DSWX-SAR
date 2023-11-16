@@ -1,6 +1,8 @@
 import numpy as np
 from scipy import signal
 
+from dswx_sar_util import Constants
+
 K_DEFAULT = 1.0
 CU_DEFAULT = 0.523
 CMAX_DEFAULT = 1.73
@@ -53,9 +55,8 @@ def compute_window_mean_std(arr, winsize):
     var = (c2 - mean * mean)
 
     # The negative number in sqrt is replaced
-    # with the negligibly small number.
-    eps = 1e-10
-    var = np.where(var < 0, eps, var)
+    # with the negligibly small number to avoid numpy warning message.
+    var = np.where(var < 0, Constants.eps, var)
     std = var ** .5
 
     return mean, std

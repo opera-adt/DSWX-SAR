@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
 
+gdal.DontUseExceptions()
+
 
 np2gdal_conversion = {
   "uint8": 1,
@@ -41,6 +43,11 @@ band_assign_value_conf_dict = {
     'layover_shadow_mask': 253,
     'ocean_mask': 254,
 }
+
+@dataclass
+class Constants:
+    # negligible number to avoid the zero-division warning. 
+    negligible_value : float = 1e-5
 
 def get_interpreted_dswx_s1_ctable():
     """Get colortable for DSWx-S1 products

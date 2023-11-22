@@ -247,10 +247,14 @@ class TileSelection:
             non-water areas are present in mask.
         """
         _, water_nrow, water_ncol = water_mask.shape
-
         water_mask_sample = water_nrow * water_ncol
-        water_spatial_portion = np.nansum(water_mask, axis=(1, 2)) / \
-                                water_mask_sample
+
+        if water_mask_sample == 0:
+            water_spatial_portion = 0
+        else:
+            water_spatial_portion = np.nansum(water_mask, axis=(1, 2)) / \
+                                              water_mask_sample
+
         # If the spatial coverage of water is equal to 1 (all water) or
         # is equal to 0 (all lands), then we don't attempt to search the
         # tile showing bimodal distribution.
@@ -662,20 +666,38 @@ def compute_ki_threshold(
 
     intensity_counts = intensity_counts.astype(np.float64)
     intensity_bins = intensity_bins.astype(np.float64)
+    # A small constant value
+    eps = dswx_sar_util.Constants.negligible_value
 
     intensity_cumsum = np.cumsum(intensity_counts)
+    # Replace zeros and negative numbers with 'eps'
+    intensity_cumsum = np.where(intensity_cumsum <= 0, 
+                                eps, intensity_cumsum)
+
+    intensity_cumsum[intensity_cumsum==0] = np.nan
+
     intensity_area = np.cumsum(intensity_counts * intensity_bins)
     intenisty_s = np.cumsum(intensity_counts * intensity_bins ** 2)
-    sigma_f = np.sqrt(intenisty_s / intensity_cumsum -
-                      (intensity_area / intensity_cumsum) ** 2)
+
+    var_f = intenisty_s / intensity_cumsum - \
+        (intensity_area / intensity_cumsum) ** 2
+    var_f = np.where(var_f <= 0, eps, var_f)
+    sigma_f = np.sqrt(var_f)
 
     cb = intensity_cumsum[-1] - intensity_cumsum
+    cb = np.where(cb <= 0, eps, cb)
+
     mb = intensity_area[-1] - intensity_area
     sb = intenisty_s[-1] - intenisty_s
-    sigma_b = np.sqrt(sb / cb - (mb / cb) ** 2)
+    var_b = sb / cb - (mb / cb) ** 2
+    var_b = np.where(var_b <= 0, eps, var_b)
+    sigma_b = np.sqrt(var_b)
 
     normalized_int_cumsum =  intensity_cumsum / intensity_cumsum[-1]
-
+    normalized_int_cumsum = np.where(normalized_int_cumsum >= 1, 
+                                1 - eps, normalized_int_cumsum)
+    normalized_int_cumsum = np.where(normalized_int_cumsum <= 0, 
+                                     eps, normalized_int_cumsum)
     prob_array = \
         normalized_int_cumsum * np.log(sigma_f) + \
         (1 - normalized_int_cumsum) * np.log(sigma_b) - \
@@ -752,7 +774,7 @@ def determine_threshold(
     threshold_array = []
     threshold_idx_array = []
     mode_array = []
-
+    eps = dswx_sar_util.Constants.negligible_value
     min_threshold, max_threshold = bounds[0], bounds[1]
 
     for coord in candidate_tile_coords:
@@ -802,9 +824,9 @@ def determine_threshold(
 
         # Search the local peaks from histogram for initial values for fitting
         # peak for lower distribution
-        lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_threshold], distance=5)
+        lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_threshold+1], distance=5)
         if not lowmaxind_cands.any():
-            lowmaxind_cands = np.array([np.nanargmax(intensity_counts[: idx_threshold])])
+            lowmaxind_cands = np.array([np.nanargmax(intensity_counts[: idx_threshold+1])])
 
         intensity_counts_cand = intensity_counts[lowmaxind_cands]
         lowmaxind = lowmaxind_cands[np.nanargmax(intensity_counts_cand)]
@@ -859,12 +881,13 @@ def determine_threshold(
 
             simul_first = gauss(intensity_bins, *first_mode)
             simul_second = gauss(intensity_bins, *second_mode)
-
+            if simul_second_sum == 0:
+                simul_second_sum = eps
             converge_ind = np.where((intensity_bins < tau_mode_right)
                                     & (intensity_bins > tau_mode_left)
                                     & (intensity_bins < threshold)
                                     & (np.cumsum(simul_second) /
-                                       np.sum(simul_second) < 0.03))
+                                       simul_second_sum < 0.03))
 
             if len(converge_ind[0]):
                 modevalue = intensity_bins[converge_ind[0][-1]]
@@ -912,11 +935,14 @@ def determine_threshold(
             tri_second_mode = params[second_setind:second_setind+3]
             tri_third_mode = params[third_setind:third_setind+3]
 
+            simul_second_sum = np.sum(simul_second)
+            if simul_second_sum == 0:
+                simul_second_sum = eps
             converge_ind = np.where((intensity_bins < tau_mode_right)
                                     & (intensity_bins > tau_mode_left)
                                     & (intensity_bins < threshold)
                                     & (np.cumsum(simul_second) /
-                                       np.sum(simul_second) < 0.03))
+                                       simul_second_sum < 0.03))
 
             if len(converge_ind[0]):
                 modevalue = intensity_bins[converge_ind[0][-1]]
@@ -1014,12 +1040,16 @@ def determine_threshold(
                         intensity_counts_rg = intensity_counts_rg / ratio
                         compare_index1 = (np.abs(bins - threshold)).argmin()
                         compare_index2 = (np.abs(bins - hist_bin)).argmin()
-
-                        rms = np.sqrt(np.nanmean((intensity_counts_rg[
-                            compare_index1:compare_index2] -
-                            simul_first[compare_index1:compare_index2])**2))
-                        rms_sss.append(rms)
-                        rms_xx.append(hist_bin)
+                        # to avoid empty array
+                        if compare_index1 != compare_index2:
+                            rms = np.sqrt(np.nanmean(
+                                (intensity_counts_rg[compare_index1:compare_index2] -
+                                simul_first[compare_index1:compare_index2])**2))
+                            rms_sss.append(rms)
+                            rms_xx.append(hist_bin)
+                        else:
+                            rms_sss.append(np.nan)
+                            rms_sss.append(hist_bin)
 
                 min_rms_ind = np.where(rms_sss)
                 rg_tolerance = rms_xx[min_rms_ind[0][0]]
@@ -1612,6 +1642,34 @@ def compute_threshold_max_bound(intensity_array,
                       int_sub_mean + int_sub_std * 2]), int_sub_mean, int_sub_std
 
 
+def create_geotiff_with_one_value(outpath, shape, filled_value):
+    """
+    Create a new GeoTIFF file filled with a specified value.
+
+    Parameters:
+    ----------
+    outpath: str
+        The file path where the new GeoTIFF will be saved.
+    shape: tuple
+        A tuple (height, width) representing the dimensions of the GeoTIFF.
+    filled_value: float
+        The value with which the GeoTIFF will be filled.
+    """
+    # Set up the new file's spatial properties
+    height, width= shape
+
+    # Create the file with a single band, Float32 type
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(outpath, width, height, 1, gdal.GDT_Float32)
+
+    # Write zeros to the raster band
+    band = ds.GetRasterBand(1)
+    band.WriteArray(np.full((height, width), filled_value, dtype=np.float32))
+    band.FlushCache()
+
+    ds = None  # Close the file
+
+
 def run(cfg):
     """
     Run inital threshold with parameters in cfg dictionary
@@ -1685,189 +1743,208 @@ def run(cfg):
     if band_number == 1:
         intensity_whole = intensity_whole[np.newaxis, :, :]
 
+    valid_area = np.squeeze(intensity_whole[0, :, :] > 0)
+    water_pixel_number = np.sum(water_mask_set[0, valid_area])
+    valid_pixel_number = np.sum(intensity_whole[0, :, :] > 0)
+
+    water_portion = water_pixel_number / valid_pixel_number
+    logger.info(f'water spatial coverage : {water_portion} ')  
+
     thres_max = np.empty([band_number])
     threshold_iteration = number_iterations
     initial_water_set = np.ones([height, width, len(pol_list)])
 
-    # Here we compute the bounds of the backscattering of water objects
-    for iter_ind in range(threshold_iteration):
-        logger.info(f'iterations : {iter_ind + 1} of {number_iterations}')
-
+    if water_portion == 1:
+        # If the areas cover only water,
+        # then use the very high threshold to classify all pixels as water. 
         for band_ind in range(band_number):
-            if pol_list[band_ind] == 'span':
-                thres_max[band_ind] = 30
-            else:
-                int_water_array = intensity_whole[
-                    band_ind, (wbd_whole_norm > permanent_water_value) &
-                    (np.nansum(initial_water_set, axis=2) > 1)]
-                int_water_array = remove_invalid(int_water_array)
+            pol_str = pol_list[band_ind]
+            thresh_file_str = os.path.join(outputdir,
+                                           f"int_threshold_filled_{pol_str}.tif")
+            thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol_str}.tif")
+            for filled_file_path in [thresh_file_str, thresh_peak_str]:
+                create_geotiff_with_one_value(filled_file_path, shape=[height, width],
+                                              filled_value=30)
+    else:
+        # Here we compute the bounds of the backscattering of water objects
+        for iter_ind in range(threshold_iteration):
+            logger.info(f'iterations : {iter_ind + 1} of {number_iterations}')
 
-                if len(int_water_array):
-                    metric_obj = refine_with_bimodality.BimodalityMetrics(int_water_array)
-                    is_bimodal = metric_obj.compute_metric()
-
-                    thres_max[band_ind], int_sub_mean, int_sub_std = compute_threshold_max_bound(
-                        int_water_array, is_bimodal, metric_obj)
+            for band_ind in range(band_number):
+                if pol_list[band_ind] == 'span':
+                    thres_max[band_ind] = 30
                 else:
-                    int_sub_mean, int_sub_std, thres_max[band_ind] = np.nan, np.nan, np.nan
-                    is_bimodal = False
+                    int_water_array = intensity_whole[
+                        band_ind, (wbd_whole_norm > permanent_water_value) &
+                        (np.nansum(initial_water_set, axis=2) > 1)]
+                    int_water_array = remove_invalid(int_water_array)
 
-                logger.info(f'mean  intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {int_sub_mean:.2f}, {is_bimodal}')
-                logger.info(f'std   intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {int_sub_std:.2f}, {is_bimodal}')
-                logger.info(f'max bound intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {thres_max[band_ind]:.2f}, {is_bimodal}')
+                    if len(int_water_array):
+                        metric_obj = refine_with_bimodality.BimodalityMetrics(int_water_array)
+                        is_bimodal = metric_obj.compute_metric()
 
-        block_row = init_threshold_cfg.maximum_tile_size.y
-        block_col = init_threshold_cfg.maximum_tile_size.x
+                        thres_max[band_ind], int_sub_mean, int_sub_std = compute_threshold_max_bound(
+                            int_water_array, is_bimodal, metric_obj)
+                    else:
+                        int_sub_mean, int_sub_std, thres_max[band_ind] = np.nan, np.nan, np.nan
+                        is_bimodal = False
 
-        # number_y_window
-        n_rows_block = height // block_row
-        # number_x_window
-        n_cols_block = width // block_col
-        m_rows_block = height % block_row
-        m_cols_block = width % block_col
+                    logger.info(f'mean  intensity [dB] over water {pol_list[band_ind]}:'
+                                f' {int_sub_mean:.2f}, {is_bimodal}')
+                    logger.info(f'std   intensity [dB] over water {pol_list[band_ind]}:'
+                                f' {int_sub_std:.2f}, {is_bimodal}')
+                    logger.info(f'max bound intensity [dB] over water {pol_list[band_ind]}:'
+                                f' {thres_max[band_ind]:.2f}, {is_bimodal}')
 
-        n_rows_block = n_rows_block + (1 if m_rows_block > 0 else 0)
-        n_cols_block = n_cols_block + (1 if m_cols_block > 0 else 0)
+            block_row = init_threshold_cfg.maximum_tile_size.y
+            block_col = init_threshold_cfg.maximum_tile_size.x
 
-        threshold_tau_set = np.zeros([n_rows_block, n_cols_block, band_number])
-        mode_tau_set = np.zeros([n_rows_block, n_cols_block, band_number])
+            # number_y_window
+            n_rows_block = height // block_row
+            # number_x_window
+            n_cols_block = width // block_col
+            m_rows_block = height % block_row
+            m_cols_block = width % block_col
 
-        threshold_tau_dict = {}
-        mode_tau_dict = {}
+            n_rows_block = n_rows_block + (1 if m_rows_block > 0 else 0)
+            n_cols_block = n_cols_block + (1 if m_cols_block > 0 else 0)
 
-        # Parallel processing
-        # -1 means using all processors
-        n_jobs = number_workers
+            threshold_tau_set = np.zeros([n_rows_block, n_cols_block, band_number])
+            mode_tau_set = np.zeros([n_rows_block, n_cols_block, band_number])
 
-        results = Parallel(n_jobs=n_jobs)(
-            delayed(process_block)(ii, jj,
-                                   n_rows_block, n_cols_block,
-                                   m_rows_block, m_cols_block,
-                                   block_row, block_col,
-                                   width, filt_im_str,
-                                   water_mask_tif_str, cfg,
-                                   thres_max, average_threshold_flag)
-            for ii in range(0, n_rows_block)
-            for jj in range(0, n_cols_block)
-            )
+            threshold_tau_dict = {}
+            mode_tau_dict = {}
 
-        # If average_threshold_flag is True, all thresholds within
-        # individual tile are averaged and assigned to the tile.
-        # If not, the thresholds remain as they are and are used for
-        # interpolation.
-        if average_threshold_flag:
+            # Parallel processing
+            # -1 means using all processors
+            n_jobs = number_workers
 
-            threshold_tau_set = np.zeros([n_rows_block,
-                                          n_cols_block,
-                                          band_number])
-            mode_tau_set = np.zeros([n_rows_block,
-                                     n_cols_block,
-                                     band_number])
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(process_block)(ii, jj,
+                                    n_rows_block, n_cols_block,
+                                    m_rows_block, m_cols_block,
+                                    block_row, block_col,
+                                    width, filt_im_str,
+                                    water_mask_tif_str, cfg,
+                                    thres_max, average_threshold_flag)
+                for ii in range(0, n_rows_block)
+                for jj in range(0, n_cols_block)
+                )
 
-            for ii, jj, threshold_tau_block, mode_tau_block, window_coord \
-                in results:
-                threshold_tau_set[ii, jj, :] = threshold_tau_block
-                mode_tau_set[ii, jj, :] = mode_tau_block
+            # If average_threshold_flag is True, all thresholds within
+            # individual tile are averaged and assigned to the tile.
+            # If not, the thresholds remain as they are and are used for
+            # interpolation.
+            if average_threshold_flag:
 
-            threshold_tau_dict = save_threshold_dict(
-                threshold_tau_set,
-                block_row,
-                block_col)
-            mode_tau_dict = save_threshold_dict(
-                mode_tau_set,
-                block_row,
-                block_col)
-            testtest = threshold_tau_set[:, :, 0]
-            testtest[testtest == -50] = np.nan
-            testtest = threshold_tau_set[:, :, 1]
-            testtest[testtest == -50] = np.nan
+                threshold_tau_set = np.zeros([n_rows_block,
+                                            n_cols_block,
+                                            band_number])
+                mode_tau_set = np.zeros([n_rows_block,
+                                        n_cols_block,
+                                        band_number])
 
-        else:
-            threshold_tau_set = [[], [], []]
-            mode_tau_set = [[], [], []]
-            coord_row_list = [[], [], []]
-            coord_col_list = [[], [], []]
-            window_coord_list = [[], [], []]
+                for ii, jj, threshold_tau_block, mode_tau_block, window_coord \
+                    in results:
+                    threshold_tau_set[ii, jj, :] = threshold_tau_block
+                    mode_tau_set[ii, jj, :] = mode_tau_block
 
-            for ii, jj, threshold_tau_blocks, mode_tau_blocks, window_coords \
-                in results:
-                # extract threshold for tiles
-                pol_index = 0
+                threshold_tau_dict = save_threshold_dict(
+                    threshold_tau_set,
+                    block_row,
+                    block_col)
+                mode_tau_dict = save_threshold_dict(
+                    mode_tau_set,
+                    block_row,
+                    block_col)
+                testtest = threshold_tau_set[:, :, 0]
+                testtest[testtest == -50] = np.nan
+                testtest = threshold_tau_set[:, :, 1]
+                testtest[testtest == -50] = np.nan
 
-                # individual polarizations
-                for threshold_tau_block, mode_tau_block, window_coord in zip(
-                     threshold_tau_blocks, mode_tau_blocks, window_coords):
-                    # -50 represent the no-data value.
-                    threshold_tau_subset = list(filter(lambda x: x != -50,
-                                                [threshold_tau_block]))
-                    mode_tau_subset = list(filter(lambda x: x != -50,
-                                                  [mode_tau_block]))
+            else:
+                threshold_tau_set = [[], [], []]
+                mode_tau_set = [[], [], []]
+                coord_row_list = [[], [], []]
+                coord_col_list = [[], [], []]
+                window_coord_list = [[], [], []]
 
-                    if threshold_tau_subset:
-                        # window center for row and col
-                        window_center_row_list = [int(ii * block_row +
-                                                      (sub_window[1] +
-                                                       sub_window[2])/2)
-                                                  for sub_window in
-                                                  window_coord]
+                for ii, jj, threshold_tau_blocks, mode_tau_blocks, window_coords \
+                    in results:
+                    # extract threshold for tiles
+                    pol_index = 0
 
-                        window_center_col_list = [int(jj * block_col +
-                                                      (sub_window[3] +
-                                                       sub_window[4])/2)
-                                                  for sub_window in
-                                                  window_coord]
-                        # window coordinates
-                        absolute_window_coord = [[ii * block_row +
-                                                  sub_window[1],
-                                                  ii * block_row +
-                                                  sub_window[2],
-                                                  jj * block_col +
-                                                  sub_window[3],
-                                                  jj * block_col +
-                                                  sub_window[4]]
-                                                 for sub_window in
-                                                 window_coord]
-                        coord_row_list[pol_index] = coord_row_list[pol_index] + \
-                            window_center_row_list
-                        coord_col_list[pol_index] = coord_col_list[pol_index] + \
-                            window_center_col_list
-                        threshold_tau_set[pol_index].extend(threshold_tau_subset[0])
-                        mode_tau_set[pol_index].extend(mode_tau_subset[0])
-                        window_coord_list[pol_index].extend(
-                            absolute_window_coord)
-                    pol_index += 1
+                    # individual polarizations
+                    for threshold_tau_block, mode_tau_block, window_coord in zip(
+                        threshold_tau_blocks, mode_tau_blocks, window_coords):
+                        # -50 represent the no-data value.
+                        threshold_tau_subset = list(filter(lambda x: x != -50,
+                                                    [threshold_tau_block]))
+                        mode_tau_subset = list(filter(lambda x: x != -50,
+                                                    [mode_tau_block]))
 
-            threshold_tau_dict['block_row'] = coord_row_list
-            threshold_tau_dict['block_col'] = coord_col_list
+                        if threshold_tau_subset:
+                            # window center for row and col
+                            window_center_row_list = [int(ii * block_row +
+                                                        (sub_window[1] +
+                                                        sub_window[2])/2)
+                                                    for sub_window in
+                                                    window_coord]
 
-            mode_tau_dict['block_row'] = coord_row_list
-            mode_tau_dict['block_col'] = coord_col_list
+                            window_center_col_list = [int(jj * block_col +
+                                                        (sub_window[3] +
+                                                        sub_window[4])/2)
+                                                    for sub_window in
+                                                    window_coord]
+                            # window coordinates
+                            absolute_window_coord = [[ii * block_row +
+                                                    sub_window[1],
+                                                    ii * block_row +
+                                                    sub_window[2],
+                                                    jj * block_col +
+                                                    sub_window[3],
+                                                    jj * block_col +
+                                                    sub_window[4]]
+                                                    for sub_window in
+                                                    window_coord]
+                            coord_row_list[pol_index] = coord_row_list[pol_index] + \
+                                window_center_row_list
+                            coord_col_list[pol_index] = coord_col_list[pol_index] + \
+                                window_center_col_list
+                            threshold_tau_set[pol_index].extend(threshold_tau_subset[0])
+                            mode_tau_set[pol_index].extend(mode_tau_subset[0])
+                            window_coord_list[pol_index].extend(
+                                absolute_window_coord)
+                        pol_index += 1
 
-            threshold_tau_dict['array'] = threshold_tau_set
-            threshold_tau_dict['subtile_coord'] = window_coord_list
-            mode_tau_dict['array'] = mode_tau_set
+                threshold_tau_dict['block_row'] = coord_row_list
+                threshold_tau_dict['block_col'] = coord_col_list
 
-        if not threshold_tau_dict:
-            logger.info('No threshold_tau')
-        # Currently, only 'gdal_grid' method is supported.
-        if threshold_extending_method == 'gdal_grid':
-            dict_threshold_list = [threshold_tau_dict, mode_tau_dict]
-            interp_thres_str_list = ['int_threshold_filled', 'mode_tau_filled']
-            for dict_thres, thres_str in zip(dict_threshold_list,
-                                             interp_thres_str_list):
-                fill_threshold_with_gdal(
-                    threshold_array=dict_thres,
-                    rows=height,
-                    cols=width,
-                    filename=thres_str,
-                    outputdir=outputdir,
-                    pol_list=pol_list,
-                    filled_value=thres_max,
-                    no_data=-50,
-                    average_tile=average_threshold_flag)
+                mode_tau_dict['block_row'] = coord_row_list
+                mode_tau_dict['block_col'] = coord_col_list
+
+                threshold_tau_dict['array'] = threshold_tau_set
+                threshold_tau_dict['subtile_coord'] = window_coord_list
+                mode_tau_dict['array'] = mode_tau_set
+
+            if not threshold_tau_dict:
+                logger.info('No threshold_tau')
+            # Currently, only 'gdal_grid' method is supported.
+            if threshold_extending_method == 'gdal_grid':
+                dict_threshold_list = [threshold_tau_dict, mode_tau_dict]
+                interp_thres_str_list = ['int_threshold_filled', 'mode_tau_filled']
+                for dict_thres, thres_str in zip(dict_threshold_list,
+                                                interp_thres_str_list):
+                    fill_threshold_with_gdal(
+                        threshold_array=dict_thres,
+                        rows=height,
+                        cols=width,
+                        filename=thres_str,
+                        outputdir=outputdir,
+                        pol_list=pol_list,
+                        filled_value=thres_max,
+                        no_data=-50,
+                        average_tile=average_threshold_flag)
 
         # create initial map for iteration method
         if processing_cfg.debug_mode:

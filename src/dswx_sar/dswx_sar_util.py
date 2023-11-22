@@ -467,26 +467,55 @@ def write_raster_block(out_raster, data,
     elif datatype == 'int32':
         gdal_type = gdal.GDT_Int32
 
+    nim = data.ndim
+    if nim == 2:
+        number_band = 1
+    else:
+        number_band = data.shape[0]
+
+    data_start_without_pad = block_param.write_start_line - block_param.read_start_line
+    data_end_without_pad = data_start_without_pad + block_param.block_length
+
     if block_param.write_start_line == 0:
         driver = gdal.GetDriverByName('GTiff')
         ds_data = driver.Create(out_raster,
                                 block_param.data_width,
                                 block_param.data_length,
-                                1, gdal_type)
+                                number_band, gdal_type)
         ds_data.SetGeoTransform(geotransform)
         ds_data.SetProjection(projection)
-        ds_data.WriteArray(data, xoff=0, yoff=0)
+        if nim == 2:
+
+            ds_data.GetRasterBand(1).WriteArray(
+                data[data_start_without_pad:data_end_without_pad,
+                     :], xoff=0, yoff=0)
+        else:
+            for im_ind in range(0, number_band):
+                ds_data.GetRasterBand(im_ind+1).WriteArray(
+                    np.squeeze(data[im_ind, 
+                                    data_start_without_pad:data_end_without_pad,
+                                    :]))
+
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
-        ds_data.GetRasterBand(1).WriteArray(
-                data,
-                xoff=0,
-                yoff=block_param.write_start_line)
+        if nim == 2:
+            ds_data.GetRasterBand(1).WriteArray(
+                    data[data_start_without_pad:data_end_without_pad,
+                        :],
+                    xoff=0,
+                    yoff=block_param.write_start_line)
+        else:
+            for im_ind in range(0, number_band):
+                ds_data.GetRasterBand(im_ind+1).WriteArray(
+                    np.squeeze(data[im_ind,
+                                    data_start_without_pad:data_end_without_pad,
+                                    :]),
+                    xoff=0,
+                    yoff=block_param.write_start_line)
 
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):
     ''' Generator for block specific parameter class.
-
     Parameters
     ----------
     lines_per_block: int
@@ -495,7 +524,6 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         Length and width of input raster.
     pad_shape: tuple(int, int)
         Padding for the length and width of block to be filtered.
-
     Returns
     -------
     _: BlockParam
@@ -503,8 +531,7 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
     '''
     data_length, data_width = data_shape
     pad_length, pad_width = pad_shape
-    half_path_length = pad_length // 2
-    half_path_width = pad_width // 2
+
     # Calculate number of blocks to break raster into
     num_blocks = int(np.ceil(data_length / lines_per_block))
 
@@ -517,28 +544,25 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         middle_block = not first_block and not last_block
 
         # Determine block size; Last block uses leftover lines
-        block_length = data_length - start_line \
-            if last_block else lines_per_block
+        block_length = data_length - start_line if last_block else lines_per_block
 
         # Determine padding along length. Full padding for middle blocks
         # Half padding for start and end blocks
-        read_length_pad = pad_length if middle_block else half_path_length
+        read_length_pad = pad_length if middle_block else pad_length // 2
 
         # Determine 1st line of output
         write_start_line = block * lines_per_block
 
         # Determine 1st dataset line to read. Subtract half padding length
         # to account for additional lines to be read.
-        read_start_line = block * lines_per_block - half_path_length
+        read_start_line = block * lines_per_block - pad_length // 2
 
-        # If applicable, save negative start line as deficit
-        # to account for later
+        # If applicable, save negative start line as deficit to account for later
         read_start_line, start_line_deficit = (
             0, read_start_line) if read_start_line < 0 else (
             read_start_line, 0)
 
-        # Initial guess at number lines to read; accounting
-        # for negative start at the end
+        # Initial guess at number lines to read; accounting for negative start at the end
         read_length = block_length + read_length_pad
         if not first_block:
             read_length -= abs(start_line_deficit)
@@ -550,17 +574,15 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
 
         # Determine block padding in length
         if first_block:
-            # Only the top part of the block should be padded.
-            # If end_deficit_line=0
-            # we have a sufficient number of lines to be read in
-            # the subsequent block
-            top_pad = half_path_length
+            # Only the top part of the block should be padded. If end_deficit_line=0
+            # we have a sufficient number of lines to be read in the subsequent block
+            top_pad = pad_length // 2
             bottom_pad = abs(end_line_deficit)
         elif last_block:
             # Only the bottom part of the block should be padded
             top_pad = abs(
                 start_line_deficit) if start_line_deficit < 0 else 0
-            bottom_pad = half_path_length
+            bottom_pad = pad_length // 2
         else:
             # Top and bottom should be added taking into account line deficit
             top_pad = abs(
@@ -568,10 +590,15 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
             bottom_pad = abs(end_line_deficit)
 
         block_pad = ((top_pad, bottom_pad),
-                     (half_path_width, half_path_width))
+                     (pad_width // 2, pad_width // 2))
 
-        yield BlockParam(block_length, write_start_line, read_start_line,
-                         read_length, block_pad, data_width, data_length)
+        yield BlockParam(block_length, 
+                         write_start_line, 
+                         read_start_line, 
+                         read_length, 
+                         block_pad, 
+                         data_width,
+                         data_length)
 
     return
 

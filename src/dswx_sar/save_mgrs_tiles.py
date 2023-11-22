@@ -130,6 +130,7 @@ def get_bounding_box_from_mgrs_tile(mgrs_tile_name):
 
 def find_intersecting_burst_with_bbox(ref_bbox,
                                       ref_epsg,
+                                      ref_pol,
                                       input_rtc_dirs):
     """Find bursts overlapped with the reference bbox.
 
@@ -139,6 +140,8 @@ def find_intersecting_burst_with_bbox(ref_bbox,
         Bounding box, minx, miny, maxx, maxy
     ref_epsg: int
         reference EPSG code.
+    ref_pol : str
+        reference polarization
     input_rtc_dirs: list
         List of rtc directories
 
@@ -155,12 +158,8 @@ def find_intersecting_burst_with_bbox(ref_bbox,
 
     overlapped_rtc_dir_list = []
     for input_dir in input_rtc_dirs:
-        copol_rtc_path_iter = glob.iglob(f'{input_dir}/*_VV*.tif')
+        copol_rtc_path_iter = glob.iglob(f'{input_dir}/*_{ref_pol}*.tif')
         copol_rtc_path = next(copol_rtc_path_iter)
-
-        if not copol_rtc_path:
-            copol_rtc_path_iter = glob.iglob(f'{input_dir}/*_HH*.tif')
-            copol_rtc_path = next(copol_rtc_path_iter)
 
         with rasterio.open(copol_rtc_path) as src:
             epsg_code = int(src.crs.data['init'].split(':')[1])
@@ -701,6 +700,7 @@ def run(cfg):
             overlapped_burst = find_intersecting_burst_with_bbox(
                 ref_bbox=mgrs_bbox,
                 ref_epsg=epsg_output,
+                ref_pol=processing_cfg.polarizations[0],
                 input_rtc_dirs=input_list)
             logger.info(f'overlapped_bursts: {overlapped_burst}')
 

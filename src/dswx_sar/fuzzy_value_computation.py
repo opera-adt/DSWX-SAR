@@ -429,7 +429,6 @@ def run(cfg):
                    'high_frequent_water_max': fuzzy_cfg.high_frequent_water.water_max_value
     }
 
-
     workflow = processing_cfg.dswx_workflow
 
     logger.info('compute slope z membership')
@@ -522,7 +521,6 @@ def run(cfg):
 
         fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
         fuzzy_avgvalue[no_data_raster] = -1
-
 
         dswx_sar_util.write_raster_block(
             out_raster=fuzzy_output_str,

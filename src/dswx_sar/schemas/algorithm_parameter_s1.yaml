@@ -30,6 +30,7 @@ runconfig:
         filter:
             enabled: bool(required=False)
             window_size: num(min=1, max=999, required=False)
+            line_per_block: num(min=1, required=False)
 
         initial_threshold:
             # Maximum tile size for initial threshold.

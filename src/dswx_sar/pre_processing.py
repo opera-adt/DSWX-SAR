@@ -11,6 +11,7 @@ from pathlib import Path
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
+gdal.DontUseExceptions()
 
 logger = logging.getLogger('dswx_s1')
 
@@ -201,6 +202,12 @@ def run(cfg):
     pol_all_str = '_'.join(pol_list)
     co_pol = processing_cfg.copol
     cross_pol = processing_cfg.crosspol
+
+    # SAR filtering options
+    filter_size = processing_cfg.filter.window_size
+    filter_flag = processing_cfg.filter.enabled
+    line_per_block = processing_cfg.filter.line_per_block
+
     mosaic_prefix = processing_cfg.mosaic.mosaic_prefix
     if mosaic_prefix is None:
         mosaic_prefix = 'mosaic'
@@ -232,7 +239,8 @@ def run(cfg):
 
     pathlib.Path(scratch_dir).mkdir(parents=True, exist_ok=True)
     filtered_images_str = f"filtered_image_{pol_all_str}.tif"
-
+    filtered_image_path = os.path.join(scratch_dir,
+                                       filtered_images_str)
     # read metadata from Geotiff File.
     im_meta = dswx_sar_util.get_meta_from_tif(ref_filename)
 
@@ -270,9 +278,11 @@ def run(cfg):
         if (dem_mean == 0) | np.isnan(dem_mean):
             raise ValueError
         del dem_subset
-    # check if the interpolated landcover exists ###
-    landcover_interpolated_path = Path(os.path.join(scratch_dir,
-                                                    'interpolated_landcover.tif'))
+
+    # check if the interpolated landcover exists
+    landcover_interpolated_path = Path(
+        os.path.join(scratch_dir, 'interpolated_landcover.tif'))
+
     if not landcover_interpolated_path.is_file():
         ancillary_reloc.relocate(landcover_file,
                                  'interpolated_landcover.tif',
@@ -293,119 +303,126 @@ def run(cfg):
                                  'interpolated_hand.tif',
                                  method='near')
 
+    pad_shape = (filter_size, 0)
+    block_params = dswx_sar_util.block_param_generator(
+        lines_per_block=line_per_block,
+        data_shape=(im_meta['length'],
+                    im_meta['width']),
+        pad_shape=pad_shape)
+
     intensity = []
-    for polind, pol in enumerate(pol_list):
-        if pol in ['ratio', 'coherence', 'span']:
+    for block_ind, block_param in enumerate(block_params):
+        logger.info(f'block processing {block_ind} - {pol}')
 
-            # If ratio/span is in the list,
-            # then compute the ratio from VVVV and VHVH
-            if pol in ['ratio', 'span']:
-                temp_pol_list = [co_pol, cross_pol]
-                logger.info(f'>> computing {pol} {temp_pol_list}')
+        intensity_filt = []
 
-            # If coherence is in the list,
-            # then compute the coherence from VVVV, VHVH, VVVH
-            if pol in ['coherence']:
-                temp_pol_list = ['VV', 'VH', 'VVVH']
-                logger.info(f'>> computing coherence {temp_pol_list}')
+        for polind, pol in enumerate(pol_list):
+            if pol in ['ratio', 'coherence', 'span']:
 
-            temp_raster_set = []
-            for temp_pol in temp_pol_list:
-                filename = \
-                    f'{scratch_dir}/{mosaic_prefix}_{temp_pol}.tif'
-                temp_raster_set.append(dswx_sar_util.read_geotiff(filename))
+                # If ratio/span is in the list,
+                # then compute the ratio from VVVV and VHVH
+                if pol in ['ratio', 'span']:
+                    temp_pol_list = [co_pol, cross_pol]
+                    logger.info(f'>> computing {pol} {temp_pol_list}')
 
-            if pol in ['ratio']:
-                ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
-                                  np.squeeze(temp_raster_set[1, :, :]))
-                intensity.append(ratio)
-                logger.info(f'computing ratio {co_pol}/{cross_pol}')
+                # If coherence is in the list,
+                # then compute the coherence from VVVV, VHVH, VVVH
+                if pol in ['coherence']:
+                    temp_pol_list = ['VV', 'VH', 'VVVH']
+                    logger.info(f'>> computing coherence {temp_pol_list}')
 
-            if pol in ['coherence']:
-                coherence = pol_coherence(
-                    np.squeeze(temp_raster_set[0, :, :]),
-                    np.squeeze(temp_raster_set[1, :, :]),
-                    np.squeeze(temp_raster_set[2, :, :]))
-                intensity.append(coherence)
-                logger.info('computing polarimetric coherence')
+                temp_raster_set = []
+                for temp_pol in temp_pol_list:
+                    filename = \
+                        f'{scratch_dir}/{mosaic_prefix}_{temp_pol}.tif'
+                    temp_raster_set.append(dswx_sar_util.read_geotiff(filename))
 
-            if pol in ['span']:
-                span = np.squeeze(temp_raster_set[0, :, :] +
-                        2 * np.squeeze(temp_raster_set[1, :, :]))
-                intensity.append(span)
+                if pol in ['ratio']:
+                    ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
+                                      np.squeeze(temp_raster_set[1, :, :]))
+                    intensity.append(ratio)
+                    logger.info(f'computing ratio {co_pol}/{cross_pol}')
 
-        else:
-            logger.info(f'opening {pol}')
-            if mosaic_flag:
-                filename = \
-                    f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
+                if pol in ['coherence']:
+                    coherence = pol_coherence(
+                        np.squeeze(temp_raster_set[0, :, :]),
+                        np.squeeze(temp_raster_set[1, :, :]),
+                        np.squeeze(temp_raster_set[2, :, :]))
+                    intensity.append(coherence)
+                    logger.info('computing polarimetric coherence')
 
-                temp_raster = dswx_sar_util.read_geotiff(
-                        filename)
+                if pol in ['span']:
+                    span = np.squeeze(temp_raster_set[0, :, :] +
+                            2 * np.squeeze(temp_raster_set[1, :, :]))
+                    intensity.append(span)
+
             else:
-                temp_raster = dswx_sar_util.read_geotiff(
-                        ref_filename, band_ind=polind)
-            intensity.append(np.abs(temp_raster))
+                if mosaic_flag:
+                    intensity_path = \
+                        f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
 
-    intensity = np.asarray(intensity)
+                    intensity = dswx_sar_util.get_raster_block(
+                        intensity_path, block_param)
 
-    # apply SAR filtering
-    filter_size = processing_cfg.filter.window_size
-    filter_flag = processing_cfg.filter.enabled
-    intensity_filt = []
+                else:
+                    intensity = dswx_sar_util.read_geotiff(
+                            ref_filename, band_ind=polind)
 
-    for ii, pol in enumerate(pol_list):
-        if filter_flag:
-            filtered_intensity = filter_SAR.lee_enhanced_filter(
-                            np.squeeze(intensity[ii, :, :]),
-                            win_size=filter_size)
-            filtered_intensity[filtered_intensity == 0] = np.nan
-            intensity_filt.append(filtered_intensity)
-        else:
-            filtered_intensity = intensity[ii, :, :]
-            intensity_filt.append(filtered_intensity)
+                if filter_flag:
+                    filtered_intensity = filter_SAR.lee_enhanced_filter(
+                                    intensity,
+                                    win_size=filter_size)
+                    filtered_intensity[filtered_intensity == 0] = np.nan
+                    intensity_filt.append(filtered_intensity)
+                else:
+                    filtered_intensity = intensity
+                    intensity_filt.append(filtered_intensity)
 
-        if processing_cfg.debug_mode:
+        intensity_filt = np.array(intensity_filt)
+        dswx_sar_util.write_raster_block(
+            out_raster=filtered_image_path,
+            data=intensity_filt,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='float32')
 
+    dswx_sar_util._save_as_cog(filtered_image_path, scratch_dir)
+
+    if processing_cfg.debug_mode:
+        filtered_intensity = dswx_sar_util.read_geotiff(filtered_image_path)
+
+        for pol_ind, pol in enumerate(pol_list):
             if pol == 'ratio':
                 immin, immax = None, None
             if pol == 'coherence':
                 immin, immax = 0, 0.4
             else:
                 immin, immax = -30, 0
-            dswx_sar_util.intensity_display(filtered_intensity, scratch_dir, pol, immin, immax)
+            single_intensity = np.squeeze(filtered_intensity[pol_ind, :, :])
+            dswx_sar_util.intensity_display(
+                single_intensity,
+                scratch_dir,
+                pol,
+                immin,
+                immax)
 
             if pol in ['ratio', 'coherence']:
-
                 dswx_sar_util.save_raster_gdal(
-                    data=filtered_intensity,
+                    data=single_intensity,
                     output_file=os.path.join(scratch_dir,
-                                             'intensity_{}.tif'.format(pol)),
+                                                'intensity_{}.tif'.format(pol)),
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=scratch_dir)
             else:
-
                 dswx_sar_util.save_raster_gdal(
-                    data=10 * np.log10(filtered_intensity),
+                    data = 10 * np.log10(single_intensity),
                     output_file=os.path.join(scratch_dir,
-                                             'intensity_{}_db.tif'.format(pol)),
+                                                'intensity_{}_db.tif'.format(pol)),
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=scratch_dir)
-
-    intensity_filt = np.array(intensity_filt)
-
-    # Save filtered image to geotiff
-    filtered_images_str = f"filtered_image_{pol_all_str}.tif"
-
-    dswx_sar_util.save_raster_gdal(
-        data=intensity_filt,
-        output_file=os.path.join(scratch_dir,filtered_images_str),
-        geotransform=im_meta['geotransform'],
-        projection=im_meta['projection'],
-        scratch_dir=scratch_dir)
-    del intensity_filt
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran pre-processing in {t_all_elapsed:.3f} seconds")

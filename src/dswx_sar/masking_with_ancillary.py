@@ -182,11 +182,11 @@ def check_water_land_mixture(args):
     i, size, minimum_pixel, bounds, int_linear_str, water_label_str, \
         water_mask_str, pol_ind = args
 
-    row = bounds[0]
-    col = bounds[2]
+    x_off = bounds[0]
+    y_off = bounds[2]
     width = bounds[1] - bounds[0]
     height = bounds[3] - bounds[2]
-    window = Window(row, col, width, height)
+    window = Window(x_off, y_off, width, height)
 
     # read subset of water map and intensity from given bounding box
     with rasterio.open(int_linear_str) as src:
@@ -479,8 +479,11 @@ def compute_spatial_coverage(args):
         tuple: Tuple containing the index (i) and the test output (test_output_i).
     """
     i, size, threshold, bounds, water_label_str, ref_land_tif_str = args
-    row, col, width, height = bounds
-    window = Window(row, col, width, height)
+    x_off = bounds[0]
+    y_off = bounds[2]
+    width = bounds[1] - bounds[0]
+    height = bounds[3] - bounds[2]
+    window = Window(x_off, y_off, width, height)
 
     # read subset of water map and intensity from given bounding box
     with rasterio.open(ref_land_tif_str) as src:
@@ -492,7 +495,6 @@ def compute_spatial_coverage(args):
         water_label = np.squeeze(water_label)
 
     mask_water = water_label == i + 1
-
     ref_land_portion = np.nanmean(mask_excluded_ancillary[mask_water])
     test_output_i = ref_land_portion > threshold
 

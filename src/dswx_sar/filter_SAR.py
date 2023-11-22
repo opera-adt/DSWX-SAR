@@ -1,6 +1,8 @@
 import numpy as np
 from scipy import signal
 
+from dswx_sar_util import Constants
+
 K_DEFAULT = 1.0
 CU_DEFAULT = 0.523
 CMAX_DEFAULT = 1.73
@@ -50,7 +52,12 @@ def compute_window_mean_std(arr, winsize):
     mean = masked_convolve2d(arr_masked, window, mode='same')
     c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
 
-    std = (c2 - mean * mean) ** .5
+    var = (c2 - mean * mean)
+
+    # The negative number in sqrt is replaced
+    # with the negligibly small number to avoid numpy warning message.
+    var = np.where(var < 0, Constants.negligible_value, var)
+    std = var ** .5
 
     return mean, std
 

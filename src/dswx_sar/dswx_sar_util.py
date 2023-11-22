@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
 
+gdal.DontUseExceptions()
+
 
 np2gdal_conversion = {
   "uint8": 1,

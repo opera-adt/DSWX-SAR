@@ -576,7 +576,7 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
             # Only the bottom part of the block should be padded
             top_pad = abs(
                 start_line_deficit) if start_line_deficit < 0 else 0
-            top_pad = half_pad_length
+            bottom_pad = half_pad_length
         else:
             # Top and bottom should be added taking into account line deficit
             top_pad = abs(

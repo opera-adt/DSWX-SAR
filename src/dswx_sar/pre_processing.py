@@ -11,7 +11,6 @@ from pathlib import Path
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
-gdal.DontUseExceptions()
 
 logger = logging.getLogger('dswx_s1')
 
@@ -312,11 +311,11 @@ def run(cfg):
 
     intensity = []
     for block_ind, block_param in enumerate(block_params):
-        logger.info(f'block processing {block_ind} - {pol}')
-
         intensity_filt = []
 
         for polind, pol in enumerate(pol_list):
+            logger.info(f'block processing {block_ind} - {pol}')
+
             if pol in ['ratio', 'coherence', 'span']:
 
                 # If ratio/span is in the list,

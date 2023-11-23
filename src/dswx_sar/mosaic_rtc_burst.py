@@ -775,7 +775,7 @@ def run(cfg):
                 raise FileExistsError(err_msg)
 
         epsg_output = majority_element(epsg_list)
-        logger.info('All RTC bursts and associated masks will be mosaicked ',
+        logger.info('All RTC bursts and associated masks will be mosaicked ' \
                     f'using the ESPG projection designated by {epsg_output}.')
         # for each directory, find metadata, and RTC files.
         for ind, input_dir in enumerate(input_list):

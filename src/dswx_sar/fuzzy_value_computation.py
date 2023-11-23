@@ -143,7 +143,7 @@ def zmf(values, minv, maxv):
         diff = maxv - minv
         number_strange = np.nansum(diff <= 0)
         if number_strange > 0:
-            logger.info(f'{number_strange} pixels have minimum values' \
+            logger.info(f'{number_strange} pixels have minimum values ' \
                         'larger than maximum values')
             minv[diff <= 0] = maxv[diff <= 0] - \
                 dswx_sar_util.Constants.negligible_value

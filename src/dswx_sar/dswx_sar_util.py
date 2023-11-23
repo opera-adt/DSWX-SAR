@@ -33,15 +33,15 @@ band_assign_value_dict = {
     'hand_mask': 5,
     'layover_shadow_mask': 6,
     'inundated_vegetation': 7,
+    'ocean_mask': 254,
     'no_data': 120,
-    'ocean_mask': 254
 }
 
 band_assign_value_conf_dict = {
-    'no_data': 120,
     'hand_mask': 252,
     'layover_shadow_mask': 253,
     'ocean_mask': 254,
+    'no_data': 120,
 }
 
 @dataclass

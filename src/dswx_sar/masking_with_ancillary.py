@@ -510,7 +510,29 @@ def extend_land_cover(landcover_path,
                       exclude_area_rg,
                       metainfo,
                       scratch_dir):
+    """
+    Extends the specified type of land cover within a geographical dataset.
 
+    Parameters:
+    -----------
+    landcover_path (str): 
+        Path to the land cover data file.
+    reference_landcover_binary (numpy.ndarray): 
+        Binary array representing the initial land cover.
+    target_landcover (int): 
+        Label of the land cover type to be extended.
+    exclude_area_rg (numpy.ndarray): 
+        Array representing areas to be excluded from processing.
+    metainfo (dict): 
+        Metadata including geotransform and projection information.
+    scratch_dir (str): 
+        Directory for saving intermediate and output files.
+
+    Returns:
+    --------
+    numpy.ndarray: 
+        Updated binary land cover array with the extended target land cover.
+    """
     mask_obj = FillMaskLandCover(landcover_path)
 
     mask_excluded_candidate = mask_obj.get_mask(
@@ -600,19 +622,43 @@ def extract_values_using_boundary(boundary_data, float_data):
     return data_array, float_data
 
 
-def estimate_height_variation(target_area,
+def hand_filter_along_boundary(target_area,
                               height_std_threshold,
                               hand_path,
                               debug_mode,
                               metainfo,
                               scratch_dir):
+    """
+    Filters geographic data along boundaries based on HAND model and 
+    standard deviation thresholds.
+
+    Parameters:
+    -----------
+    target_area : numpy.ndarray
+        Array representing the target area for filtering.
+    height_std_threshold : float
+        Standard deviation threshold for HAND values.
+    hand_path : str
+        Path to the HAND data file.
+    debug_mode : bool
+        Flag to activate debug mode for additional outputs.
+    metainfo : dict
+        Metadata including geotransform and projection information.
+    scratch_dir : str
+        Directory for saving debug outputs.
+
+    Returns:
+    --------
+    numpy.ndarray
+        Binary array representing the filtered HAND data.
+    """
     hand_obj = gdal.Open(hand_path)
 
     coord_lists, sizes, output_water = \
         extract_bbox_with_buffer(target_area, 10)
     nb_components_water = len(sizes)
     height_array = np.zeros(nb_components_water)
-    hand_std_binary = np.zeros(target_area.shape, dtype='byte')
+    hand_filtered_binary = np.zeros(target_area.shape, dtype='byte')
     hand_std_image = np.zeros(target_area.shape, dtype='float32')
     
     for ind, coord_list in enumerate(coord_lists):
@@ -627,20 +673,22 @@ def estimate_height_variation(target_area,
                                         sub_win_y)
         initial_area = sub_water_label == ind + 1
 
-        water_boundary = extract_boundary(np.array(sub_water_label == ind + 1, dtype='byte')
-                                          )
-        hand_line_data, hand_image_data = extract_values_using_boundary(water_boundary, sub_hand)
+        water_boundary = extract_boundary(
+            np.array(sub_water_label == ind + 1, dtype='byte'))
+        hand_line_data, hand_image_data = \
+            extract_values_using_boundary(water_boundary, sub_hand)
         hand_std = np.nanstd(hand_line_data)
         height_array[ind] = np.nanstd(hand_line_data)
 
         hand_std_image[sub_y_start:sub_y_end,
                        sub_x_start:sub_x_end] += hand_image_data
+    
         if hand_std > height_std_threshold:
             final_binary = np.zeros(sub_hand.shape, dtype='byte')
             area_median = np.median(hand_line_data)
             hand_threshold_erosion = area_median + hand_std * 1
             hand_image_mask = hand_image_data > hand_threshold_erosion
-            # final_binary[hand_image_data <= hand_threshold_erosion] = 1
+
             bad_hand_count = 1
             iter_count = 0
             while bad_hand_count > 0:
@@ -655,10 +703,10 @@ def estimate_height_variation(target_area,
                 initial_area = new_binary
                 iter_count += 1
             final_binary[new_binary==1] = 1
-            hand_std_binary[sub_y_start:sub_y_end,
+            hand_filtered_binary[sub_y_start:sub_y_end,
                     sub_x_start:sub_x_end] += final_binary
         else:
-            hand_std_binary[sub_y_start:sub_y_end,
+            hand_filtered_binary[sub_y_start:sub_y_end,
                     sub_x_start:sub_x_end] += initial_area
 
     output_water = np.array(output_water)
@@ -666,10 +714,7 @@ def estimate_height_variation(target_area,
     index_array_to_image = np.searchsorted(old_val, output_water)
     height_array =  np.insert(height_array, 0, 0, axis=0)
     height_std_raster = height_array[index_array_to_image]
-   # hand_std_binary[height_std_raster <= height_std_threshold] = 1
-    # hand_std_binary[target_area == 0] = 0
-    # hand_std_binary[sub_y_start:sub_y_end,
-    #                 sub_x_start:sub_x_end] = final_binary
+
     if debug_mode:
         hand_std_path = os.path.join(
             scratch_dir, f"landcover_hand_std.tif")
@@ -692,7 +737,7 @@ def estimate_height_variation(target_area,
         hand_binary_path = os.path.join(
             scratch_dir, f"landcover_hand_bindary.tif")
         dswx_sar_util.save_dswx_product(
-            hand_std_binary,
+            hand_filtered_binary,
             hand_binary_path,
             geotransform=metainfo['geotransform'],
             projection=metainfo['projection'],
@@ -700,8 +745,7 @@ def estimate_height_variation(target_area,
             )
 
     del hand_obj
-    return hand_std_binary
-
+    return hand_filtered_binary
 
 
 def get_darkland_from_intensity(intensity_path,
@@ -709,6 +753,26 @@ def get_darkland_from_intensity(intensity_path,
                                 pol_list,
                                 co_pol_threshold,
                                 cross_pol_threshold):
+    """
+    Identifies low backscatter areas from SAR intensity data.
+
+    Parameters:
+    -----------
+    intensity_path (str): 
+        Path to the SAR intensity data file.
+    lines_per_block (int): 
+        Number of lines per block for processing.
+    pol_list (list): 
+        List of polarizations (e.g., ['VV', 'HH', 'VH', 'HV']).
+    co_pol_threshold (float): 
+        Threshold for co-polarized channels (e.g., 'VV', 'HH').
+    cross_pol_threshold (float): 
+        Threshold for cross-polarized channels (e.g., 'VH', 'HV').
+
+    Returns:
+    --------
+    numpy.ndarray: Boolean array indicating low backscatter areas.
+    """
     band_meta = dswx_sar_util.get_meta_from_tif(intensity_path)
     data_length = band_meta['length']
     data_width = band_meta['width']
@@ -731,7 +795,7 @@ def get_darkland_from_intensity(intensity_path,
         num_band = 1
         intensity_block = np.reshape(intensity_block, [num_band, cols, rows])
 
-    # 1) Identify low-backscattering areas
+    # Identify low-backscattering areas
     low_backscatter_cand = np.ones([cols, rows], dtype=bool)
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'HH']:
@@ -794,7 +858,7 @@ def run(cfg):
     # HAND
     hand_path_str = os.path.join(outputdir, 'interpolated_hand.tif')
     if hand_variation_mask:
-        hand_std_map = estimate_height_variation(
+        hand_std_map = hand_filter_along_boundary(
             water_map,
             hand_variation_threshold,
             hand_path_str,
@@ -892,7 +956,7 @@ def run(cfg):
     water_map[dark_land] = 0
 
     if hand_variation_mask:
-        hand_std_map = estimate_height_variation(
+        hand_std_map = hand_filter_along_boundary(
             water_map,
             hand_variation_threshold,
             hand_path_str,

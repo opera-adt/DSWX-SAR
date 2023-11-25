@@ -1,12 +1,12 @@
+import argparse
 from dataclasses import dataclass
+from functools import singledispatch
 import os
 import sys
 import logging
-from functools import singledispatch
 from types import SimpleNamespace
 
 import yamale
-import argparse
 from ruamel.yaml import YAML
 
 import dswx_sar
@@ -56,7 +56,8 @@ def _deep_update(original, update):
         if isinstance(val, dict):
             original[key] = _deep_update(original.get(key, {}), val)
         else:
-            original[key] = val
+            if val is not None:
+                original[key] = val
 
     # return updated original
     return original

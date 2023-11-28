@@ -70,7 +70,7 @@ def create_slope_angle_geotiff(dem_path,
         geotransform=geotransform,
         projection=projection,
         scratch_dir=scrath_dir)
-    
+
 def smf(values, minv, maxv):
     ''' Generate S-shape function for the given values
 
@@ -90,6 +90,19 @@ def smf(values, minv, maxv):
     '''
     center_value = (minv + maxv) / 2
     output= np.zeros(np.shape(values), dtype='float32')
+
+    # When using numpy arrays for min and max values in 
+    # a membership function, identical elements in these 
+    # arrays are replaced with a slightly higher number
+    # to avoid zero-division warnings.
+    if isinstance(minv, np.ndarray):
+        diff = maxv - minv
+        number_strange = np.nansum(diff <= 0)
+        if number_strange > 0:
+            logger.info(f'{number_strange} pixels have minimum values' \
+                        'larger than maximum values')
+            minv[diff <= 0] = maxv[diff <= 0] - \
+                dswx_sar_util.Constants.negligible_value
 
     membership_left = 2 * ((values - minv) / (maxv - minv))**2
     output[(values >= minv) & (values <= center_value)] = \
@@ -120,8 +133,22 @@ def zmf(values, minv, maxv):
     output : numpy.ndarray
         rescaled value from z-shape membership function
     '''
-    center_value = (minv + maxv) / 2
     output = np.zeros(np.shape(values))
+
+    # When using numpy arrays for min and max values in 
+    # a membership function, identical elements in these 
+    # arrays are replaced with a slightly higher number
+    # to avoid zero-division warnings.
+    if isinstance(minv, np.ndarray):
+        diff = maxv - minv
+        number_strange = np.nansum(diff <= 0)
+        if number_strange > 0:
+            logger.info(f'{number_strange} pixels have minimum values ' \
+                        'larger than maximum values')
+            minv[diff <= 0] = maxv[diff <= 0] - \
+                dswx_sar_util.Constants.negligible_value
+
+    center_value = (minv + maxv) / 2
 
     membership_left = 1 - 2 * ((values - minv) / (maxv - minv))**2
     mask_left = (values >= minv) & (values <= center_value)
@@ -281,8 +308,7 @@ def compute_fuzzy_value(intensity,
         if pol in ['VH', 'HV']:
             pol_threshold = fuzzy_option['dark_area_land']
             water_threshold = fuzzy_option['dark_area_water']
-            low_backscatter = (intensity[int_id, :, :] < pol_threshold) & \
-                              (intensity[int_id, :, :] > water_threshold)
+            low_backscatter = (intensity[int_id, :, :] < pol_threshold) 
             # Low backscattering candidates
             low_backscatter_cand &= low_backscatter
             dark_water_cand &= intensity[int_id, :, :] < water_threshold
@@ -308,12 +334,14 @@ def compute_fuzzy_value(intensity,
             (reference_water > fuzzy_option['high_frequent_water_min']) & \
             (reference_water < fuzzy_option['high_frequent_water_max']) & \
             (low_backscatter_cand)
+    dark_water = (dark_water_cand) & \
+                 (reference_water >= fuzzy_option['high_frequent_water_max'])
 
     co_pol_ind = []
     cross_pol_ind = []
 
     # When dual-polarizations are available, cross-polarization intensity
-    # is replaced by the co-polarization over the challenging areas. 
+    # is replaced by the co-polarization over the challenging areas.
     if ('HH' in pol_list and 'HV' in pol_list) or \
        ('VV' in pol_list and 'VH' in pol_list):
         for polindex, pol in enumerate(pol_list):
@@ -329,8 +357,6 @@ def compute_fuzzy_value(intensity,
         else:
             change_ind = co_pol_ind
 
-        logger.info('Cross pol is replaced with co-pol and span '
-                    'over the controversial area')
         # Cross-polarization intensity is replaced with co- (or span-) polarizations
         # where water varation is high and areas are dark/flat.
         intensity_z_set[cross_pol_ind][high_frequent_water] = \
@@ -340,8 +366,8 @@ def compute_fuzzy_value(intensity,
 
         # Co-polarization intensity is replaced with cross polarizations
         # where very dark water exists.
-        intensity_z_set[change_ind][dark_water_cand] = \
-            intensity_z_set[cross_pol_ind][dark_water_cand]
+        intensity_z_set[change_ind][dark_water] = \
+            intensity_z_set[cross_pol_ind][dark_water]
 
     copol_only = (high_frequent_water == 1) | \
                  (landcover_flat_area==1)
@@ -350,25 +376,15 @@ def compute_fuzzy_value(intensity,
     nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
 
     # Compute HAND membership
-    logger.info('compute hand z membership')
     hand[np.isnan(hand)] = 0
-    logger.info(f"     {fuzzy_option['hand_min']} {fuzzy_option['hand_max']}"
-                " are used to compute HAND membership")
-
     hand_z = zmf(hand, fuzzy_option['hand_min'], fuzzy_option['hand_max'])
 
     # compute slope membership
-    logger.info('compute slope z membership')
-    logger.info(f"      {fuzzy_option['slope_min']} {fuzzy_option['slope_max']}"
-                " are used to compute slope membership")
     slope_z = zmf(slope,
                   fuzzy_option['slope_min'],
                   fuzzy_option['slope_max'])
 
     # Compute area membership
-    logger.info('area s membership')
-    logger.info(f"      {fuzzy_option['area_min']} {fuzzy_option['area_max']}"
-                " are used to compute area membership")
     handem = hand < fuzzy_option['hand_threshold']
     wbsmask = (initial_map == 1) & (handem)
     watermap = calculate_water_area(wbsmask)
@@ -377,9 +393,6 @@ def compute_fuzzy_value(intensity,
                 fuzzy_option['area_max'])
 
     # Reference water map membership
-    logger.info('reference s membership')
-    logger.info(f"      {fuzzy_option['reference_water_min']} {fuzzy_option['reference_water_max']}"
-                " are used to compute reference water membership")
     reference_water_s = smf(reference_water,
                             fuzzy_option['reference_water_min'],
                             fuzzy_option['reference_water_max'])
@@ -402,8 +415,6 @@ def compute_fuzzy_value(intensity,
                    (hand_z + slope_z + area_s)  / 3 * 0.5)
     }
     avgvalue = method_dict[workflow]()
-    mask = np.squeeze(np.nansum(intensity, axis=0)) == 0
-    avgvalue[mask] = 0
 
     return avgvalue, intensity_z_set, hand_z, \
         slope_z, area_s, reference_water_s, copol_only
@@ -444,14 +455,34 @@ def run(cfg):
                    'high_frequent_water_max': fuzzy_cfg.high_frequent_water.water_max_value
     }
 
+
     workflow = processing_cfg.dswx_workflow
 
+    logger.info('compute slope z membership')
+    logger.info(f"      {option_dict['slope_min']} {option_dict['slope_max']}"
+                " are used to compute slope membership")
+
+    logger.info('reference s membership')
+    logger.info(f"      {option_dict['reference_water_min']} {option_dict['reference_water_max']}"
+                " are used to compute reference water membership")
+
+    logger.info('compute hand z membership')
+    logger.info(f"     {option_dict['hand_min']} {option_dict['hand_max']}"
+                " are used to compute HAND membership")
+
+    logger.info('area s membership')
+    logger.info(f"      {option_dict['area_min']} {option_dict['area_max']}"
+                " are used to compute area membership")
+
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_all_str}.tif")
-    dem_gdal_str = os.path.join(outputdir, 'interpolated_DEM')
-    hand_gdal_str = os.path.join(outputdir, 'interpolated_hand')
-    landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover')
-    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
-    slope_gdal_str = os.path.join(outputdir, 'slope')
+
+    dem_gdal_str = os.path.join(outputdir, 'interpolated_DEM.tif')
+    hand_gdal_str = os.path.join(outputdir, 'interpolated_hand.tif')
+    landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover.tif')
+    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
+    slope_gdal_str = os.path.join(outputdir, 'slope.tif')
+    no_data_raster_path = os.path.join(outputdir,
+                                         f"no_data_area_{pol_all_str}.tif")
 
     # Output of Fuzzy_computation
     fuzzy_output_str = os.path.join(
@@ -477,13 +508,15 @@ def run(cfg):
         data_shape,
         pad_shape)
 
-    for block_param in block_params:
+    for block_ind, block_param in enumerate(block_params):
+        logger.info(f'fuzzy logic computation block {block_ind}')
         intensity = dswx_sar_util.get_raster_block(
             filt_im_str, block_param)
         if im_meta['band_number'] == 1:
             intensity = intensity[np.newaxis, :, :]
-        mean_intensity = np.nanmean(intensity, axis=0)
-        no_data_raster = np.isnan(mean_intensity)
+
+        no_data_raster = dswx_sar_util.get_raster_block(
+            no_data_raster_path, block_param)
 
         # Read Ancillary files
         interphand = dswx_sar_util.get_raster_block(
@@ -519,8 +552,7 @@ def run(cfg):
                 block_param=block_param)
 
         fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
-        fuzzy_avgvalue[no_data_raster] = -1
-
+        fuzzy_avgvalue[no_data_raster==1] = -1
 
         dswx_sar_util.write_raster_block(
             out_raster=fuzzy_output_str,
@@ -532,11 +564,12 @@ def run(cfg):
 
         if processing_cfg.debug_mode:
 
-            rasters_to_save = [('hand_z', hand_z),
-                            ('slope_z', slope_z),
-                            ('area_s', area_s),
-                            ('ref_water', ref_water),
-                            ('copol_only', copol_only)]
+            rasters_to_save = [
+                ('hand_z', hand_z),
+                ('slope_z', slope_z),
+                ('area_s', area_s),
+                ('ref_water', ref_water),
+                ('copol_only', copol_only)]
 
             for raster_name, raster in rasters_to_save:
                 output_file_name = os.path.join(outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
@@ -557,12 +590,12 @@ def run(cfg):
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     datatype='float32')
-    
+
     if processing_cfg.debug_mode:
 
         for raster_name, _ in rasters_to_save:
             filename = os.path.join(
-                outputdir, 
+                outputdir,
                 f"fuzzy_{raster_name}_{pol_all_str}.tif")
             if not filename.endswith('.tif'):
                 continue

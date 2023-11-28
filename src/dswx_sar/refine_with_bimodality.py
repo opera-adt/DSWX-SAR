@@ -17,7 +17,6 @@ from skimage.filters import (threshold_otsu,
 from dswx_sar import (dswx_sar_util,
                       generate_log,
                       masking_with_ancillary)
-from dswx_sar.dswx_sar_util import band_assign_value_dict
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
 
 logger = logging.getLogger('dswx_s1')
@@ -73,9 +72,6 @@ class BimodalityMetrics:
         # then apply multi-threshold algorithm
         if self.threshold_global_otsu < gauss_dist_thres_bound[0]:
             multithreshold_global_otsu = threshold_multiotsu(int_db)
-            # if any(element for element in
-            #        multithreshold_global_otsu if element >=
-            #        gauss_dist_thres_bound[0]):
             if any(multithreshold_global_otsu >= gauss_dist_thres_bound[0]):
                 self.threshold_global_otsu_ind = \
                     np.where((multithreshold_global_otsu >
@@ -108,8 +104,8 @@ class BimodalityMetrics:
                                   self.prob,
                                   expected,
                                   bounds=(
-                                    (-30, 0, 0,
-                                    -30, 0, 0),
+                                    (-30, 1e-10, 0,
+                                    -30, 1e-10, 0),
                                     (5, 5, 1,
                                      5, 5, 1)))
             if params[0] > params[3]:
@@ -679,10 +675,10 @@ def process_bright_water_component(args):
         bands_str, ref_land_str, pol_ind, threshold = args
 
     # bounding box covering the bright waters
-    row , _, col, _ = bounds
+    x_off , _, y_off, _ = bounds
     width = bounds[1] - bounds[0]
     height = bounds[3] - bounds[2]
-    window = Window(row, col, width, height)
+    window = Window(x_off, y_off, width, height)
 
     image_paths = [landcover_str, bands_str,
                    output_water_str, ref_land_str]
@@ -1069,11 +1065,11 @@ def run(cfg):
     water_mask_image = dswx_sar_util.read_geotiff(water_map_tif_str)
 
     # read landcover map
-    landcover_map_tif_str = os.path.join(outputdir, 'interpolated_landcover')
+    landcover_map_tif_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     landcover_map = dswx_sar_util.read_geotiff(landcover_map_tif_str)
     landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 
-    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
+    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
 
     # Identify the non-water area from Landcover map
     if 'openSea' in landcover_label:

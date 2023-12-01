@@ -792,6 +792,7 @@ def run(cfg):
             except:
                 print('Switching Polarization to find RTC-S1 product')
                 pol_list = _switch_pol(pol_list)
+                cfg.groups.processing.polarizations = pol_list
                 first_pol = pol_list[0]
 
                 first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')

@@ -21,6 +21,28 @@ from dswx_sar import (dswx_sar_util,
 logger = logging.getLogger('dswx_s1')
 
 
+def _switch_pol(pol_list):
+    '''
+    Switch the co-pol / cross-pol in the `pol_list` to the orthogonal correcponding pols
+    e.g.
+    ['HH'] -> ['VV']
+    ['HH', 'HV'] -> ['VV', 'VH']
+
+    '''
+    pol_list_out = pol_list.copy()
+    switch_dict = {"HH": "VV",
+                   "HV": "VH",
+                   "VH": "HV",
+                   "VV": "HH"
+                   }
+
+    for i_pol, pol in enumerate(pol_list):
+        pol_list_out[i_pol] = switch_dict[pol]
+    
+    return pol_list_out
+
+
+
 def majority_element(num_list):
     """
     Determine the majority element in a list
@@ -764,9 +786,17 @@ def run(cfg):
         epsg_list = []
 
         for ind, input_dir in enumerate(input_list):
+            try:
+                first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')
+                first_rtc_path = next(first_rtc_path_iter)
+            except:
+                print('Switching Polarization to find RTC-S1 product')
+                pol_list = _switch_pol(pol_list)
+                first_pol = pol_list[0]
 
-            first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')
-            first_rtc_path = next(first_rtc_path_iter)
+                first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')
+                first_rtc_path = next(first_rtc_path_iter)
+
             if first_rtc_path:
                 rtc_meta = dswx_sar_util.get_meta_from_tif(first_rtc_path)
                 epsg_list.append(rtc_meta['epsg'])

@@ -1857,10 +1857,10 @@ def run(cfg):
                     mode_tau_set,
                     block_row,
                     block_col)
-                testtest = threshold_tau_set[:, :, 0]
-                testtest[testtest == -50] = np.nan
-                testtest = threshold_tau_set[:, :, 1]
-                testtest[testtest == -50] = np.nan
+                # testtest = threshold_tau_set[:, :, 0]
+                # testtest[testtest == -50] = np.nan
+                # testtest = threshold_tau_set[:, :, 1]
+                # testtest[testtest == -50] = np.nan
 
             else:
                 threshold_tau_set = [[], [], []]

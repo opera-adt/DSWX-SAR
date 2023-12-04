@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import signal
 
-from dswx_sar_util import Constants
+from .dswx_sar_util import Constants
 
 K_DEFAULT = 1.0
 CU_DEFAULT = 0.523
@@ -15,16 +15,16 @@ def masked_convolve2d(array, window, *args, **kwargs):
     array: numpy.ndarray
         2 dimensional array
     window: integer
-        2 dimensional window 
+        2 dimensional window
     '''
     frames_complex = np.zeros_like(array, dtype=np.complex64)
     frames_complex[np.isnan(array)] = np.array((1j))
     frames_complex[np.bitwise_not(np.isnan(array))] = array[np.bitwise_not(np.isnan(array))]
-    
+
     convolved_array = signal.convolve(frames_complex, window, *args, **kwargs)
     convolved_array[np.imag(convolved_array)>0.2] = np.nan
     convolved_array = convolved_array.real.astype(np.float32)
-    
+
     return convolved_array
 
 

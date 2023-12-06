@@ -196,17 +196,36 @@ def _find_polarization_from_data(input_dir_list):
                     extracted_string = parts[-1].split('.')[0]
                     extracted_strings.append(extracted_string)
     found_pol = list(set(extracted_strings))
+    if not found_pol:
+        err_str = 'Failed to find polarizations from RTC files.'
+        raise ValueError(err_str)
     return found_pol
 
 
 def check_polarizations(pol_list, input_dir_list):
-    """Sort polarizations so that co-pols are preceded.
+    """
+    Sort polarizations so that co-polarizations are preceded. This function
+    identifies the common polarizations between the requested polarizations
+    and the ones available in the input directories. It then sorts them,
+    prioritizing co-polarizations (VV, HH) over cross-polarizations (VH, HV).
+
     Parameters
     ----------
     pol_list : list
         List of polarizations.
     input_dir_list : list
         List of the input directories with RTC GeoTIFF files.
+
+    Returns
+    -------
+    co_pol_list : list
+        List of co-polarizations present in both the request
+        and input directories.
+    cross_pol_list : list
+        List of cross-polarizations present in both the request and input
+        directories.
+    sorted_pol_list : list
+        List of all polarizations sorted, prioritizing co-polarizations.
     """
     actual_pol = _find_polarization_from_data(input_dir_list)
 

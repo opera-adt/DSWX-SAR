@@ -75,9 +75,7 @@ class AncillaryRelocation:
             file name of output
         method : str
             interpolation method
-
         """
-
         self._interpolate_gdal(str(self.rtc_file_name),
                               ancillary_file_name,
                               os.path.join(self.scratch_dir,
@@ -90,7 +88,7 @@ class AncillaryRelocation:
                           method):
 
         """Interpolate the input image to have same projection and resolution
-        as the refernce file.
+        as the reference file.
 
         Parameters
         ----------
@@ -103,7 +101,6 @@ class AncillaryRelocation:
         method : str
             interpolation method
         """
-
         print(f"> gdalwarp {input_tif_str} -> {output_tif_str}")
 
         # get reference coordinate and projection
@@ -407,7 +404,7 @@ def run(cfg):
         scratch_dir=scratch_dir)
     del intensity_filt
 
-    no_data_geotiff_path = os.path.join(scratch_dir, 
+    no_data_geotiff_path = os.path.join(scratch_dir,
                                         f"no_data_area_{pol_all_str}.tif")
     dswx_sar_util.get_invalid_area(
         os.path.join(scratch_dir, filtered_images_str),

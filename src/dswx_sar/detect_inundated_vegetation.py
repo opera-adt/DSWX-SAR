@@ -91,7 +91,7 @@ def run(cfg):
     output_data[inundated_vegetation] = 2
     output_data[mask_excluded] = 0
 
-    inundated_vege_path = f"{outputdir}/temp_inundated_vegetation.tif"
+    inundated_vege_path = f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
     dswx_sar_util.save_dswx_product(
         output_data,
         inundated_vege_path,
@@ -103,7 +103,8 @@ def run(cfg):
     if processing_cfg.debug_mode:
         dswx_sar_util.save_raster_gdal(
             data=filt_ratio_db,
-            output_file=os.path.join(outputdir, 'intensity_db_ratio.tif'),
+            output_file=os.path.join(outputdir,
+                                     f'intensity_db_ratio_{pol_all_str}.tif'),
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],
             scratch_dir=outputdir)

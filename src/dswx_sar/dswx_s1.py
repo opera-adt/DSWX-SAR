@@ -12,7 +12,9 @@ from dswx_sar import (detect_inundated_vegetation,
                       save_mgrs_tiles,
                       refine_with_bimodality,
                       region_growing,)
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (_get_parser,
+                                     RunConfig,
+                                     dswx_s1_pol_dict)
 from dswx_sar import generate_log
 
 logger = logging.getLogger('dswx_s1')
@@ -22,6 +24,7 @@ def dswx_s1_workflow(cfg):
     t_all = time.time()
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
+    pol_mode = processing_cfg.polarization_mode
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
 
@@ -33,28 +36,40 @@ def dswx_s1_workflow(cfg):
     # Create mosaic burst RTCs
     mosaic_rtc_burst.run(cfg)
 
-    # preprocessing (relocating ancillary data and filtering)
-    pre_processing.run(cfg)
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [dswx_s1_pol_dict['DV_POL'],
+                        dswx_s1_pol_dict['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [dswx_s1_pol_dict['SV_POL'],
+                        dswx_s1_pol_dict['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
 
-    # Estimate threshold for given polarizations
-    initial_threshold.run(cfg)
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        # preprocessing (relocating ancillary data and filtering)
+        pre_processing.run(cfg)
 
-    # Fuzzy value computation
-    fuzzy_value_computation.run(cfg)
+        # Estimate threshold for given polarizations
+        initial_threshold.run(cfg)
 
-    # Region Growing
-    region_growing.run(cfg)
+        # Fuzzy value computation
+        fuzzy_value_computation.run(cfg)
 
-    if dswx_workflow == 'opera_dswx_s1':
-        # Land use map
-        masking_with_ancillary.run(cfg)
+        # Region Growing
+        region_growing.run(cfg)
 
-        # Refinement
-        refine_with_bimodality.run(cfg)
+        if dswx_workflow == 'opera_dswx_s1':
+            # Land use map
+            masking_with_ancillary.run(cfg)
 
-        if processing_cfg.inundated_vegetation.enabled:
-            detect_inundated_vegetation.run(cfg)
+            # Refinement
+            refine_with_bimodality.run(cfg)
 
+            if processing_cfg.inundated_vegetation.enabled:
+                detect_inundated_vegetation.run(cfg)
+
+    processing_cfg.polarizations = pol_list
     # save product as mgrs tiles.
     save_mgrs_tiles.run(cfg)
 

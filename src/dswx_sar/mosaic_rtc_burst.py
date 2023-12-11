@@ -9,6 +9,7 @@ import tempfile
 import time
 
 from collections import Counter
+from dataclasses import dataclass
 import h5py
 import numpy as np
 from osgeo import osr, gdal
@@ -19,6 +20,110 @@ from dswx_sar import (dswx_sar_util,
                       generate_log)
 
 logger = logging.getLogger('dswx_s1')
+
+
+@dataclass
+class DSWX_geogrid:
+    """
+    A dataclass representing the geographical grid configuration
+    for an RTC (Radar Terrain Correction) run.
+
+    Attributes:
+    -----------
+    start_x : float
+        The starting x-coordinate of the grid.
+    start_y : float
+        The starting y-coordinate of the grid.
+    end_x : float
+        The ending x-coordinate of the grid.
+    end_y : float
+        The ending y-coordinate of the grid.
+    spacing_x : float
+        The spacing between points in the x-direction.
+    spacing_y : float
+        The spacing between points in the y-direction.
+    length : int
+        The number of points in the y-direction.
+    width : int
+        The number of points in the x-direction.
+    epsg : int
+        The EPSG code representing the coordinate reference system of the grid.
+    """
+    start_x : float = np.nan
+    start_y : float = np.nan
+    end_x : float = np.nan
+    end_y : float = np.nan
+    spacing_x : float = np.nan
+    spacing_y : float = np.nan
+    length : int = np.nan
+    width : int = np.nan
+    epsg : int = np.nan
+
+    def get_geogrid_from_geotiff(self,
+                                 geotiff_path):
+        """
+        Extract geographical grid parameters from a GeoTIFF file
+        and update the dataclass attributes.
+
+        Parameters:
+        -----------
+        geotiff_path : str
+            The file path to the GeoTIFF file from which the grid
+            parameters are to be extracted.
+        """
+        tif_gdal = gdal.Open(geotiff_path)
+        geotransform = tif_gdal.GetGeoTransform()
+        self.start_x = geotransform[0]
+        self.spacing_x = geotransform[1]
+
+        self.start_y = geotransform[3]
+        self.spacing_y = geotransform[5]
+
+        self.length = tif_gdal.RasterYSize
+        self.width = tif_gdal.RasterXSize
+
+        self.end_x = self.start_x + self.width * self.spacing_x
+        self.end_y = self.start_y + self.length * self.spacing_y
+
+        projection = tif_gdal.GetProjection()
+        proj = osr.SpatialReference(wkt=projection)
+        output_epsg = proj.GetAttrValue('AUTHORITY',1)
+        self.epsg = int(output_epsg)
+        tif_gdal = None
+        del tif_gdal
+
+    def update_geogrid(self,
+                       geotiff_path):
+        """
+        Update the existing geographical grid parameters based on a new
+        GeoTIFF file. This function extends the grid to encompass both
+        the existing and new grid areas.
+
+        Parameters:
+        -----------
+        geotiff_path : str
+            The file path to the new GeoTIFF file from which the grid
+            parameters are to be updated.
+        """
+        new_geogrid = DSWX_geogrid()
+        new_geogrid.get_geogrid_from_geotiff(geotiff_path)
+
+        if (new_geogrid.epsg == self.epsg) or np.isnan(self.epsg):
+            self.start_x = np.nanmin([self.start_x, new_geogrid.start_x])
+            self.end_x = np.nanmax([self.end_x, new_geogrid.end_x])
+
+            if self.spacing_y > 0:
+                self.end_y = np.nanmax([self.end_y, new_geogrid.end_y])
+                self.start_y = np.nanmin([self.start_y, new_geogrid.start_y])
+            else:
+                self.start_y = np.nanmax([self.start_y, new_geogrid.start_y])
+                self.end_y = np.nanmin([self.end_y, new_geogrid.end_y])
+
+            self.spacing_x = new_geogrid.spacing_x
+            self.spacing_y = new_geogrid.spacing_y
+            self.width = int((self.end_x - self.start_x) / self.spacing_x)
+            self.length = int((self.end_y - self.start_y) / self.spacing_y)
+            self.epsg = new_geogrid.epsg
 
 
 def majority_element(num_list):
@@ -758,14 +863,13 @@ def run(cfg):
         freqA_path = '/data/'
 
         output_file_list = []
-        metadata_list = []
         nlooks_list = []
         mask_list = []
         epsg_list = []
 
         for ind, input_dir in enumerate(input_list):
 
-            first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')
+            first_rtc_path_iter = glob.iglob(f'{input_dir}/*.tif')
             first_rtc_path = next(first_rtc_path_iter)
             if first_rtc_path:
                 rtc_meta = dswx_sar_util.get_meta_from_tif(first_rtc_path)
@@ -775,6 +879,8 @@ def run(cfg):
                 raise FileExistsError(err_msg)
 
         epsg_output = majority_element(epsg_list)
+        geogrid_in = DSWX_geogrid()
+
         logger.info('All RTC bursts and associated masks will be mosaicked ' \
                     f'using the ESPG projection designated by {epsg_output}.')
         # for each directory, find metadata, and RTC files.
@@ -795,8 +901,11 @@ def run(cfg):
                         epsg_output=epsg_output,
                         output_nodata=255)
                     mask_list.append(temp_mask_path)
+                    geogrid_in.update_geogrid(temp_mask_path)
+
                 else:
                     mask_list.append(layover_path[0])
+                    geogrid_in.update_geogrid(layover_path[0])
 
             else:
                 # If mask GeoTiff is not available,
@@ -833,17 +942,22 @@ def run(cfg):
                 rtc_burst_imagery_list = []
 
                 for input_ind, input_dir in enumerate(input_list):
+                    try:
+                        rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
 
-                    rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
-                    if epsg_output != epsg_list[input_ind]:
-                        rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
-                        dswx_sar_util.change_epsg_tif(rtc_path_input,
-                                                      rtc_path_temp,
-                                                      epsg_output)
-                        rtc_burst_imagery_list.append(rtc_path_temp)
-                    else:
-                        rtc_burst_imagery_list.append(rtc_path_input)
+                        if epsg_output != epsg_list[input_ind]:
+                            rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
+                            dswx_sar_util.change_epsg_tif(rtc_path_input,
+                                                        rtc_path_temp,
+                                                        epsg_output)
+                            rtc_burst_imagery_list.append(rtc_path_temp)
+                            geogrid_in.update_geogrid(rtc_path_temp)
+                        else:
+                            rtc_burst_imagery_list.append(rtc_path_input)
+                            geogrid_in.update_geogrid(rtc_path_input)
 
+                    except:
+                        print(f'polarzation {pol} is not found in {input_dir}')
                 nlooks_list = []
 
                 if len(rtc_burst_imagery_list) > 0:
@@ -856,7 +970,7 @@ def run(cfg):
                     mosaic_single_output_file(
                         rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
                         mosaic_mode, scratch_dir=scratch_path,
-                        geogrid_in=None, temp_files_list=None)
+                        geogrid_in=geogrid_in, temp_files_list=None)
 
         if mask_list:
             geo_mask_filename = \
@@ -867,7 +981,7 @@ def run(cfg):
             mosaic_single_output_file(
                 mask_list, nlooks_list, geo_mask_filename,
                 mosaic_mode, scratch_dir=scratch_path,
-                geogrid_in=None, temp_files_list=None,
+                geogrid_in=geogrid_in, temp_files_list=None,
                 no_data_value=255)
 
         # save files as COG format.

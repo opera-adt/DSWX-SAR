@@ -15,9 +15,18 @@ logger = logging.getLogger('dswx-s1')
 
 WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 
-
-CO_POL_LIST = ['HH', 'VV']
-CROSS_POL_LIST = ['VH', 'HV']
+# Potential polarization scenarios for DSWx-S1
+# NOTE: DO NOT CHANGE ORDER of the dictionary.
+dswx_s1_pol_dict = {
+    'CO_POL' : ['HH', 'VV'],
+    'CROSS_POL' : ['HV', 'VH'],
+    'MIX_DUAL_POL' : ['HH', 'HV', 'VV', 'VH'],
+    'MIX_SINGLE_POL' : ['HH', 'VV'],
+    'DV_POL' : ['VV', 'VH'],
+    'SV_POL' : ['VV'],
+    'DH_POL' : ['HH', 'HV'],
+    'SH_POL' : ['HH'],
+    }
 
 def _get_parser():
     parser = argparse.ArgumentParser(description='',
@@ -248,19 +257,27 @@ def check_polarizations(pol_list, input_dir_list):
     co_pol_list = []
     cross_pol_list = []
     def custom_sort(pol):
-        if pol in CO_POL_LIST:
+        if pol in dswx_s1_pol_dict['CO_POL']:
             return (0, pol)  # Sort 'VV' and 'HH' before others
         return (1, pol)
 
     sorted_pol_list = sorted(proc_pol_list, key=custom_sort)
 
     for pol in sorted_pol_list:
-        if pol in CO_POL_LIST:
+        if pol in dswx_s1_pol_dict['CO_POL']:
             co_pol_list.append(pol)
         else:
             cross_pol_list.append(pol)
 
-    return co_pol_list, cross_pol_list, sorted_pol_list
+    pol_mode = None
+    for key, value in dswx_s1_pol_dict.items():
+        if all(element in value for element in sorted_pol_list):
+            pol_mode = key
+
+    if pol_mode is None:
+        err_msg = 'unable to identify polarzation mode.'
+        logger.warning(err_msg)
+    return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
 
 
 def validate_group_dict(group_cfg: dict) -> None:
@@ -334,9 +351,9 @@ def unwrap_to_dict(sns: SimpleNamespace) -> dict:
 
     return sns_as_dict
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class RunConfig:
-    '''dataclass containing RTC runconfig'''
+    '''dataclass containing DSWX runconfig'''
     # workflow name
     name: str
     # runconfig options converted from dict
@@ -372,13 +389,16 @@ class RunConfig:
         input_dir_list = \
             cfg['runconfig']['groups']['input_file_group']['input_file_path']
         requested_pol = algorithm_cfg['runconfig']['processing']['polarizations']
-        co_pol, cross_pol, pol_list = check_polarizations(
+        co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
             requested_pol, input_dir_list)
+        print(pol_list,'pol list')
+        print(pol_mode,'pol pol_mode')
 
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list
-        algorithm_cfg['runconfig']['processing']['copol'] = co_pol[0] if co_pol else None
-        algorithm_cfg['runconfig']['processing']['crosspol'] = cross_pol[0] if cross_pol else None
+        algorithm_cfg['runconfig']['processing']['copol'] = co_pol if co_pol else None
+        algorithm_cfg['runconfig']['processing']['crosspol'] = cross_pol if cross_pol else None
+        algorithm_cfg['runconfig']['processing']['polarization_mode'] = pol_mode
 
         algorithm_sns = wrap_namespace(algorithm_cfg['runconfig']['processing'])
 

@@ -91,8 +91,8 @@ def smf(values, minv, maxv):
     center_value = (minv + maxv) / 2
     output= np.zeros(np.shape(values), dtype='float32')
 
-    # When using numpy arrays for min and max values in 
-    # a membership function, identical elements in these 
+    # When using numpy arrays for min and max values in
+    # a membership function, identical elements in these
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
@@ -135,8 +135,8 @@ def zmf(values, minv, maxv):
     '''
     output = np.zeros(np.shape(values))
 
-    # When using numpy arrays for min and max values in 
-    # a membership function, identical elements in these 
+    # When using numpy arrays for min and max values in
+    # a membership function, identical elements in these
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
@@ -308,7 +308,7 @@ def compute_fuzzy_value(intensity,
         if pol in ['VH', 'HV']:
             pol_threshold = fuzzy_option['dark_area_land']
             water_threshold = fuzzy_option['dark_area_water']
-            low_backscatter = (intensity[int_id, :, :] < pol_threshold) 
+            low_backscatter = (intensity[int_id, :, :] < pol_threshold)
             # Low backscattering candidates
             low_backscatter_cand &= low_backscatter
             dark_water_cand &= intensity[int_id, :, :] < water_threshold

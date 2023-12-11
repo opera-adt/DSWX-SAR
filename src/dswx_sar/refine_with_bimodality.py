@@ -796,6 +796,9 @@ def remove_false_water_bimodality_parallel(water_mask,
     sizes = stats_water[1:, -1]
     bounding_boxes = stats_water[1:, :4]
 
+    bimodality_total = water_mask.copy()
+    del water_mask
+
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'VH', 'HH', 'HV']:
             # 1 dimensional array for bimodality values
@@ -1051,13 +1054,6 @@ def run(cfg):
     filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_str}.tif")
     no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
     im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
-
-    dswx_sar_util.get_invalid_area(
-        filt_im_str,
-        no_data_geotiff_path,
-        projection=im_meta['projection'],
-        geotransform=im_meta['geotransform'],
-        scratch_dir=outputdir)
 
     # read the result of landcover masindex_array_to_imageg
     water_map_tif_str =  os.path.join(outputdir,

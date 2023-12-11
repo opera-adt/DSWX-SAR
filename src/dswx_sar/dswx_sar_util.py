@@ -46,7 +46,7 @@ band_assign_value_conf_dict = {
 
 @dataclass
 class Constants:
-    # negligible number to avoid the zero-division warning. 
+    # negligible number to avoid the zero-division warning.
     negligible_value : float = 1e-5
 
 def get_interpreted_dswx_s1_ctable():
@@ -196,7 +196,7 @@ def save_dswx_product(wtr, output_file, geotransform,
             print(f'    {band_key.lower()} found {dswx_product_value}')
     gdal_type = np2gdal_conversion[str(datatype)]
 
-    gdal_ds = driver.Create(output_file, 
+    gdal_ds = driver.Create(output_file,
                             shape[1], shape[0], 1, gdal_type)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
@@ -335,10 +335,11 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
 def get_invalid_area(geotiff_path,
                      output_path=None,
                      geotransform=None,
-                     projection=None, 
+                     projection=None,
                      scratch_dir=None):
-    """get invalid areas (NaN) from GeoTiff and save it 
+    """get invalid areas (NaN) from GeoTiff and save it
     to new GeoTiff
+
     Parameters
     ----------
     geotiff_path: str
@@ -354,8 +355,8 @@ def get_invalid_area(geotiff_path,
     """
     image = read_geotiff(geotiff_path)
     if image.ndim == 3:
-        no_data_raster = np.isnan(
-            np.squeeze(image[0, :, :]))
+        no_data_raster = \
+            np.squeeze(np.nansum(image, axis=0)) == 0
     else:
         no_data_raster = np.isnan(image)
 
@@ -434,11 +435,11 @@ def get_raster_block(raster_path, block_param):
             block_param.read_start_line,
             block_param.data_width,
             block_param.read_length)
-        
+
         # Pad data_block with zeros according to pad_length/pad_width
-        data_block = np.pad(data_block, block_param.block_pad, 
+        data_block = np.pad(data_block, block_param.block_pad,
                             mode='constant', constant_values=0)
-        
+
         data_blocks.append(data_block)
     data_blocks = np.array(data_blocks)
 
@@ -646,14 +647,14 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     Parameters:
     -----------
     intensity : numpy.ndarray
-        A 2D or 3D array representing the intensity of the image. 
+        A 2D or 3D array representing the intensity of the image.
         If 3D, only the second and third dimensions (rows and columns) are used for visualization.
     block_row : int
         The number of rows in each block/subtile.
     block_col : int
         The number of columns in each block/subtile.
     threshold_tile : numpy.ndarray
-        2D array containing the threshold values for each block/subtile. 
+        2D array containing the threshold values for each block/subtile.
         Its dimensions should match the number of blocks in the intensity image.
     outputdir : str
         Path to the directory where visualizations will be saved.
@@ -665,18 +666,18 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     None. The visualized figure is saved to the specified directory.
     """
     if len(intensity.shape) == 2:
-        rows, cols = np.shape(intensity)  
+        rows, cols = np.shape(intensity)
     elif len(intensity.shape) == 3:
-        _, rows, cols = np.shape(intensity)  
+        _, rows, cols = np.shape(intensity)
     ## Tile Selection (w/o water body)
-    
-    nR = np.int16(rows / block_row) 
+
+    nR = np.int16(rows / block_row)
     nC = np.int16(cols / block_col)
     mR = np.mod(rows, block_row)
     mC = np.mod(cols, block_col)
-    nR = nR + ( 1 if mR > 0 else 0) 
-    nC = nC + ( 1 if mC > 0 else 0) 
-    
+    nR = nR + ( 1 if mR > 0 else 0)
+    nC = nC + ( 1 if mC > 0 else 0)
+
     assert nR == threshold_tile.shape[0], 'tile size error'
     assert nC == threshold_tile.shape[1], 'tile size error'
 
@@ -686,7 +687,7 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     vmin = np.nanpercentile(intensity,5)
     vmax = np.nanpercentile(intensity,95)
     plt.imshow(intensity, cmap = plt.get_cmap('gray'),vmin=vmin,vmax=vmax)
-       
+
     threshold_oversample = np.zeros([rows, cols])
     for ii in range(0,nR):
         for jj in range(0,nC):
@@ -697,9 +698,9 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
             if (jj == nC) and ( mC > 0):
                 jend = cols
             else:
-                jend = (jj + 1) * block_col 
+                jend = (jj + 1) * block_col
             threshold_oversample[ii*block_row : iend, jj*block_col:jend] = threshold_tile[ii, jj]
-            plt.plot( 
+            plt.plot(
                 [jj*block_col,jend, jend, jj*block_col, jj*block_col],[ii*block_row, ii*block_row, iend, iend, ii*block_row] ,'black')
     threshold_oversample[threshold_oversample==-50] = np.nan
     plt.imshow(threshold_oversample, alpha=0.3, cmap = plt.get_cmap('jet'), vmin=-20, vmax=-14)
@@ -715,12 +716,12 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
     Parameters:
     -----------
     intensity : numpy.ndarray
-        2D or 3D array representing the intensity of the image. 
+        2D or 3D array representing the intensity of the image.
         If 3D, the first dimension is considered as the band index.
     threshold_dict : dict
         A dictionary containing:
         * 'array': A nested list of threshold values for each band and block.
-        * 'subtile_coord': A nested list of block coordinates for each band and block, 
+        * 'subtile_coord': A nested list of block coordinates for each band and block,
           in the format [[start_row, end_row, start_col, end_col], ...].
     outputdir : str
         Path to the directory where visualizations will be saved.
@@ -745,24 +746,24 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
         plt.figure(figsize=(20, 20))
         vmin = np.nanpercentile(intensity_db, 5)
         vmax = np.nanpercentile(intensity_db, 95)
-        
+
         # Display the main intensity image
         plt.imshow(intensity_db, cmap='gray', vmin=vmin, vmax=vmax)
-        
+
         # Prepare a matrix for the overlaid threshold values
         threshold_overlay = np.full((rows, cols), np.nan)
-        
+
         for threshold, coords in zip(threshold_dict['array'][band_index], threshold_dict['subtile_coord'][band_index]):
             start_row, end_row, start_col, end_col = coords
             threshold_overlay[start_row:end_row, start_col:end_col] = threshold
-            
+
             # Draw a block boundary for visualization
             plt.plot([start_col, end_col, end_col, start_col, start_col],
                      [start_row, start_row, end_row, end_row, start_row], 'black')
-        
+
         # Overlay the threshold values on top of the intensity image
         plt.imshow(threshold_overlay, alpha=0.3, cmap='jet', vmin=-20, vmax=-14)
-        
+
         # Save the visualization to file
         plt.savefig(os.path.join(outputdir, f'{figname}_{band_index}'))
         plt.close()

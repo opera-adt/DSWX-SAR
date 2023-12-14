@@ -963,8 +963,7 @@ def fill_gap_water_bimodality_parallel(
                     datatype='int32',
                     scratch_dir=outputdir)
 
-    bimodality_set = []
-    ad_set = []
+    bimodality_set = np.zeros([rows, cols], dtype='byte')
 
     sizes = stats_water[1:, -1]
     bounding_boxes = stats_water[1:, :4]
@@ -988,9 +987,7 @@ def fill_gap_water_bimodality_parallel(
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'VH', 'HH', 'HV']:
 
-            bimodality_output = np.zeros([len(sizes)])
-            ad_output = np.zeros([len(sizes)])
-
+            bimodality_output = np.zeros([len(sizes)], dtype='byte')
             args_list = [(i, sizes[i], coord_list[i], water_label_str,
                               input_dict['landcover'], input_dict['intensity'],
                               input_dict['ref_land'], pol_ind,
@@ -1001,8 +998,10 @@ def fill_gap_water_bimodality_parallel(
                                             for args in args_list)
             for res in results:
                 bt_value, ad_value, result_ind = res
-                bimodality_output[result_ind] = bt_value
-                ad_output[result_ind] = ad_value
+                bimodality_bright_water = \
+                    (bt_value < threshold[0]) | \
+                    (ad_value < threshold[1])
+                bimodality_output[result_ind] = bimodality_bright_water
 
             output_water = np.array(output_water)
 
@@ -1010,21 +1009,17 @@ def fill_gap_water_bimodality_parallel(
 
             index_array_to_image = np.searchsorted(old_val, output_water)
             bimodality_output =  np.insert(bimodality_output, 0, 0, axis=0)
-            ad_output =  np.insert(ad_output, 0, 0, axis=0)
 
             bimodality_image = bimodality_output[index_array_to_image]
-            ad_image = ad_output[index_array_to_image]
+            bimodality_set += bimodality_image
 
-            bimodality_set.append(bimodality_image)
-            ad_set.append(ad_image)
+            del bimodality_image
 
     # bindary image is created for the pixels that passed two tests.
-    bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set, axis=0)< threshold[1])) \
-        | (np.squeeze(np.nanmean(bimodality_set, axis=0)< threshold [0]))
+    bimodal_ad_binary = bimodality_set > 0
     # 0 value in output_water indicates the non-water
     bimodal_ad_binary[output_water==0] = False
-    del ad_set, bimodality_set
-
+    del bimodality_set
     return bimodal_ad_binary
 
 
@@ -1087,6 +1082,7 @@ def run(cfg):
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=outputdir)
+    del landcover_not_water, landcover_map
 
     # If the landcover is non-water,
     # compute the bimnodality one more time
@@ -1117,7 +1113,7 @@ def run(cfg):
 
     water_bindary = bimodal_binary > 0
     bimodal_binary = None
-
+    del water_mask_image
     # Identify gaps within the water bodies and fill the gaps
     # if bimodality exists
     fill_gap_bindary = \

@@ -74,6 +74,7 @@ runconfig:
             # Number of threads to run
             # -1 represents the all available threads
             number_cpu: num(required=False)
+            line_per_block: num(min=1, required=False)
 
         fuzzy_value:
             line_per_block: num(min=1, required=False)
@@ -160,6 +161,7 @@ runconfig:
             dual_pol_ratio_threshold: num(min=0, max=30, required=False)
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
-
+            # Land covers where the inundated vegetation is detected. 
+            target_land_cover: list(required=False)
         # If debug mode is true, intermediate product is generated.
         debug_mode: bool(required=False)

@@ -523,7 +523,9 @@ class TileSelection:
 
 
 def create_three_water_masks(
-        wbd,
+        wbd_im_str,
+        water_set_str,
+        scratch_dir,
         water_threshold,
         no_data,
         wbd_max_value,
@@ -555,6 +557,11 @@ def create_three_water_masks(
     water_mask_set : np.ndarray
         The water mask with three settings: normal, flood, and drought.
     """
+    wbd_gdal = gdal.Open(wbd_im_str)
+    wbd = wbd_gdal.ReadAsArray()
+    del wbd_gdal
+    water_meta = dswx_sar_util.get_meta_from_tif(wbd_im_str)
+
     wbd = np.asarray(wbd, dtype='float32')
     wbd[wbd == no_data] = wbd_max_value
     water_global_norm = wbd / wbd_max_value
@@ -570,13 +577,20 @@ def create_three_water_masks(
     drought_water_mask = ndimage.binary_erosion(
         water_normal_mask,
         iterations=drought_erosion_pixel)
-    water_mask_set = np.zeros([3, wbd.shape[0], wbd.shape[1]])
 
-    water_mask_set[0, :, :] = water_normal_mask
-    water_mask_set[1, :, :] = flood_water_mask
-    water_mask_set[2, :, :] = drought_water_mask
+    water_mask_set = np.stack([water_normal_mask,
+                               flood_water_mask,
+                               drought_water_mask], axis=0)
 
-    return water_mask_set
+    water_mask_tif_str = os.path.join(
+        scratch_dir, f"{water_set_str}")
+    dswx_sar_util.save_raster_gdal(
+        water_mask_set,
+        water_mask_tif_str,
+        geotransform=water_meta['geotransform'],
+        projection=water_meta['projection'],
+        scratch_dir=scratch_dir,
+        datatype='uint8')
 
 
 def remove_invalid(sample_array, no_data=0):
@@ -671,7 +685,7 @@ def compute_ki_threshold(
 
     intensity_cumsum = np.cumsum(intensity_counts)
     # Replace zeros and negative numbers with 'eps'
-    intensity_cumsum = np.where(intensity_cumsum <= 0, 
+    intensity_cumsum = np.where(intensity_cumsum <= 0,
                                 eps, intensity_cumsum)
 
     intensity_cumsum[intensity_cumsum==0] = np.nan
@@ -694,9 +708,9 @@ def compute_ki_threshold(
     sigma_b = np.sqrt(var_b)
 
     normalized_int_cumsum =  intensity_cumsum / intensity_cumsum[-1]
-    normalized_int_cumsum = np.where(normalized_int_cumsum >= 1, 
+    normalized_int_cumsum = np.where(normalized_int_cumsum >= 1,
                                 1 - eps, normalized_int_cumsum)
-    normalized_int_cumsum = np.where(normalized_int_cumsum <= 0, 
+    normalized_int_cumsum = np.where(normalized_int_cumsum <= 0,
                                      eps, normalized_int_cumsum)
     prob_array = \
         normalized_int_cumsum * np.log(sigma_f) + \
@@ -791,7 +805,7 @@ def determine_threshold(
 
         if intensity_sub.size == 0:
             return global_threshold, glob_mode_thres
-        
+
         intensity_counts, bins = np.histogram(
             intensity_sub,
             bins=np.linspace(min_intensity_histogram,
@@ -1605,41 +1619,134 @@ def process_block(ii, jj, n_rows_block, n_cols_block, m_rows_block, m_cols_block
             wbd_sub,
             cfg,
             thres_max=thres_max)
-            
+
     if average_tile_flag:
         threshold_list = [np.nanmean(test_threshold)
                           if not np.all(np.isnan(test_threshold)) else np.nan
                           for test_threshold in threshold_tau_block]
         mode_list = [np.nanmean(test_mode)
-                     if not np.all(np.isnan(test_mode)) else np.nan 
+                     if not np.all(np.isnan(test_mode)) else np.nan
                      for test_mode in mode_tau_block]
     else:
         threshold_list = [np.nan_to_num(ind_list, nan=-50).tolist()
                         for ind_list in threshold_tau_block]
         mode_list = [np.nan_to_num(ind_list, nan=-50).tolist()
                     for ind_list in mode_tau_block]
-        
+
     return ii, jj, threshold_list, mode_list, candidate_tile_coords
 
 
-def compute_threshold_max_bound(intensity_array,
-                                is_bimodal,
-                                metric_obj=None):
-    int_array_db = convert_pow2db(intensity_array)
-    if is_bimodal:
-        if metric_obj.optimization:
-            int_sub_mean, int_sub_std, _ = metric_obj.first_mode
-        else:
-            thres_temp = threshold_otsu(int_array_db)
-            valid_samples = int_array_db[int_array_db > thres_temp]
-            int_sub_mean = np.nanmean(valid_samples)
-            int_sub_std = np.nanstd(valid_samples)
-    else:
-        int_sub_mean = np.nanmean(int_array_db)
-        int_sub_std = np.nanstd(int_array_db)
+def compute_threshold_max_bound(intensity_path,
+                                reference_water_path,
+                                water_max_value,
+                                water_threshold,
+                                no_data_path,
+                                lines_per_block):
+    """
+    Compute the threshold maximum bound and related statistics for intensity
+    values in water regions.
 
-    return np.nanmax([np.percentile(int_array_db, 99.5) + int_sub_std * 2,
-                      int_sub_mean + int_sub_std * 2]), int_sub_mean, int_sub_std
+    Parameters:
+    -----------
+    intensity_path : str
+        File path to the GeoTIFF representing the intensity image.
+    reference_water_path : str
+        File path to the GeoTIFF representing reference water data.
+    water_max_value : float
+        Maximum value used for normalizing the water body data.
+    water_threshold : float
+        Threshold value to determine water regions in the normalized
+        water body data.
+    no_data_path : str
+        File path to the GeoTIFF representing no-data areas.
+    lines_per_block : int
+        The number of lines per block for processing the raster data.
+
+    Returns:
+    --------
+    tuple:
+        A tuple containing four elements:
+        - List of threshold maximum bounds for each band.
+        - List of mean intensity values for valid water regions
+          for each band.
+        - List of standard deviation of intensity values for valid water regions
+          for each band.
+        - Boolean indicating if the intensity distribution is bimodal.
+    """
+    im_meta = dswx_sar_util.get_meta_from_tif(intensity_path)
+    data_shape = [im_meta['length'], im_meta['width']]
+    pad_shape = (0, 0)
+
+    thres_max_set, int_sub_mean_set, int_sub_std_set = [], [], []
+    last_block = np.round(im_meta['length'] / lines_per_block)
+
+    for band_ind in range(im_meta['band_number']):
+        int_array_db_set = np.array([])
+        int_water_array_set = np.array([])
+
+        block_params = dswx_sar_util.block_param_generator(
+            lines_per_block,
+            data_shape,
+            pad_shape)
+
+        for block_ind, block_param in enumerate(block_params):
+            intensity_array = dswx_sar_util.get_raster_block(
+                intensity_path, block_param)
+            water_body_data = dswx_sar_util.get_raster_block(
+                reference_water_path, block_param)
+            no_data_area = dswx_sar_util.get_raster_block(
+                no_data_path, block_param)
+            if im_meta['band_number'] == 1:
+                intensity_array = intensity_array[np.newaxis, :, :]
+            valid_mask = \
+                (water_body_data / water_max_value > water_threshold) & \
+                (no_data_area == 0)
+
+            # Get intensity array over valid regions
+            # for band_ind in range(im_meta['band_number']):
+            int_water_array = intensity_array[band_ind][valid_mask]
+            valid_int_water_array = remove_invalid(int_water_array)
+
+            if len(valid_int_water_array):
+                int_water_array_set = np.append(
+                    int_water_array_set,
+                    valid_int_water_array)
+                int_array_db_set = np.append(
+                    int_array_db_set,
+                    convert_pow2db(valid_int_water_array))
+
+            if block_ind + 1 == last_block:
+                if len(int_water_array_set):
+                    metric_obj = refine_with_bimodality.BimodalityMetrics(
+                        int_water_array_set)
+                    is_bimodal = metric_obj.compute_metric()
+
+                    if is_bimodal:
+                        if metric_obj.optimization:
+                            int_sub_mean, int_sub_std, _ = metric_obj.first_mode
+                        else:
+                            thres_temp = threshold_otsu(int_array_db_set)
+                            valid_samples = int_array_db_set[
+                                int_array_db_set > thres_temp]
+                            int_sub_mean = np.nanmean(valid_samples)
+                            int_sub_std = np.nanstd(valid_samples)
+                    else:
+                        int_sub_mean = np.nanmean(int_array_db_set)
+                        int_sub_std = np.nanstd(int_array_db_set)
+                    thres_max_set.append(
+                        np.nanmax([np.percentile(int_array_db_set, 99.5) + \
+                                   int_sub_std * 2,
+                                   int_sub_mean + int_sub_std * 2]))
+                    int_sub_mean_set.append(int_sub_mean)
+                    int_sub_std_set.append(int_sub_std)
+
+                else:
+                    int_sub_mean_set.append(np.nan)
+                    int_sub_std_set.append(np.nan)
+                    thres_max_set.append(np.nan)
+                    is_bimodal = False
+
+    return thres_max_set, int_sub_mean_set, int_sub_std_set, is_bimodal
 
 
 def create_geotiff_with_one_value(outpath, shape, filled_value):
@@ -1669,6 +1776,34 @@ def create_geotiff_with_one_value(outpath, shape, filled_value):
 
     ds = None  # Close the file
 
+def compute_water_portion(water_body_data_path,
+                          no_data_path,
+                          water_threshold,
+                          water_body_max,
+                          lines_per_block):
+
+    im_meta = dswx_sar_util.get_meta_from_tif(water_body_data_path)
+    data_shape = [im_meta['length'], im_meta['width']]
+    valid_pixel_number = 0
+    water_pixel_number = 0
+    pad_shape = (0, 0)
+    block_params = dswx_sar_util.block_param_generator(
+        lines_per_block,
+        data_shape,
+        pad_shape)
+    for block_param in block_params:
+        water_body_data = dswx_sar_util.get_raster_block(
+            water_body_data_path, block_param)
+        no_data_area = dswx_sar_util.get_raster_block(
+            no_data_path, block_param)
+        water_binary = water_body_data / water_body_max > water_threshold
+
+        valid_area = no_data_area == 0
+        water_pixel_number += np.sum(water_binary[valid_area])
+        valid_pixel_number += np.sum(valid_area)
+
+    water_percentage = water_pixel_number / valid_pixel_number
+    return water_percentage
 
 def run(cfg):
     """
@@ -1686,77 +1821,66 @@ def run(cfg):
     # options for initial threshold
     init_threshold_cfg = processing_cfg.initial_threshold
     number_iterations = init_threshold_cfg.number_iterations
-    number_workers = init_threshold_cfg.number_cpu
     tile_selection_method = init_threshold_cfg.selection_method
     average_threshold_flag = init_threshold_cfg.tile_average
     threshold_extending_method = init_threshold_cfg.extending_method
+    lines_per_block = init_threshold_cfg.line_per_block
+
     logger.info(f'Tile selection method: {tile_selection_method}')
     logger.info(f'Average_threshold_flag: {average_threshold_flag}')
+
+    number_workers = init_threshold_cfg.number_cpu
 
     # options for reference water
     ref_water_cfg = processing_cfg.reference_water
     drought_erosion_pixel = ref_water_cfg.drought_erosion_pixel
     flood_dilation_pixel = ref_water_cfg.flood_dilation_pixel
     permanent_water_value = ref_water_cfg.permanent_water_value
-
-    # Read filtered RTC image
-    filt_im_str = os.path.join(outputdir,
-                               f"filtered_image_{pol_all_str}.tif")
-    filt_raster_tif = gdal.Open(filt_im_str)
-
-    #read metadata from intensity image (projection, geotransform)
-    water_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
-
-    band_number = filt_raster_tif.RasterCount
-    height, width = filt_raster_tif.RasterYSize, filt_raster_tif.RasterXSize
-
-    # READ relocated reference water
-    wbd_im_str = os.path.join(outputdir, 'interpolated_wbd.tif')
-    wbd_gdal = gdal.Open(wbd_im_str)
-
-    # compute the statistics of intensity.
     ref_water_max = processing_cfg.reference_water.max_value
-    wbd_whole = wbd_gdal.ReadAsArray()
-    wbd_whole_norm = wbd_whole / ref_water_max
+
+    # Filtered RTC image
+    filt_im_str = os.path.join(
+        outputdir, f"filtered_image_{pol_all_str}.tif")
+    no_data_geotiff_path = os.path.join(
+        outputdir, f"no_data_area_{pol_all_str}.tif")
+    # Relocated reference water
+    wbd_im_str = os.path.join(outputdir, 'interpolated_wbd.tif')
+
+    # Read metadata from intensity image (projection, geotransform)
+    water_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
+    band_number = water_meta['band_number']
+    height, width = water_meta['length'], water_meta['width']
 
     # create water masks for normal,
     # flood and drought using dilation and erosion
-    water_mask_set = create_three_water_masks(
-        wbd_whole,
-        water_threshold=0.9,
+    water_mask_tif_name = f"water_mask_{pol_all_str}.tif"
+    water_mask_tif_str = os.path.join(
+        outputdir, f"{water_mask_tif_name}")
+    create_three_water_masks(
+        wbd_im_str,
+        water_mask_tif_name,
+        outputdir,
+        water_threshold=permanent_water_value,
         no_data=processing_cfg.reference_water.no_data_value,
         wbd_max_value=ref_water_max,
         drought_erosion_pixel=drought_erosion_pixel,
         flood_dilation_pixel=flood_dilation_pixel)
 
-    water_mask_tif_str = os.path.join(outputdir,
-                                      f"water_mask_{pol_all_str}.tif")
-    dswx_sar_util.save_raster_gdal(water_mask_set,
-                                   water_mask_tif_str,
-                                   geotransform=water_meta['geotransform'],
-                                   projection=water_meta['projection'],
-                                   scratch_dir=outputdir,
-                                   datatype='uint8')
+    water_portion = compute_water_portion(
+        wbd_im_str,
+        no_data_path=no_data_geotiff_path,
+        water_threshold=permanent_water_value,
+        water_body_max=ref_water_max,
+        lines_per_block=lines_per_block)
 
-    intensity_whole = filt_raster_tif.ReadAsArray()
-
-    if band_number == 1:
-        intensity_whole = intensity_whole[np.newaxis, :, :]
-
-    valid_area = np.squeeze(intensity_whole[0, :, :] > 0)
-    water_pixel_number = np.sum(water_mask_set[0, valid_area])
-    valid_pixel_number = np.sum(intensity_whole[0, :, :] > 0)
-
-    water_portion = water_pixel_number / valid_pixel_number
-    logger.info(f'water spatial coverage : {water_portion} ')  
+    logger.info(f'water spatial coverage : {water_portion} ')
 
     thres_max = np.empty([band_number])
     threshold_iteration = number_iterations
-    initial_water_set = np.ones([height, width, len(pol_list)])
 
     if water_portion == 1:
         # If the areas cover only water,
-        # then use the very high threshold to classify all pixels as water. 
+        # then use the very high threshold to classify all pixels as water.
         for band_ind in range(band_number):
             pol_str = pol_list[band_ind]
             thresh_file_str = os.path.join(outputdir,
@@ -1770,29 +1894,23 @@ def run(cfg):
         for iter_ind in range(threshold_iteration):
             logger.info(f'iterations : {iter_ind + 1} of {number_iterations}')
 
+            thres_max, int_sub_mean, int_sub_std, is_bimodal = \
+                compute_threshold_max_bound(
+                    intensity_path=filt_im_str,
+                    reference_water_path=wbd_im_str,
+                    water_max_value=ref_water_max,
+                    water_threshold=permanent_water_value,
+                    no_data_path=no_data_geotiff_path,
+                    lines_per_block=lines_per_block)
+
             for band_ind in range(band_number):
                 if pol_list[band_ind] == 'span':
                     thres_max[band_ind] = 30
                 else:
-                    int_water_array = intensity_whole[
-                        band_ind, (wbd_whole_norm > permanent_water_value) &
-                        (np.nansum(initial_water_set, axis=2) > 1)]
-                    int_water_array = remove_invalid(int_water_array)
-
-                    if len(int_water_array):
-                        metric_obj = refine_with_bimodality.BimodalityMetrics(int_water_array)
-                        is_bimodal = metric_obj.compute_metric()
-
-                        thres_max[band_ind], int_sub_mean, int_sub_std = compute_threshold_max_bound(
-                            int_water_array, is_bimodal, metric_obj)
-                    else:
-                        int_sub_mean, int_sub_std, thres_max[band_ind] = np.nan, np.nan, np.nan
-                        is_bimodal = False
-
                     logger.info(f'mean  intensity [dB] over water {pol_list[band_ind]}:'
-                                f' {int_sub_mean:.2f}, {is_bimodal}')
+                                f' {int_sub_mean[band_ind]:.2f}, {is_bimodal}')
                     logger.info(f'std   intensity [dB] over water {pol_list[band_ind]}:'
-                                f' {int_sub_std:.2f}, {is_bimodal}')
+                                f' {int_sub_std[band_ind]:.2f}, {is_bimodal}')
                     logger.info(f'max bound intensity [dB] over water {pol_list[band_ind]}:'
                                 f' {thres_max[band_ind]:.2f}, {is_bimodal}')
 
@@ -1857,10 +1975,6 @@ def run(cfg):
                     mode_tau_set,
                     block_row,
                     block_col)
-                testtest = threshold_tau_set[:, :, 0]
-                testtest[testtest == -50] = np.nan
-                testtest = threshold_tau_set[:, :, 1]
-                testtest[testtest == -50] = np.nan
 
             else:
                 threshold_tau_set = [[], [], []]
@@ -1948,61 +2062,47 @@ def run(cfg):
 
         # create initial map for iteration method
         if processing_cfg.debug_mode:
-            initial_water_set = np.zeros([height, width, len(pol_list)])
+            # initial_water_set = np.zeros([height, width, len(pol_list)])
+            data_shape = (height, width)
+            pad_shape = (0, 0)
 
             for polind, pol in enumerate(pol_list):
-                if threshold_extending_method == 'gdal_grid':
-                    thresh_file_str = os.path.join(outputdir,
-                                                f"int_threshold_filled_{pol}.tif")
-                    threshold_grid = dswx_sar_util.read_geotiff(thresh_file_str)
+                pad_shape = (0, 0)
+                block_params = dswx_sar_util.block_param_generator(
+                    lines_per_block,
+                    data_shape,
+                    pad_shape)
+                for block_param in block_params:
+                    thresh_file_str = os.path.join(
+                        outputdir, f"int_threshold_filled_{pol}.tif")
+                    threshold_block = dswx_sar_util.get_raster_block(
+                        thresh_file_str, block_param=block_param)
+                # threshold_grid = dswx_sar_util.read_geotiff(thresh_file_str)
+                    intensity_block = dswx_sar_util.get_raster_block(
+                        filt_im_str, block_param=block_param)
 
-                initial_water_binary = convert_pow2db(np.squeeze(
-                    intensity_whole[polind, :, :])) < threshold_grid
-                no_data_raster = np.squeeze(intensity_whole[polind, :, :]) == 0
+                    initial_water_binary = convert_pow2db(np.squeeze(
+                        intensity_block[polind, :, :])) < threshold_block
 
-                initial_water_set[:, :, polind] = initial_water_binary
-
-                water_tif_str = os.path.join(outputdir,
-                                            f"initial_water_{pol}_{iter_ind}.tif")
-
-                dswx_sar_util.save_dswx_product(
-                    initial_water_binary,
-                    water_tif_str,
-                    geotransform=water_meta['geotransform'],
-                    projection=water_meta['projection'],
-                    description='Water classification (WTR)',
-                    scratch_dir=outputdir,
-                    no_data=no_data_raster)
-
-                dswx_sar_util.save_raster_gdal(
-                    data=threshold_grid,
-                    output_file=os.path.join(outputdir,
-                                            f"int_threshold_filled_{pol}_georef.tif"),
-                    geotransform=water_meta['geotransform'],
-                    projection=water_meta['projection'],
-                    scratch_dir=outputdir)
-
-            if not average_threshold_flag:
-                dswx_sar_util.block_threshold_visulaization_rg(
-                    intensity_whole,
-                    threshold_tau_dict,
-                    outputdir=outputdir,
-                    figname=f'int_threshold_{iter_ind}iter_')
-            else:
-                for band_ind2 in range(band_number):
-                    dswx_sar_util.block_threshold_visulaization(
-                        np.squeeze(intensity_whole[band_ind2, :, :]),
-                        block_row,
-                        block_col,
-                        threshold_tau_set[:, :, band_ind2],
-                        outputdir,
-                        f'int_threshold_{pol_list[band_ind2]}_{iter_ind}')
-
-    filt_raster_tif.FlushCache()
-    filt_raster_tif = None
-    wbd_gdal.FlushCache()
-    wbd_gdal = None
-    del intensity_whole
+                    water_tif_str = os.path.join(
+                        outputdir, f"initial_water_{pol}_{iter_ind}.tif")
+                    dswx_sar_util.write_raster_block(
+                        out_raster=water_tif_str,
+                        data=initial_water_binary,
+                        block_param=block_param,
+                        geotransform=water_meta['geotransform'],
+                        projection=water_meta['projection'],
+                        datatype='byte')
+                    threshold_geotiff = \
+                        os.path.join(
+                            outputdir, f"int_threshold_filled_{pol}_georef.tif")
+                    dswx_sar_util.write_raster_block(
+                        out_raster=threshold_geotiff,
+                        data=threshold_block,
+                        block_param=block_param,
+                        geotransform=water_meta['geotransform'],
+                        projection=water_meta['projection'],
+                        datatype='float32')
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran computing initial threshold in "

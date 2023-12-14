@@ -46,7 +46,7 @@ band_assign_value_conf_dict = {
 
 @dataclass
 class Constants:
-    # negligible number to avoid the zero-division warning. 
+    # negligible number to avoid the zero-division warning.
     negligible_value : float = 1e-5
 
 def get_interpreted_dswx_s1_ctable():
@@ -196,7 +196,7 @@ def save_dswx_product(wtr, output_file, geotransform,
             print(f'    {band_key.lower()} found {dswx_product_value}')
     gdal_type = np2gdal_conversion[str(datatype)]
 
-    gdal_ds = driver.Create(output_file, 
+    gdal_ds = driver.Create(output_file,
                             shape[1], shape[0], 1, gdal_type)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
@@ -223,6 +223,7 @@ def save_dswx_product(wtr, output_file, geotransform,
     del gdal_ds  # close the dataset (Python object and pointers)
 
     _save_as_cog(output_file, scratch_dir)
+
 
 def _save_as_cog(filename,
                  scratch_dir='.',
@@ -334,10 +335,9 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
 
 def get_invalid_area(geotiff_path,
                      output_path=None,
-                     geotransform=None,
-                     projection=None, 
-                     scratch_dir=None):
-    """get invalid areas (NaN) from GeoTiff and save it 
+                     scratch_dir=None,
+                     lines_per_block=None):
+    """get invalid areas (NaN) from GeoTiff and save it
     to new GeoTiff
     Parameters
     ----------
@@ -345,29 +345,40 @@ def get_invalid_area(geotiff_path,
         full path for filename to get invalid area
     output_file: str
         full path for filename to save invalid area
-    geotransform: gdal
-        gdaltransform information
-    projection: gdal
-        projection object
+
     scratch_dir: str
         temporary file path to process COG file.
     """
-    image = read_geotiff(geotiff_path)
-    if image.ndim == 3:
-        no_data_raster = np.isnan(
-            np.squeeze(image[0, :, :]))
-    else:
-        no_data_raster = np.isnan(image)
+    im_meta = get_meta_from_tif(geotiff_path)
 
-    if output_path and geotransform and projection and scratch_dir:
-        save_dswx_product(no_data_raster,
-                          output_path,
-                          geotransform,
-                          projection,
-                          scratch_dir=scratch_dir)
-    else:
-        print('Not enough inforamtion are not given for GeoTiff.')
-    return no_data_raster
+    pad_shape = (0, 0)
+    block_params = block_param_generator(
+        lines_per_block=lines_per_block,
+        data_shape=(im_meta['length'],
+                    im_meta['width']),
+        pad_shape=pad_shape)
+
+    for block_param in block_params:
+        image = get_raster_block(
+            geotiff_path,
+            block_param)
+
+        if image.ndim == 3:
+            no_data_raster = np.isnan(
+                np.squeeze(image[0, :, :]))
+        else:
+            no_data_raster = np.isnan(image)
+
+        write_raster_block(
+            out_raster=output_path,
+            data=no_data_raster,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='byte')
+
+    if scratch_dir is not None:
+        _save_as_cog(output_path, scratch_dir)
 
 
 def get_meta_from_tif(tif_file_name):
@@ -434,11 +445,11 @@ def get_raster_block(raster_path, block_param):
             block_param.read_start_line,
             block_param.data_width,
             block_param.read_length)
-        
+
         # Pad data_block with zeros according to pad_length/pad_width
-        data_block = np.pad(data_block, block_param.block_pad, 
+        data_block = np.pad(data_block, block_param.block_pad,
                             mode='constant', constant_values=0)
-        
+
         data_blocks.append(data_block)
     data_blocks = np.array(data_blocks)
 
@@ -465,6 +476,8 @@ def write_raster_block(out_raster, data,
     '''
     if datatype == 'float32':
         gdal_type = gdal.GDT_Float32
+    elif datatype == 'float64':
+        gdal_type = gdal.GDT_Float64
     elif datatype == 'uint16':
         gdal_type = gdal.GDT_UInt16
     elif datatype == 'byte':
@@ -473,27 +486,48 @@ def write_raster_block(out_raster, data,
         gdal_type = gdal.GDT_Int16
     elif datatype == 'int32':
         gdal_type = gdal.GDT_Int32
+    data = np.array(data, dtype=datatype)
+    nim = data.ndim
+    if nim == 2:
+        number_band = 1
+    else:
+        # assume that first dimension represents the number of bands
+        number_band = data.shape[0]
+
+    data_start_without_pad = block_param.write_start_line - \
+        block_param.read_start_line
+    data_end_without_pad = data_start_without_pad + \
+        block_param.block_length
 
     if block_param.write_start_line == 0:
         driver = gdal.GetDriverByName('GTiff')
         ds_data = driver.Create(out_raster,
                                 block_param.data_width,
                                 block_param.data_length,
-                                1, gdal_type)
+                                number_band, gdal_type)
         ds_data.SetGeoTransform(geotransform)
         ds_data.SetProjection(projection)
-        ds_data.WriteArray(data, xoff=0, yoff=0)
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
+
+    if nim == 2:
         ds_data.GetRasterBand(1).WriteArray(
-                data,
+                data[data_start_without_pad:data_end_without_pad,
+                    :],
+                xoff=0,
+                yoff=block_param.write_start_line)
+    else:
+        for im_ind in range(0, number_band):
+            ds_data.GetRasterBand(im_ind+1).WriteArray(
+                np.squeeze(data[im_ind,
+                                data_start_without_pad:data_end_without_pad,
+                                :]),
                 xoff=0,
                 yoff=block_param.write_start_line)
 
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):
     ''' Generator for block specific parameter class.
-
     Parameters
     ----------
     lines_per_block: int
@@ -502,7 +536,6 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         Length and width of input raster.
     pad_shape: tuple(int, int)
         Padding for the length and width of block to be filtered.
-
     Returns
     -------
     _: BlockParam
@@ -510,8 +543,9 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
     '''
     data_length, data_width = data_shape
     pad_length, pad_width = pad_shape
-    half_path_length = pad_length // 2
-    half_path_width = pad_width // 2
+    half_pad_length = pad_length // 2
+    half_pad_width = pad_width // 2
+
     # Calculate number of blocks to break raster into
     num_blocks = int(np.ceil(data_length / lines_per_block))
 
@@ -526,17 +560,16 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         # Determine block size; Last block uses leftover lines
         block_length = data_length - start_line \
             if last_block else lines_per_block
-
         # Determine padding along length. Full padding for middle blocks
         # Half padding for start and end blocks
-        read_length_pad = pad_length if middle_block else half_path_length
+        read_length_pad = pad_length if middle_block else half_pad_length
 
         # Determine 1st line of output
         write_start_line = block * lines_per_block
 
         # Determine 1st dataset line to read. Subtract half padding length
         # to account for additional lines to be read.
-        read_start_line = block * lines_per_block - half_path_length
+        read_start_line = block * lines_per_block - half_pad_length
 
         # If applicable, save negative start line as deficit
         # to account for later
@@ -557,17 +590,15 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
 
         # Determine block padding in length
         if first_block:
-            # Only the top part of the block should be padded.
-            # If end_deficit_line=0
-            # we have a sufficient number of lines to be read in
-            # the subsequent block
-            top_pad = half_path_length
+            # Only the top part of the block should be padded. If end_deficit_line=0
+            # we have a sufficient number of lines to be read in the subsequent block
+            top_pad = half_pad_length
             bottom_pad = abs(end_line_deficit)
         elif last_block:
             # Only the bottom part of the block should be padded
             top_pad = abs(
                 start_line_deficit) if start_line_deficit < 0 else 0
-            bottom_pad = half_path_length
+            bottom_pad = half_pad_length
         else:
             # Top and bottom should be added taking into account line deficit
             top_pad = abs(
@@ -575,10 +606,15 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
             bottom_pad = abs(end_line_deficit)
 
         block_pad = ((top_pad, bottom_pad),
-                     (half_path_width, half_path_width))
+                     (half_pad_width, half_pad_width))
 
-        yield BlockParam(block_length, write_start_line, read_start_line,
-                         read_length, block_pad, data_width, data_length)
+        yield BlockParam(block_length,
+                         write_start_line,
+                         read_start_line,
+                         read_length,
+                         block_pad,
+                         data_width,
+                         data_length)
 
     return
 
@@ -646,14 +682,14 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     Parameters:
     -----------
     intensity : numpy.ndarray
-        A 2D or 3D array representing the intensity of the image. 
+        A 2D or 3D array representing the intensity of the image.
         If 3D, only the second and third dimensions (rows and columns) are used for visualization.
     block_row : int
         The number of rows in each block/subtile.
     block_col : int
         The number of columns in each block/subtile.
     threshold_tile : numpy.ndarray
-        2D array containing the threshold values for each block/subtile. 
+        2D array containing the threshold values for each block/subtile.
         Its dimensions should match the number of blocks in the intensity image.
     outputdir : str
         Path to the directory where visualizations will be saved.
@@ -665,18 +701,18 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     None. The visualized figure is saved to the specified directory.
     """
     if len(intensity.shape) == 2:
-        rows, cols = np.shape(intensity)  
+        rows, cols = np.shape(intensity)
     elif len(intensity.shape) == 3:
-        _, rows, cols = np.shape(intensity)  
+        _, rows, cols = np.shape(intensity)
     ## Tile Selection (w/o water body)
-    
-    nR = np.int16(rows / block_row) 
+
+    nR = np.int16(rows / block_row)
     nC = np.int16(cols / block_col)
     mR = np.mod(rows, block_row)
     mC = np.mod(cols, block_col)
-    nR = nR + ( 1 if mR > 0 else 0) 
-    nC = nC + ( 1 if mC > 0 else 0) 
-    
+    nR = nR + ( 1 if mR > 0 else 0)
+    nC = nC + ( 1 if mC > 0 else 0)
+
     assert nR == threshold_tile.shape[0], 'tile size error'
     assert nC == threshold_tile.shape[1], 'tile size error'
 
@@ -686,7 +722,7 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
     vmin = np.nanpercentile(intensity,5)
     vmax = np.nanpercentile(intensity,95)
     plt.imshow(intensity, cmap = plt.get_cmap('gray'),vmin=vmin,vmax=vmax)
-       
+
     threshold_oversample = np.zeros([rows, cols])
     for ii in range(0,nR):
         for jj in range(0,nC):
@@ -697,9 +733,9 @@ def block_threshold_visulaization(intensity, block_row, block_col, threshold_til
             if (jj == nC) and ( mC > 0):
                 jend = cols
             else:
-                jend = (jj + 1) * block_col 
+                jend = (jj + 1) * block_col
             threshold_oversample[ii*block_row : iend, jj*block_col:jend] = threshold_tile[ii, jj]
-            plt.plot( 
+            plt.plot(
                 [jj*block_col,jend, jend, jj*block_col, jj*block_col],[ii*block_row, ii*block_row, iend, iend, ii*block_row] ,'black')
     threshold_oversample[threshold_oversample==-50] = np.nan
     plt.imshow(threshold_oversample, alpha=0.3, cmap = plt.get_cmap('jet'), vmin=-20, vmax=-14)
@@ -715,12 +751,12 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
     Parameters:
     -----------
     intensity : numpy.ndarray
-        2D or 3D array representing the intensity of the image. 
+        2D or 3D array representing the intensity of the image.
         If 3D, the first dimension is considered as the band index.
     threshold_dict : dict
         A dictionary containing:
         * 'array': A nested list of threshold values for each band and block.
-        * 'subtile_coord': A nested list of block coordinates for each band and block, 
+        * 'subtile_coord': A nested list of block coordinates for each band and block,
           in the format [[start_row, end_row, start_col, end_col], ...].
     outputdir : str
         Path to the directory where visualizations will be saved.
@@ -745,24 +781,24 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
         plt.figure(figsize=(20, 20))
         vmin = np.nanpercentile(intensity_db, 5)
         vmax = np.nanpercentile(intensity_db, 95)
-        
+
         # Display the main intensity image
         plt.imshow(intensity_db, cmap='gray', vmin=vmin, vmax=vmax)
-        
+
         # Prepare a matrix for the overlaid threshold values
         threshold_overlay = np.full((rows, cols), np.nan)
-        
+
         for threshold, coords in zip(threshold_dict['array'][band_index], threshold_dict['subtile_coord'][band_index]):
             start_row, end_row, start_col, end_col = coords
             threshold_overlay[start_row:end_row, start_col:end_col] = threshold
-            
+
             # Draw a block boundary for visualization
             plt.plot([start_col, end_col, end_col, start_col, start_col],
                      [start_row, start_row, end_row, end_row, start_row], 'black')
-        
+
         # Overlay the threshold values on top of the intensity image
         plt.imshow(threshold_overlay, alpha=0.3, cmap='jet', vmin=-20, vmax=-14)
-        
+
         # Save the visualization to file
         plt.savefig(os.path.join(outputdir, f'{figname}_{band_index}'))
         plt.close()

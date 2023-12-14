@@ -79,6 +79,7 @@ runconfig:
             number_cpu: -1
             number_iterations: 1
             tile_average: False
+            line_per_block: 300
 
         fuzzy_value:
             line_per_block: 200
@@ -163,6 +164,7 @@ runconfig:
             dual_pol_ratio_threshold: 8
             cross_pol_min: -26
             line_per_block: 300
+            target_land_cover: ['Herbaceous wetland']
 
         # debug mode is true, intermediate product is generated.
         debug_mode: False

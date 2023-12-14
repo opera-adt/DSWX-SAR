@@ -47,7 +47,8 @@ def create_slope_angle_geotiff(dem_path,
                                slope_path,
                                geotransform,
                                projection,
-                               scrath_dir):
+                               scrath_dir,
+                               lines_per_block):
     """create Geotiff File for slope angel
     Parameters
     ----------
@@ -61,15 +62,32 @@ def create_slope_angle_geotiff(dem_path,
         projection object
     scratch_dir: str
         temporary file path to process COG file.
+    lines_per_block: int
+        lines per block processing
     """
-    dem = dswx_sar_util.read_geotiff(dem_path)
-    slope = compute_slope_dem(dem)
-    dswx_sar_util.save_raster_gdal(
-        data=slope,
-        output_file=slope_path,
-        geotransform=geotransform,
-        projection=projection,
-        scratch_dir=scrath_dir)
+    pad_shape = (SOBEL_KERNEL_SIZE, 0)
+    im_meta = dswx_sar_util.get_meta_from_tif(dem_path)
+
+    block_params = dswx_sar_util.block_param_generator(
+        lines_per_block=lines_per_block,
+        data_shape=(im_meta['length'],
+                    im_meta['width']),
+        pad_shape=pad_shape)
+
+    for block_param in block_params:
+        dem = dswx_sar_util.get_raster_block(
+            dem_path,
+            block_param)
+        slope = compute_slope_dem(dem)
+
+        dswx_sar_util.write_raster_block(
+            out_raster=slope_path,
+            data=slope,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='float32')
+
 
 def smf(values, minv, maxv):
     ''' Generate S-shape function for the given values
@@ -91,8 +109,8 @@ def smf(values, minv, maxv):
     center_value = (minv + maxv) / 2
     output= np.zeros(np.shape(values), dtype='float32')
 
-    # When using numpy arrays for min and max values in 
-    # a membership function, identical elements in these 
+    # When using numpy arrays for min and max values in
+    # a membership function, identical elements in these
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
@@ -135,8 +153,8 @@ def zmf(values, minv, maxv):
     '''
     output = np.zeros(np.shape(values))
 
-    # When using numpy arrays for min and max values in 
-    # a membership function, identical elements in these 
+    # When using numpy arrays for min and max values in
+    # a membership function, identical elements in these
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
@@ -308,7 +326,7 @@ def compute_fuzzy_value(intensity,
         if pol in ['VH', 'HV']:
             pol_threshold = fuzzy_option['dark_area_land']
             water_threshold = fuzzy_option['dark_area_water']
-            low_backscatter = (intensity[int_id, :, :] < pol_threshold) 
+            low_backscatter = (intensity[int_id, :, :] < pol_threshold)
             # Low backscattering candidates
             low_backscatter_cand &= low_backscatter
             dark_water_cand &= intensity[int_id, :, :] < water_threshold
@@ -481,8 +499,9 @@ def run(cfg):
     landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
     slope_gdal_str = os.path.join(outputdir, 'slope.tif')
-    no_data_raster_path = os.path.join(outputdir,
-                                         f"no_data_area_{pol_all_str}.tif")
+    no_data_raster_path = os.path.join(
+        outputdir,
+        f"no_data_area_{pol_all_str}.tif")
 
     # Output of Fuzzy_computation
     fuzzy_output_str = os.path.join(
@@ -497,7 +516,8 @@ def run(cfg):
         slope_gdal_str,
         geotransform=im_meta['geotransform'],
         projection=im_meta['projection'],
-        scrath_dir=outputdir)
+        scrath_dir=outputdir,
+        lines_per_block=lines_per_block)
 
     landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 

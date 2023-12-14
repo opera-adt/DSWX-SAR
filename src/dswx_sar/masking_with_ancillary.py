@@ -71,7 +71,7 @@ class FillMaskLandCover:
         return landcover_map
 
 
-    def get_mask(self, mask_label):
+    def get_mask(self, mask_label, block_param=None):
         '''Obtain areas corresponding to the givin labels from landcover map
 
         Parameters
@@ -84,7 +84,13 @@ class FillMaskLandCover:
         landcover_binary : numpy.ndarray
             binary layers
         '''
-        landcover = self.open_landcover()
+        if block_param == None:
+            landcover = self.open_landcover()
+        else:
+            landcover = dswx_sar_util.get_raster_block(
+                self.landcover_file_path,
+                block_param)
+
         landcover_label = get_label_landcover_esa_10()
         landcover_binary = np.zeros(landcover.shape, dtype=bool)
         for label_name in mask_label:

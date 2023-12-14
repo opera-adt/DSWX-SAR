@@ -1047,13 +1047,6 @@ def run(cfg):
     no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
     im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
 
-    dswx_sar_util.get_invalid_area(
-        filt_im_str,
-        no_data_geotiff_path,
-        projection=im_meta['projection'],
-        geotransform=im_meta['geotransform'],
-        scratch_dir=outputdir)
-
     # read the result of landcover masindex_array_to_imageg
     water_map_tif_str =  os.path.join(outputdir,
                                       'refine_landcover_binary_{}.tif'.format(pol_str))

@@ -40,7 +40,7 @@ def check_validity(geotiff_path, value_list):
     the mean value of its pixels.
 
     This function reads a GeoTIFF file, calculates its mean pixel
-    value, and performs two checks: 
+    value, and performs two checks:
     1. If the mean value is NaN, it indicates that some pixels in
        the file have NaN values.
     2. If the mean value equals any value in the provided 'value_list',
@@ -408,18 +408,21 @@ def run(cfg):
                 else:
                     intensity = dswx_sar_util.read_geotiff(
                             ref_filename, band_ind=polind)
-
+                # need to replace 0 value in padded area to NaN.
+                intensity[intensity==0] = np.nan
                 if filter_flag:
                     filtered_intensity = filter_SAR.lee_enhanced_filter(
                                     intensity,
                                     win_size=filter_size)
-                    filtered_intensity[filtered_intensity == 0] = np.nan
-                    output_image_set.append(filtered_intensity)
+
                 else:
                     filtered_intensity = intensity
-                    output_image_set.append(filtered_intensity)
 
-        output_image_set = np.array(output_image_set)
+                output_image_set.append(filtered_intensity)
+
+        output_image_set = np.array(output_image_set, dtype='float32')
+        output_image_set[output_image_set == 0] = np.nan
+
         dswx_sar_util.write_raster_block(
             out_raster=filtered_image_path,
             data=output_image_set,

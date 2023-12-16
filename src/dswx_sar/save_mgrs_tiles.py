@@ -566,7 +566,7 @@ def run(cfg):
     # 4) inundated_vegetation
     if processing_cfg.inundated_vegetation.enabled:
         inundated_vegetation = dswx_sar_util.read_geotiff(
-            os.path.join(outputdir, "temp_inundated_vegetation.tif"))
+            os.path.join(outputdir, f"temp_inundated_vegetation_{pol_str}.tif"))
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1

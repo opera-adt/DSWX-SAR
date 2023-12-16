@@ -449,13 +449,15 @@ def get_raster_block(raster_path, block_param):
         # Pad data_block with zeros according to pad_length/pad_width
         data_block = np.pad(data_block, block_param.block_pad,
                             mode='constant', constant_values=0)
-
+        if data_block.ndim == 1:
+            data_block = data_block[np.newaxis, :]
         data_blocks.append(data_block)
     data_blocks = np.array(data_blocks)
 
     if num_bands == 1:
-        data_blocks = np.squeeze(data_blocks)
-
+        data_blocks = np.reshape(data_blocks,
+                                 [data_blocks.shape[1],
+                                  data_blocks.shape[2]])
     return data_blocks
 
 
@@ -490,6 +492,9 @@ def write_raster_block(out_raster, data,
     nim = data.ndim
     if nim == 2:
         number_band = 1
+    elif nim == 1:
+        number_band = 1
+        data = data[np.newaxis, :]
     else:
         # assume that first dimension represents the number of bands
         number_band = data.shape[0]

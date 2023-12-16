@@ -311,7 +311,7 @@ def compute_fuzzy_value(intensity,
         peak_threshold_raster = dswx_sar_util.get_raster_block(
             thresh_peak_str, block_param)
 
-        intensity_band = np.squeeze(intensity[int_id, :, :])
+        intensity_band = intensity[int_id, :, :]
 
         # Fuzzy membership computation from intensity
         # lower intensity is more likely to be water -> zmf
@@ -605,7 +605,9 @@ def run(cfg):
                 dswx_sar_util.write_raster_block(
                     out_raster=\
                         os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
-                    data=np.squeeze(intensity_z[polind,:,:]),
+                    data=np.reshape(intensity_z[polind,:,:], 
+                                    [intensity_z.shape[1],
+                                     intensity_z.shape[2]]),
                     block_param=block_param,
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],

@@ -1249,7 +1249,6 @@ def fill_threshold_with_gdal(threshold_array,
                     f"nodata=0.000 -outsize {cols} {rows} -ot Float32"
 
             os.system(gdal_grid_str)
-            threshold_raster.append(dswx_sar_util.read_geotiff(tif_file_str))
         else:
             logger.info('threshold array is empty')
 
@@ -1275,10 +1274,6 @@ def fill_threshold_with_gdal(threshold_array,
 
             # Close the dataset
             ds = None
-            threshold_raster.append(
-                np.ones([rows, cols], dtype=np.float64) * -50)
-
-    return np.array(threshold_raster)
 
 
 def fill_threshold_with_distance(threshold_array,
@@ -1701,7 +1696,8 @@ def compute_threshold_max_bound(intensity_path,
             valid_mask = \
                 (water_body_data / water_max_value > water_threshold) & \
                 (no_data_area == 0)
-
+            if valid_mask.ndim == 1:
+                valid_mask = valid_mask[np.newaxis, :]
             # Get intensity array over valid regions
             # for band_ind in range(im_meta['band_number']):
             int_water_array = intensity_array[band_ind][valid_mask]
@@ -2061,48 +2057,51 @@ def run(cfg):
                         average_tile=average_threshold_flag)
 
         # create initial map for iteration method
-        if processing_cfg.debug_mode:
-            # initial_water_set = np.zeros([height, width, len(pol_list)])
-            data_shape = (height, width)
-            pad_shape = (0, 0)
+        # if processing_cfg.debug_mode:
+        #     # initial_water_set = np.zeros([height, width, len(pol_list)])
+        #     data_shape = (height, width)
+        #     pad_shape = (0, 0)
 
-            for polind, pol in enumerate(pol_list):
-                pad_shape = (0, 0)
-                block_params = dswx_sar_util.block_param_generator(
-                    lines_per_block,
-                    data_shape,
-                    pad_shape)
-                for block_param in block_params:
-                    thresh_file_str = os.path.join(
-                        outputdir, f"int_threshold_filled_{pol}.tif")
-                    threshold_block = dswx_sar_util.get_raster_block(
-                        thresh_file_str, block_param=block_param)
-                # threshold_grid = dswx_sar_util.read_geotiff(thresh_file_str)
-                    intensity_block = dswx_sar_util.get_raster_block(
-                        filt_im_str, block_param=block_param)
+        #     for polind, pol in enumerate(pol_list):
+        #         pad_shape = (0, 0)
+        #         block_params = dswx_sar_util.block_param_generator(
+        #             lines_per_block,
+        #             data_shape,
+        #             pad_shape)
+        #         for block_param in block_params:
+        #             thresh_file_str = os.path.join(
+        #                 outputdir, f"int_threshold_filled_{pol}.tif")
+        #             threshold_block = dswx_sar_util.get_raster_block(
+        #                 thresh_file_str, block_param=block_param)
+        #         # threshold_grid = dswx_sar_util.read_geotiff(thresh_file_str)
+        #             intensity_block = dswx_sar_util.get_raster_block(
+        #                 filt_im_str, block_param=block_param)
 
-                    initial_water_binary = convert_pow2db(np.squeeze(
-                        intensity_block[polind, :, :])) < threshold_block
+        #             initial_water_binary = convert_pow2db(np.squeeze(
+        #                 intensity_block[polind, :, :])) < threshold_block
+        #             if initial_water_binary.ndim == 1:
+        #                 initial_water_binary = initial_water_binary[np.newaxis, :]
+        #                 threshold_block = threshold_block[np.newaxis, :]
 
-                    water_tif_str = os.path.join(
-                        outputdir, f"initial_water_{pol}_{iter_ind}.tif")
-                    dswx_sar_util.write_raster_block(
-                        out_raster=water_tif_str,
-                        data=initial_water_binary,
-                        block_param=block_param,
-                        geotransform=water_meta['geotransform'],
-                        projection=water_meta['projection'],
-                        datatype='byte')
-                    threshold_geotiff = \
-                        os.path.join(
-                            outputdir, f"int_threshold_filled_{pol}_georef.tif")
-                    dswx_sar_util.write_raster_block(
-                        out_raster=threshold_geotiff,
-                        data=threshold_block,
-                        block_param=block_param,
-                        geotransform=water_meta['geotransform'],
-                        projection=water_meta['projection'],
-                        datatype='float32')
+        #             water_tif_str = os.path.join(
+        #                 outputdir, f"initial_water_{pol}_{iter_ind}.tif")
+        #             dswx_sar_util.write_raster_block(
+        #                 out_raster=water_tif_str,
+        #                 data=initial_water_binary,
+        #                 block_param=block_param,
+        #                 geotransform=water_meta['geotransform'],
+        #                 projection=water_meta['projection'],
+        #                 datatype='byte')
+        #             threshold_geotiff = \
+        #                 os.path.join(
+        #                     outputdir, f"int_threshold_filled_{pol}_georef.tif")
+        #             dswx_sar_util.write_raster_block(
+        #                 out_raster=threshold_geotiff,
+        #                 data=threshold_block,
+        #                 block_param=block_param,
+        #                 geotransform=water_meta['geotransform'],
+        #                 projection=water_meta['projection'],
+        #                 datatype='float32')
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran computing initial threshold in "

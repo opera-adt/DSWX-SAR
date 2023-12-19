@@ -127,24 +127,26 @@ def save_raster_gdal(data, output_file, geotransform,
     #  Set the Pixel Data (Create some boxes)
     # set geotransform
     if data.ndim == 3:
-        nim = image_size[0]
+        ndim = image_size[0]
         ny = image_size[1]
         nx = image_size[2]
     elif data.ndim == 2:
         ny = image_size[0]
         nx = image_size[1]
-        nim = 1
+        ndim = 1
 
     driver = gdal.GetDriverByName("GTiff")
     output_file_path = os.path.join(output_file)
-    gdal_ds = driver.Create(output_file_path, nx, ny, nim, gdal_type)
+    gdal_ds = driver.Create(output_file_path,
+                            nx, ny,
+                            ndim, gdal_type)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
 
     if data.ndim == 2:
         gdal_ds.GetRasterBand(1).WriteArray(data)
     else:
-        for im_ind in range(0, nim):
+        for im_ind in range(0, ndim):
             gdal_ds.GetRasterBand(im_ind+1).WriteArray(
                 np.squeeze(data[im_ind, :, :]))
 
@@ -413,6 +415,34 @@ def get_meta_from_tif(tif_file_name):
     return meta_dict
 
 
+def create_geotiff_with_one_value(outpath, shape, filled_value):
+    """
+    Create a new GeoTIFF file filled with a specified value.
+
+    Parameters:
+    ----------
+    outpath: str
+        The file path where the new GeoTIFF will be saved.
+    shape: tuple
+        A tuple (height, width) representing the dimensions of the GeoTIFF.
+    filled_value: float
+        The value with which the GeoTIFF will be filled.
+    """
+    # Set up the new file's spatial properties
+    height, width= shape
+
+    # Create the file with a single band, Float32 type
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(outpath, width, height, 1, gdal.GDT_Float32)
+
+    # Write zeros to the raster band
+    band = ds.GetRasterBand(1)
+    band.WriteArray(np.full((height, width), filled_value, dtype=np.float32))
+    band.FlushCache()
+
+    ds = None  # Close the file
+
+
 def get_raster_block(raster_path, block_param):
     ''' Get a block of data from raster.
         Raster can be a HDF5 file or a GDAL-friendly raster
@@ -456,8 +486,7 @@ def get_raster_block(raster_path, block_param):
 
     if num_bands == 1:
         data_blocks = np.reshape(data_blocks,
-                                 [data_blocks.shape[1],
-                                  data_blocks.shape[2]])
+                                 [data_blocks.shape[1:3]])
     return data_blocks
 
 
@@ -489,10 +518,10 @@ def write_raster_block(out_raster, data,
     elif datatype == 'int32':
         gdal_type = gdal.GDT_Int32
     data = np.array(data, dtype=datatype)
-    nim = data.ndim
-    if nim == 2:
+    ndim = data.ndim
+    if ndim == 2:
         number_band = 1
-    elif nim == 1:
+    elif ndim == 1:
         number_band = 1
         data = data[np.newaxis, :]
     else:
@@ -515,7 +544,7 @@ def write_raster_block(out_raster, data,
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
 
-    if nim == 2:
+    if ndim == 2:
         ds_data.GetRasterBand(1).WriteArray(
                 data[data_start_without_pad:data_end_without_pad,
                     :],
@@ -681,71 +710,65 @@ def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     plt.savefig(os.path.join(outputdir, f'RTC_intensity_{pol}'))
 
 
-def block_threshold_visulaization(intensity, block_row, block_col, threshold_tile, outputdir, figname):
-    """Visualize an intensity image overlaid with threshold values from specified blocks/subtiles.
+def block_threshold_visualization(intensity, block_row, block_col,
+                                  threshold_tile, output_dir, fig_name):
+    """
+    Visualize an intensity image overlaid with threshold values from
+    specified blocks/subtiles.
 
     Parameters:
     -----------
     intensity : numpy.ndarray
-        A 2D or 3D array representing the intensity of the image.
-        If 3D, only the second and third dimensions (rows and columns) are used for visualization.
+        A 2D or 3D array representing the image intensity. If 3D, only the
+        second and third dimensions (rows and columns) are used.
     block_row : int
-        The number of rows in each block/subtile.
+        Number of rows in each block/subtile.
     block_col : int
-        The number of columns in each block/subtile.
+        Number of columns in each block/subtile.
     threshold_tile : numpy.ndarray
-        2D array containing the threshold values for each block/subtile.
-        Its dimensions should match the number of blocks in the intensity image.
-    outputdir : str
-        Path to the directory where visualizations will be saved.
-    figname : str
+        2D array with threshold values for each block/subtile. Dimensions
+        should match the number of blocks in the intensity image.
+    output_dir : str
+        Directory path for saving visualizations.
+    fig_name : str
         Name for the saved visualization figure.
-
-    Returns:
-    --------
-    None. The visualized figure is saved to the specified directory.
     """
-    if len(intensity.shape) == 2:
-        rows, cols = np.shape(intensity)
-    elif len(intensity.shape) == 3:
-        _, rows, cols = np.shape(intensity)
-    ## Tile Selection (w/o water body)
 
-    nR = np.int16(rows / block_row)
-    nC = np.int16(cols / block_col)
-    mR = np.mod(rows, block_row)
-    mC = np.mod(cols, block_col)
-    nR = nR + ( 1 if mR > 0 else 0)
-    nC = nC + ( 1 if mC > 0 else 0)
+    if intensity.ndim == 2:
+        rows, cols = intensity.shape
+    elif intensity.ndim == 3:
+        _, rows, cols = intensity.shape
 
-    assert nR == threshold_tile.shape[0], 'tile size error'
-    assert nC == threshold_tile.shape[1], 'tile size error'
+    nrow_tile = rows // block_row + (1 if rows % block_row > 0 else 0)
+    ncol_tile = cols // block_col + (1 if cols % block_col > 0 else 0)
 
-    intensity = 10*np.log10(intensity)
+    assert nrow_tile == threshold_tile.shape[0], 'Row tile size error'
+    assert ncol_tile == threshold_tile.shape[1], 'Column tile size error'
 
-    plt.figure(figsize=(20,20))
-    vmin = np.nanpercentile(intensity,5)
-    vmax = np.nanpercentile(intensity,95)
-    plt.imshow(intensity, cmap = plt.get_cmap('gray'),vmin=vmin,vmax=vmax)
+    intensity_db = 10 * np.log10(intensity)
 
-    threshold_oversample = np.zeros([rows, cols])
-    for ii in range(0,nR):
-        for jj in range(0,nC):
-            if (ii == nR) and ( mR > 0):
-                iend = rows
-            else:
-                iend = (ii + 1) * block_row
-            if (jj == nC) and ( mC > 0):
-                jend = cols
-            else:
-                jend = (jj + 1) * block_col
-            threshold_oversample[ii*block_row : iend, jj*block_col:jend] = threshold_tile[ii, jj]
-            plt.plot(
-                [jj*block_col,jend, jend, jj*block_col, jj*block_col],[ii*block_row, ii*block_row, iend, iend, ii*block_row] ,'black')
-    threshold_oversample[threshold_oversample==-50] = np.nan
-    plt.imshow(threshold_oversample, alpha=0.3, cmap = plt.get_cmap('jet'), vmin=-20, vmax=-14)
+    plt.figure(figsize=(20, 20))
+    vmin, vmax = np.nanpercentile(intensity_db, [5, 95])
+    plt.imshow(intensity_db, cmap='gray', vmin=vmin, vmax=vmax)
 
-    plt.savefig(os.path.join(outputdir, figname) )
+    threshold_oversample = np.zeros_like(intensity_db)
+    for i in range(nrow_tile):
+        for j in range(ncol_tile):
+            i_end = min((i + 1) * block_row, rows)
+            j_end = min((j + 1) * block_col, cols)
+
+            threshold_oversample[i*block_row:i_end, j*block_col:j_end] = \
+                threshold_tile[i, j]
+
+            plt.plot([j*block_col, j_end, j_end, j*block_col, j*block_col],
+                     [i*block_row, i*block_row, i_end, i_end, i*block_row],
+                     'black')
+
+    threshold_oversample[threshold_oversample == -50] = np.nan
+    plt.imshow(threshold_oversample, alpha=0.3, cmap='jet',
+               vmin=-20, vmax=-14)
+
+    plt.savefig(os.path.join(output_dir, fig_name))
     plt.close()
 
 

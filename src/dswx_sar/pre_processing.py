@@ -300,8 +300,8 @@ def run(cfg):
                                  method='near')
 
     # Check if the interpolated DEM exists
-    dem_interpolated_path = Path(os.path.join(
-        scratch_dir, 'interpolated_DEM.tif'))
+    dem_interpolated_path = \
+        Path(scratch_dir) / 'interpolated_DEM.tif'
     dem_reprocessing_flag = False
     if not dem_interpolated_path.is_file():
         logger.info('interpolated dem : not found ')
@@ -321,8 +321,8 @@ def run(cfg):
         check_validity(interpolated_dem_path, [0])
 
     # check if the interpolated landcover exists
-    landcover_interpolated_path = Path(os.path.join(
-        scratch_dir, 'interpolated_landcover.tif'))
+    landcover_interpolated_path = \
+        Path(scratch_dir) / 'interpolated_landcover.tif'
     if not landcover_interpolated_path.is_file():
         ancillary_reloc.relocate(landcover_file,
                                  'interpolated_landcover.tif',

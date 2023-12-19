@@ -45,11 +45,8 @@ def compute_slope_dem(dem):
 
 def create_slope_angle_geotiff(dem_path,
                                slope_path,
-                               geotransform,
-                               projection,
-                               scrath_dir,
                                lines_per_block):
-    """create Geotiff File for slope angel
+    """create Geotiff File for slope angle
     Parameters
     ----------
     dem_path: str
@@ -514,9 +511,6 @@ def run(cfg):
     create_slope_angle_geotiff(
         dem_gdal_str,
         slope_gdal_str,
-        geotransform=im_meta['geotransform'],
-        projection=im_meta['projection'],
-        scrath_dir=outputdir,
         lines_per_block=lines_per_block)
 
     landcover_label = masking_with_ancillary.get_label_landcover_esa_10()

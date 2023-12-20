@@ -14,7 +14,7 @@ from dswx_sar import (detect_inundated_vegetation,
                       region_growing,)
 from dswx_sar.dswx_runconfig import (_get_parser,
                                      RunConfig,
-                                     dswx_s1_pol_dict)
+                                     DSWX_S1_POL_DICT)
 from dswx_sar import generate_log
 
 logger = logging.getLogger('dswx_s1')
@@ -37,11 +37,11 @@ def dswx_s1_workflow(cfg):
     mosaic_rtc_burst.run(cfg)
 
     if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [dswx_s1_pol_dict['DV_POL'],
-                        dswx_s1_pol_dict['DH_POL']]
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [dswx_s1_pol_dict['SV_POL'],
-                        dswx_s1_pol_dict['SH_POL']]
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
     else:
         proc_pol_set = [pol_list]
 

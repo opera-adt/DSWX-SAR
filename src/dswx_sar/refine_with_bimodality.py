@@ -739,6 +739,8 @@ def remove_false_water_bimodality_parallel(water_mask,
     Remove falsely detected water bimodality from an image in parallel.
     This function identifies and processes areas of water and adjacent lands
     to verify and refine the accuracy of water detection in an image.
+    This function should be used only for ['VV', 'VH', 'HH', 'HV'].
+    In the case that the other polarization is given, then return input as it is. 
 
     Parameters:
     -----------
@@ -769,7 +771,7 @@ def remove_false_water_bimodality_parallel(water_mask,
     bimodality_total: numpy.ndarray
         An image indicating the bimodality values across the entire scene.
     """
-
+    print('pol_list', pol_list)
     rows, cols = meta_info['length'], meta_info['width']
 
     # computes the connected components labeled image of boolean image
@@ -796,11 +798,14 @@ def remove_false_water_bimodality_parallel(water_mask,
     sizes = stats_water[1:, -1]
     bounding_boxes = stats_water[1:, :4]
 
+    # If the polarization is not in the list ['VV', 'VH', 'HH', 'HV'],
+    # Return input as it is without further modification.
     bimodality_total = water_mask.copy()
     del water_mask
 
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'VH', 'HH', 'HV']:
+            logger.info(f'removing false water using bimodality for {pol}')
             # 1 dimensional array for bimodality values
             bimodality_array = np.zeros([nb_components_water])
 
@@ -1099,7 +1104,7 @@ def run(cfg):
     bimodal_binary = \
         remove_false_water_bimodality_parallel(
             water_mask_image==1,
-            pol_list=[co_pol],
+            pol_list=co_pol,
             thresholds=[ashman_threshold,
                         bhc_threshold,
                         surface_ratio_threshold,

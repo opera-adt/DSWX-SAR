@@ -1,6 +1,7 @@
 import argparse
 from dataclasses import dataclass
 from functools import singledispatch
+import glob
 import os
 import sys
 import logging
@@ -16,8 +17,8 @@ logger = logging.getLogger('dswx-s1')
 WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 
 # Potential polarization scenarios for DSWx-S1
-# NOTE: DO NOT CHANGE ORDER of the dictionary.
-dswx_s1_pol_dict = {
+# NOTE: DO NOT CHANGE THE ORDER of the items in the dictionary below.
+DSWX_S1_POL_DICT = {
     'CO_POL' : ['HH', 'VV'],
     'CROSS_POL' : ['HV', 'VH'],
     'MIX_DUAL_POL' : ['HH', 'HV', 'VV', 'VH'],
@@ -173,7 +174,7 @@ def check_file_path(file_path: str) -> None:
         logger.error(err_str)
         raise FileNotFoundError(err_str)
 
-def _find_polarization_from_data(input_dir_list):
+def _find_polarization_from_data_dirs(input_dir_list):
     """
     This function walks through each directory in the given list of input directories,
     searches for specific file names that match the OPERA L2 RTC standard,
@@ -194,22 +195,25 @@ def _find_polarization_from_data(input_dir_list):
         This list contains the polarization identifiers
         (like 'HH', 'VV', etc.) found in the filenames.
     """
+    def get_path_pol(path):
+        # convenience function to get polarization from RTC file path
+        # basename separates file name from directory in path string
+        # splitext removes the file extension from basename
+        # split('_')[-1] gets polarization
+        return os.path.splitext(os.path.basename(path))[0].split('_')[-1]
+
     extracted_strings = []
     for input_dir in input_dir_list:
-        for _, _, filenames in os.walk(input_dir):
-            for filename in filenames:
-                if filename.startswith('OPERA_L2_RTC-') and \
-                    filename.endswith('.tif'):
-                    # Splitting the filename to extract the required part
-                    parts = filename.split('_')
-                    extracted_string = parts[-1].split('.')[0]
-                    extracted_strings.append(extracted_string)
-    found_pol = list(set(extracted_strings))
-    if not found_pol:
+        for f in glob.glob(f"{input_dir}/OPERA_L2_RTC-*.tif"):
+            extracted_strings.append(get_path_pol(f))
+
+    # if nothing found raise error
+    if not extracted_strings:
         err_str = 'Failed to find polarizations from RTC files.'
         raise ValueError(err_str)
-    return found_pol
-
+        
+    # return only unique polarizations
+    return list(set(extracted_strings))
 
 def check_polarizations(pol_list, input_dir_list):
     """
@@ -236,8 +240,6 @@ def check_polarizations(pol_list, input_dir_list):
     sorted_pol_list : list
         List of all polarizations sorted, prioritizing co-polarizations.
     """
-    actual_pol = _find_polarization_from_data(input_dir_list)
-
     if 'dual-pol' in pol_list:
         proc_pol_list = ['VV', 'VH', 'HH', 'HV']
     elif 'co-pol' in pol_list:
@@ -246,33 +248,41 @@ def check_polarizations(pol_list, input_dir_list):
         proc_pol_list = ['VH', 'HV']
     else:
         proc_pol_list = pol_list
-    # Find the common polarizations between requests and files.
-    proc_pol_list = list(set(proc_pol_list) & set(actual_pol))
-    if not proc_pol_list:
-        err_str = f'Polarizations {pol_list} are requestest ' \
-                 'but Input RTC dirs do not seem to have them.'
-        logger.error(err_str)
-        raise yamale.YamaleError(err_str)
 
-    co_pol_list = []
-    cross_pol_list = []
+    # Find polarization of files in list of directories
+    found_pol = _find_polarization_from_data_dirs(input_dir_list)
+
+    # Find the common polarizations between requests and files.
+    proc_pol_list = list(set(proc_pol_list) & set(found_pol))
+
+    if not proc_pol_list:
+        err_str = f'No RTC files found with requested polarizations {pol_list}'
+        logger.error(err_str)
+        raise FileNotFoundError(err_str)
+
     def custom_sort(pol):
-        if pol in dswx_s1_pol_dict['CO_POL']:
+        if pol in DSWX_S1_POL_DICT['CO_POL']:
             return (0, pol)  # Sort 'VV' and 'HH' before others
         return (1, pol)
 
     sorted_pol_list = sorted(proc_pol_list, key=custom_sort)
 
+    co_pol_list = []
+    cross_pol_list = []
     for pol in sorted_pol_list:
-        if pol in dswx_s1_pol_dict['CO_POL']:
+        if pol in DSWX_S1_POL_DICT['CO_POL']:
             co_pol_list.append(pol)
         else:
             cross_pol_list.append(pol)
 
+    # Even though the first subset is found, the code should keep searching. 
+    # For example, the ['VV', 'VH'] is a subset of `MIX_DUAL_POL` and `DV_POL`.
+    # The expected output is `DV_POL`. 
+    # So, the items in `DSWX_S1_POL_DICT` are sorted in an ordered manner.
     pol_mode = None
-    for key, value in dswx_s1_pol_dict.items():
-        if all(element in value for element in sorted_pol_list):
-            pol_mode = key
+    for pol_mode_name, pols_in_mode in DSWX_S1_POL_DICT.items():
+        if set(sorted_pol_list).issubset(set(pols_in_mode)):
+            pol_mode = pol_mode_name
 
     if pol_mode is None:
         err_msg = 'unable to identify polarzation mode.'
@@ -351,7 +361,7 @@ def unwrap_to_dict(sns: SimpleNamespace) -> dict:
 
     return sns_as_dict
 
-@dataclass(frozen=False)
+@dataclass
 class RunConfig:
     '''dataclass containing DSWX runconfig'''
     # workflow name
@@ -391,8 +401,6 @@ class RunConfig:
         requested_pol = algorithm_cfg['runconfig']['processing']['polarizations']
         co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
             requested_pol, input_dir_list)
-        print(pol_list,'pol list')
-        print(pol_mode,'pol pol_mode')
 
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list

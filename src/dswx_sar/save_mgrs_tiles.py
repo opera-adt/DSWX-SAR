@@ -19,7 +19,7 @@ from shapely.geometry import Polygon
 from dswx_sar import (dswx_sar_util,
                       generate_log)
 from dswx_sar.dswx_sar_util import band_assign_value_dict
-from dswx_sar.dswx_runconfig import RunConfig, _get_parser, dswx_s1_pol_dict
+from dswx_sar.dswx_runconfig import RunConfig, _get_parser, DSWX_S1_POL_DICT
 from dswx_sar.metadata import (create_dswx_sar_metadata,
                                collect_burst_id,
                                _populate_statics_metadata_datasets)
@@ -28,12 +28,12 @@ logger = logging.getLogger('dswx_s1')
 
 
 def merge_pol_layers(list_layers,
-                 output_file,
-                 nodata_value=None,
-                 scratch_dir='.'):
+                     output_file,
+                     nodata_value=None,
+                     scratch_dir='.'):
     """
     Merge multiple GeoTIFF files into a single file using rasterio.
-    This function is used to merge the GeoTIFF with different polarizaitons. 
+    This function is used to merge the GeoTIFF with different polarizaitons.
 
     Parameters
     ----------
@@ -44,7 +44,6 @@ def merge_pol_layers(list_layers,
     nodata_value : float
         The no-data value to be considered in the merge.
     """
-    print(list_layers)
     # Open all the source files
     src_files_to_mosaic = []
     for file in list_layers:
@@ -57,22 +56,23 @@ def merge_pol_layers(list_layers,
     else:
         mosaic, out_trans = merge(src_files_to_mosaic)
 
-    # Copy metadata
-    out_meta = src.meta.copy()
+    # Get metadata from last file as kwargs for rasterio writing out the mosaic
+    kwargs = src.meta
 
     # Update the metadata
-    out_meta.update({"driver": "GTiff",
+    kwargs.update({"driver": "GTiff",
                      "height": mosaic.shape[1],
                      "width": mosaic.shape[2],
                      "transform": out_trans,})
 
     # Write the mosaic raster to disk
-    with rasterio.open(output_file, "w", **out_meta) as dest:
+    with rasterio.open(output_file, "w", **kwargs) as dest:
         dest.write(mosaic)
 
     # Close the source files
     for src in src_files_to_mosaic:
         src.close()
+
     dswx_sar_util._save_as_cog(output_file, scratch_dir)
 
 
@@ -205,11 +205,10 @@ def find_intersecting_burst_with_bbox(ref_bbox,
 
     overlapped_rtc_dir_list = []
     for input_dir in input_rtc_dirs:
-        copol_file_list = []
-        for copol in dswx_s1_pol_dict['CO_POL']:
-            copol_rtc_path = glob.glob(f'{input_dir}/*_{copol}*.tif')
-            copol_file_list.extend(copol_rtc_path)
 
+        copol_file_list = [f for f in glob.glob(f'{input_dir}/*.tif')
+                           if any(pol in f
+                                  for pol in DSWX_S1_POL_DICT['CO_POL'])]
         if copol_file_list:
             with rasterio.open(copol_file_list[0]) as src:
                 epsg_code = int(src.crs.data['init'].split(':')[1])
@@ -221,15 +220,15 @@ def find_intersecting_burst_with_bbox(ref_bbox,
                 if epsg_code != ref_epsg:
                     left, bottom, right, top = \
                         transform_bounds(src.crs,
-                                        {'init': f'EPSG:{ref_epsg}'},
-                                        left,
-                                        bottom,
-                                        right,
-                                        top)
+                                         {'init': f'EPSG:{ref_epsg}'},
+                                         left,
+                                         bottom,
+                                         right,
+                                         top)
                 rtc_polygon = Polygon([(left, bottom),
-                                    (left, top),
-                                    (right, top),
-                                    (right, bottom)])
+                                       (left, top),
+                                       (right, top),
+                                       (right, bottom)])
 
             # Check if bursts intersect the reference polygon
             if ref_polygon.intersects(rtc_polygon) or \
@@ -545,7 +544,7 @@ def run(cfg):
         logger.info(f'Number of bursts to process: {num_input_path}')
         date_str_list = []
         for input_dir in input_list:
-            # Find HDF5 metadata
+            # Read metadata from GeoTiff files.
             metadata_path_iter = glob.iglob(f'{input_dir}/*{co_pol}*.tif')
             metadata_path = next(metadata_path_iter)
             with rasterio.open(metadata_path) as src:
@@ -572,8 +571,8 @@ def run(cfg):
     # Set merge_layer_flag and merge_pol_list based on pol_mode
     merge_layer_flag = pol_mode in ['MIX_DUAL_POL', 'MIX_SINGLE_POL']
     pol_type = 'DV_POL' if pol_mode == 'MIX_DUAL_POL' else 'SV_POL'
-    merge_pol_list = ['_'.join(dswx_s1_pol_dict[pol_type]),
-                      '_'.join(dswx_s1_pol_dict[pol_type.replace('V', 'H')])]
+    merge_pol_list = ['_'.join(DSWX_S1_POL_DICT[pol_type]),
+                      '_'.join(DSWX_S1_POL_DICT[pol_type.replace('V', 'H')])]
 
     # Depending on the workflow, the final product are different.
     prefix_dict = {
@@ -600,8 +599,8 @@ def run(cfg):
             else:
                 extra_args = {'nodata_value': 0}
             merge_pol_layers(list_layers,
-                         os.path.join(outputdir, file_path),
-                         **extra_args)
+                             os.path.join(outputdir, file_path),
+                             **extra_args)
 
     # metadata for final product
     # e.g. geotransform, projection, length, width, utmzon, epsg

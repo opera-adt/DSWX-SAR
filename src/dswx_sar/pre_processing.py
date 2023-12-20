@@ -1,3 +1,4 @@
+import glob
 import logging
 import mimetypes
 import numpy as np
@@ -211,8 +212,8 @@ def run(cfg):
             ref_filename = f'{scratch_dir}/{mosaic_prefix}_{pol_list[0]}.tif'
         else:
             logger.info('Single input directories is found.')
-            mosaic_flag = False
-
+            mosaic_flag = True
+            ref_filename = glob.glob(f'{input_list[0]}/*_{pol_list[0]}*.tif')[0]
     else:
         if num_input_path == 1:
             logger.info('Single input RTC is found.')
@@ -333,15 +334,10 @@ def run(cfg):
 
         else:
             logger.info(f'opening {pol}')
-            if mosaic_flag:
-                filename = \
+            filename = \
                     f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
-
-                temp_raster = dswx_sar_util.read_geotiff(
-                        filename)
-            else:
-                temp_raster = dswx_sar_util.read_geotiff(
-                        ref_filename, band_ind=polind)
+            temp_raster = dswx_sar_util.read_geotiff(
+                    filename)
             intensity.append(np.abs(temp_raster))
 
     intensity = np.asarray(intensity)

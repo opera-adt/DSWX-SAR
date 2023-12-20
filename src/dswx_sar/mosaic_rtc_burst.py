@@ -741,7 +741,7 @@ def run(cfg):
         else:
             logger.info('Singple input directories is found.')
             logger.info('Mosaic is diabled for single burst RTC ')
-            mosaic_flag = False
+            mosaic_flag = True
     else:
         if num_input_path == 1:
             logger.info('Single input RTC is found.')

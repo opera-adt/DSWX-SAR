@@ -574,7 +574,7 @@ def process_dark_land_component(args):
 
     # water mask == 1 represents areas where water is located from
     # previous step. landcover == 0  is the no-data area
-    # & (landcover != 0) may beed to be added.
+    # (landcover != 0)) may need to be added
     mask = np.array((watermask==1))
 
     # ref_land consists of 0 and 1 values

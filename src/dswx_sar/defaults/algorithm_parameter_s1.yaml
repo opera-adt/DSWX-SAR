@@ -146,6 +146,7 @@ runconfig:
             hand_variation_mask: True
             # pixels with HAND threshold is masked out.
             hand_variation_threshold: 2.5
+            line_per_block: 400
             number_cpu: 1
 
         refine_with_bimodality:

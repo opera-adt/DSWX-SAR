@@ -300,7 +300,7 @@ def compute_fuzzy_value(intensity,
 
     for int_id, pol  in enumerate(pol_list):
 
-        thresh_valley_str = os.path.join(outputdir, f"int_threshold_filled_{pol}.tif")
+        thresh_valley_str = os.path.join(outputdir, f"intensity_threshold_filled_{pol}.tif")
         thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol}.tif")
 
         valley_threshold_raster = dswx_sar_util.get_raster_block(

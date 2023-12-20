@@ -486,13 +486,16 @@ def get_raster_block(raster_path, block_param):
 
     if num_bands == 1:
         data_blocks = np.reshape(data_blocks,
-                                 [data_blocks.shape[1:3]])
+                                 [data_blocks.shape[1],
+                                  data_blocks.shape[2]])
     return data_blocks
 
 
 def write_raster_block(out_raster, data,
                        block_param, geotransform, projection,
-                       datatype='byte'):
+                       datatype='byte',
+                       cog_flag=False, 
+                       scratch_dir='.'):
     ''' Write processed block to out_raster.
 
     Parameters
@@ -558,6 +561,11 @@ def write_raster_block(out_raster, data,
                                 :]),
                 xoff=0,
                 yoff=block_param.write_start_line)
+
+    del ds_data
+    if (block_param.write_start_line + block_param.block_length == \
+        block_param.data_length) and cog_flag:
+        _save_as_cog(out_raster, scratch_dir)
 
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):
@@ -683,6 +691,74 @@ class BlockParam:
 
     data_length: int
 
+
+def merge_binary_layers(layer_list, value_list, merged_layer_path, 
+                        lines_per_block, mode='or', cog_flag=True, 
+                        scratch_dir='.'):
+    """
+    Merges multiple raster layers into a single binary layer based on specified
+    values and a logical operation ('and' or 'or').
+
+    Parameters
+    ----------
+    layer_list : list of str
+        List of paths to the raster files (layers) to be merged.
+    value_list : list
+        List of values corresponding to each raster file. A pixel in the
+        output binary layer is set if it matches the value in the respective
+        input layer.
+    merged_layer_path : str
+        Path to save the merged binary layer.
+    lines_per_block : int
+        Number of lines per block for processing the data in chunks.
+    mode : str, optional
+        Logical operation to apply for merging ('and' or 'or'). The default is 'or'.
+
+    Returns
+    -------
+    None
+        The function saves the merged binary layer at `merged_layer_path`.
+    """
+
+    if len(layer_list) != len(value_list):
+        raise ValueError('Number of layers does not match with number of values')
+
+    # Getting metadata from the reference layer
+    meta_info = get_meta_from_tif(layer_list[0])
+    data_shape = [meta_info['length'], meta_info['width']]
+
+    # Setting padding for block processing
+    pad_shape = (0, 0)
+    block_params = block_param_generator(
+        lines_per_block, data_shape, pad_shape)
+
+    # Determine the logical operation function
+    logical_function = np.logical_or if mode == 'or' else np.logical_and
+
+    # Iterating through blocks
+    for block_param in block_params:
+        combined_binary_image = None
+
+        for layer, value in zip(layer_list, value_list):
+            layer_block = get_raster_block(layer, block_param)
+            binary_image = (layer_block == value).astype(np.uint8)
+
+            if combined_binary_image is None:
+                combined_binary_image = binary_image
+            else:
+                combined_binary_image = logical_function(
+                    combined_binary_image, binary_image).astype(np.uint8)
+
+        # Writing the merged block to the output raster
+        write_raster_block(
+            out_raster=merged_layer_path,
+            data=combined_binary_image,
+            block_param=block_param,
+            geotransform=meta_info['geotransform'],
+            projection=meta_info['projection'],
+            datatype='byte',
+            cog_flag=cog_flag,
+            scratch_dir=scratch_dir)
 
 def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     """save intensity images into png file

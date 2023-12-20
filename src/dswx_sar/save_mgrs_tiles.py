@@ -506,7 +506,7 @@ def run(cfg):
     date_str_id = datetime.datetime.strptime(
         date_str_id_temp, input_date_format).strftime(
             output_date_format)
-    platform_str = 'S1A' if platform == 'Sentinel-1A' else 'S1B'
+    platform_str = platform[0] + platform.split('-')[-1]
     resolution_str = str(int(resolution))
 
     # Depending on the workflow, the final product are different.

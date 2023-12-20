@@ -486,35 +486,28 @@ def run(cfg):
     os.makedirs(sas_outputdir, exist_ok=True)
 
     num_input_path = len(input_list)
-    mosaic_flag = num_input_path > 1
+    logger.info(f'Number of bursts to process: {num_input_path}')
+    date_str_list = []
+    for input_dir in input_list:
+        # Find HDF5 metadata
+        metadata_path_iter = glob.iglob(f'{input_dir}/*{co_pol}*.tif')
+        metadata_path = next(metadata_path_iter)
+        with rasterio.open(metadata_path) as src:
+            tags = src.tags(0)
+            date_str = tags['ZERO_DOPPLER_START_TIME']
+            platform = tags['PLATFORM']
+            resolution = src.transform[0]
+            date_str_list.append(date_str)
 
-    if mosaic_flag:
-        logger.info(f'Number of bursts to process: {num_input_path}')
-        date_str_list = []
-        for input_dir in input_list:
-            # Find HDF5 metadata
-            metadata_path_iter = glob.iglob(f'{input_dir}/*{co_pol}*.tif')
-            metadata_path = next(metadata_path_iter)
-            with rasterio.open(metadata_path) as src:
-                tags = src.tags(0)
-                date_str = tags['ZERO_DOPPLER_START_TIME']
-                platform = tags['PLATFORM']
-                resolution = src.transform[0]
-                date_str_list.append(date_str)
+    input_date_format = "%Y-%m-%dT%H:%M:%S"
+    output_date_format = "%Y%m%dT%H%M%SZ"
 
-        input_date_format = "%Y-%m-%dT%H:%M:%S"
-        output_date_format = "%Y%m%dT%H%M%SZ"
-
-        date_str_id_temp = date_str_list[0][:19]
-        date_str_id = datetime.datetime.strptime(
-            date_str_id_temp, input_date_format).strftime(
-                output_date_format)
-        platform_str = 'S1A' if platform == 'Sentinel-1A' else 'S1B'
-        resolution_str = str(int(resolution))
-    else:
-        date_str_id = 'unknown'
-        platform_str = 'unknown'
-        resolution_str = 'unknown'
+    date_str_id_temp = date_str_list[0][:19]
+    date_str_id = datetime.datetime.strptime(
+        date_str_id_temp, input_date_format).strftime(
+            output_date_format)
+    platform_str = platform[0] + platform.split('-')[-1]
+    resolution_str = str(int(resolution))
 
     # Depending on the workflow, the final product are different.
     if dswx_workflow == 'opera_dswx_s1':

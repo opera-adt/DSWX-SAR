@@ -515,6 +515,7 @@ def run(cfg):
     pol_options = processing_cfg.polarimetric_option
     if pol_options is not None:
         pol_list += pol_options
+        pol_option_str = '_'.join(pol_options)
     pol_str = '_'.join(pol_list)
     pol_mode = processing_cfg.polarization_mode
     co_pol = processing_cfg.copol
@@ -571,6 +572,8 @@ def run(cfg):
     pol_type = 'DV_POL' if pol_mode == 'MIX_DUAL_POL' else 'SV_POL'
     merge_pol_list = ['_'.join(DSWX_S1_POL_DICT[pol_type]),
                       '_'.join(DSWX_S1_POL_DICT[pol_type.replace('V', 'H')])]
+    if pol_options is not None:
+        merge_pol_list = [item + '_' + pol_option_str  for item in merge_pol_list]
 
     # Depending on the workflow, the final product are different.
     prefix_dict = {

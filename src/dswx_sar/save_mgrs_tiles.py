@@ -511,7 +511,11 @@ def run(cfg):
 
     # Processing parameters
     processing_cfg = cfg.groups.processing
-    pol_str = '_'.join(processing_cfg.polarizations)
+    pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    if pol_options is not None:
+        pol_list += pol_options
+    pol_str = '_'.join(pol_list)
     pol_mode = processing_cfg.polarization_mode
     co_pol = processing_cfg.copol
     input_list = cfg.groups.input_file_group.input_file_path

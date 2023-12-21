@@ -304,7 +304,13 @@ def run(cfg):
 
     processing_cfg = cfg.groups.processing
     outputdir = cfg.groups.product_path_group.scratch_path
-    pol_str = '_'.join(processing_cfg.polarizations)
+    pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+
+    pol_str = '_'.join(pol_list)
 
     # Region growing cfg
     region_growing_cfg = processing_cfg.region_growing

@@ -1044,6 +1044,11 @@ def run(cfg):
     outputdir = cfg.groups.product_path_group.scratch_path
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+
     pol_str = '_'.join(pol_list)
     co_pol = list(set(processing_cfg.copol) & set(pol_list))
 

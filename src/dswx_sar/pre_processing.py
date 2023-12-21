@@ -233,6 +233,11 @@ def run(cfg):
     hand_file = dynamic_data_cfg.hand_file
 
     pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+
     pol_all_str = '_'.join(pol_list)
     co_pol = processing_cfg.copol
     cross_pol = processing_cfg.crosspol
@@ -348,19 +353,12 @@ def run(cfg):
         for polind, pol in enumerate(pol_list):
             logger.info(f'block processing {block_ind} - {pol}')
 
-            if pol in ['ratio', 'coherence', 'span']:
+            if pol in ['ratio', 'span']:
 
                 # If ratio/span is in the list,
                 # then compute the ratio from VVVV and VHVH
-                if pol in ['ratio', 'span']:
-                    temp_pol_list = [co_pol, cross_pol]
-                    logger.info(f'>> computing {pol} {temp_pol_list}')
-
-                # If coherence is in the list,
-                # then compute the coherence from VVVV, VHVH, VVVH
-                if pol in ['coherence']:
-                    temp_pol_list = ['VV', 'VH', 'VVVH']
-                    logger.info(f'>> computing coherence {temp_pol_list}')
+                temp_pol_list = co_pol + cross_pol
+                logger.info(f'>> computing {pol} {temp_pol_list}')
 
                 temp_raster_set = []
                 for temp_pol in temp_pol_list:
@@ -370,20 +368,12 @@ def run(cfg):
                         filename,
                         block_param)
                     temp_raster_set.append(block_data)
-
+                temp_raster_set = np.array(temp_raster_set)
                 if pol in ['ratio']:
                     ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
                                       np.squeeze(temp_raster_set[1, :, :]))
                     output_image_set.append(ratio)
                     logger.info(f'computing ratio {co_pol}/{cross_pol}')
-
-                if pol in ['coherence']:
-                    coherence = pol_coherence(
-                        np.squeeze(temp_raster_set[0, :, :]),
-                        np.squeeze(temp_raster_set[1, :, :]),
-                        np.squeeze(temp_raster_set[2, :, :]))
-                    output_image_set.append(coherence)
-                    logger.info('computing polarimetric coherence')
 
                 if pol in ['span']:
                     span = np.squeeze(temp_raster_set[0, :, :] +

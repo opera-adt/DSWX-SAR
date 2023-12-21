@@ -151,7 +151,7 @@ class TileSelection:
 
     def select_tile_twele(self,
                           intensity_gray,
-                          mean_intensity_glob,
+                          mean_intensity_global,
                           thresholds=None):
         """Select tiles based on Twele's method
 
@@ -159,7 +159,7 @@ class TileSelection:
         ----------
         intensity_gray : np.ndarray
             tile of intensity image [gray scale, dB]
-        mean_intensity_glob : float
+        mean_intensity_global : float
             global mean intensity image
         thresholds : list
             three thresholds to select tile
@@ -192,7 +192,7 @@ class TileSelection:
         mean_int = np.nanmean(intensity_gray)
         sig_int = np.nanstd(intensity_gray)
         cvx = sig_int / mean_int
-        rx = mean_int / mean_intensity_glob
+        rx = mean_int / mean_intensity_global
 
         select_flag = (cvx >= thresholds[0]) & \
                       (rx >= thresholds[1]) & \
@@ -1830,6 +1830,11 @@ def run(cfg):
 
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+
     pol_all_str = '_'.join(pol_list)
 
     outputdir = cfg.groups.product_path_group.scratch_path

@@ -23,6 +23,11 @@ def run(cfg):
     processing_cfg = cfg.groups.processing
     outputdir = cfg.groups.product_path_group.scratch_path
     pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+
     pol_all_str = '_'.join(pol_list)
 
     inundated_vege_cfg = processing_cfg.inundated_vegetation

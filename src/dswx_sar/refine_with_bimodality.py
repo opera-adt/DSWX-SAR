@@ -17,7 +17,9 @@ from skimage.filters import (threshold_otsu,
 from dswx_sar import (dswx_sar_util,
                       generate_log,
                       masking_with_ancillary)
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (_get_parser,
+                                     RunConfig,
+                                     DSWX_S1_POL_DICT)
 
 logger = logging.getLogger('dswx_s1')
 
@@ -740,7 +742,7 @@ def remove_false_water_bimodality_parallel(water_mask,
     This function identifies and processes areas of water and adjacent lands
     to verify and refine the accuracy of water detection in an image.
     This function should be used only for ['VV', 'VH', 'HH', 'HV'].
-    In the case that the other polarization is given, then return input as it is. 
+    In the case that the other polarization is given, then return input as it is.
 
     Parameters:
     -----------
@@ -771,7 +773,6 @@ def remove_false_water_bimodality_parallel(water_mask,
     bimodality_total: numpy.ndarray
         An image indicating the bimodality values across the entire scene.
     """
-    print('pol_list', pol_list)
     rows, cols = meta_info['length'], meta_info['width']
 
     # computes the connected components labeled image of boolean image
@@ -995,7 +996,7 @@ def fill_gap_water_bimodality_parallel(
 
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'VH', 'HH', 'HV']:
-
+            logger.info(f'filling bright water bodies with bimodality using {pol}')
             bimodality_output = np.zeros([len(sizes)])
             ad_output = np.zeros([len(sizes)])
 
@@ -1045,7 +1046,7 @@ def run(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
     pol_str = '_'.join(pol_list)
-    co_pol = processing_cfg.copol
+    co_pol = list(set(processing_cfg.copol) & set(pol_list))
 
     bimodality_cfg = processing_cfg.refine_with_bimodality
     minimum_pixel = bimodality_cfg.minimum_pixel
@@ -1168,7 +1169,21 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
-    run(cfg)
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
+
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

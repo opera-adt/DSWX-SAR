@@ -9,7 +9,9 @@ from osgeo import gdal, osr
 from pathlib import Path
 
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
+                                     _get_parser,
+                                     RunConfig)
 
 
 logger = logging.getLogger('dswx_s1')
@@ -436,8 +438,21 @@ def main():
 
     generate_log.configure_log_file(cfg.groups.log_file)
 
-    run(cfg)
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
 
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

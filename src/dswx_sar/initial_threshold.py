@@ -17,7 +17,9 @@ from dswx_sar import (dswx_sar_util,
                       generate_log,
                       refine_with_bimodality,
                       region_growing)
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
+                                     _get_parser,
+                                     RunConfig)
 
 
 logger = logging.getLogger('dswx_s1')
@@ -901,9 +903,11 @@ def determine_threshold(
             logger.info(f'Bimodal curve Fitting fails in threshold computation.')
             modevalue = tau_mode_left
         try:
-            expected = (tau_mode_left, .5, tau_amp_left,
-                        tau_mode_right, .5, tau_amp_right,
-                        (tau_mode_left+tau_mode_right)/2, .5, 0.1)
+            dividers = threshold_multiotsu(intensity_sub)
+
+            expected = (dividers[0], .5, tau_amp_left,
+                        dividers[1], .5, tau_amp_right,
+                        (dividers[0]+dividers[1])/2, .5, 0.1)
             # curve_fit fits the trimodal distributions
             # All distributions are assumed to be in the bound
             # -35 to 5 dB, with standard deviation of 0 - 5[dB]
@@ -987,7 +991,18 @@ def determine_threshold(
 
             if threshold > tau_bound_gauss:
                 threshold = tau_bound_gauss
-                modevalue = tri_first_mode[0]
+                idx_tau_bound_gauss = np.searchsorted(intensity_bins, threshold)
+                tri_lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_tau_bound_gauss+1], distance=5)
+                if not tri_lowmaxind_cands.any():
+                    tri_lowmaxind_cands = np.array([np.nanargmax(intensity_counts[: idx_tau_bound_gauss+1])])
+                intensity_counts_cand = intensity_counts[tri_lowmaxind_cands]
+                tri_lowmaxind = tri_lowmaxind_cands[np.nanargmax(intensity_counts_cand)]
+                tri_lowmaxind = np.squeeze(tri_lowmaxind)
+
+                if tri_lowmaxind.size > 1:
+                    tri_lowmaxind = tri_lowmaxind[tri_lowmaxind <= idx_tau_bound_gauss]
+                    tri_lowmaxind = tri_lowmaxind[0]
+                modevalue = intensity_bins[tri_lowmaxind]
 
         if method == 'rg':
             intensity_countspp, _ = np.histogram(
@@ -1115,6 +1130,8 @@ def fill_threshold_with_gdal(threshold_array,
         tau_row, tau_col, _ = threshold_array['array'].shape
         y_tau = threshold_array['block_row'] * np.arange(0, tau_row) + \
             threshold_array['block_row'] / 2
+        # y axis should be flipped
+        y_tau = np.ones_like(y_tau) * rows - y_tau
         x_tau = threshold_array['block_col'] * np.arange(0, tau_col) + \
             threshold_array['block_col'] / 2
         x_arr_tau, y_arr_tau = np.meshgrid(x_tau, y_tau)
@@ -1219,7 +1236,7 @@ def fill_threshold_with_gdal(threshold_array,
                 gdal_grid_str = \
                     "gdal_grid -zfield field_3 -l " \
                     f"data_thres_{pol}_{filename} {vrt_file}  {tif_file_str}" \
-                    f" -txe 0 {cols} -tye 0 {rows} -a invdist:power=0.500:" \
+                    f" -txe 0 {cols} -tye  0 {rows} -a invdist:power=0.500:" \
                     "smoothing=1.0:radius1=" \
                     f"{threshold_array['block_row']*2}:radius2=" \
                     f"{threshold_array['block_col']*2}:angle=0.000000:" \
@@ -2024,8 +2041,20 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
-    run(cfg)
-
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

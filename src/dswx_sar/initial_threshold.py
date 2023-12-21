@@ -2118,7 +2118,9 @@ def run(cfg):
                     block_param=block_param,
                     geotransform=water_meta['geotransform'],
                     projection=water_meta['projection'],
-                    datatype='byte')
+                    datatype='byte',
+                    cog_flag=True,
+                    scratch_dir=outputdir)
 
                 dswx_sar_util.write_raster_block(
                     out_raster=threshold_geotiff,
@@ -2126,7 +2128,9 @@ def run(cfg):
                     block_param=block_param,
                     geotransform=water_meta['geotransform'],
                     projection=water_meta['projection'],
-                    datatype='float32')
+                    datatype='float32',
+                    cog_flag=True,
+                    scratch_dir=outputdir)
 
     t_all_elapsed = time.time() - t_all
     logger.info(f"successfully ran computing initial threshold in "

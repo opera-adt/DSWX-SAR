@@ -341,6 +341,7 @@ def get_invalid_area(geotiff_path,
                      lines_per_block=None):
     """get invalid areas (NaN) from GeoTiff and save it
     to new GeoTiff
+
     Parameters
     ----------
     geotiff_path: str
@@ -479,6 +480,7 @@ def get_raster_block(raster_path, block_param):
         # Pad data_block with zeros according to pad_length/pad_width
         data_block = np.pad(data_block, block_param.block_pad,
                             mode='constant', constant_values=0)
+
         if data_block.ndim == 1:
             data_block = data_block[np.newaxis, :]
         data_blocks.append(data_block)
@@ -795,18 +797,18 @@ def block_threshold_visualization(intensity, block_row, block_col,
     Parameters:
     -----------
     intensity : numpy.ndarray
-        A 2D or 3D array representing the image intensity. If 3D, only the
-        second and third dimensions (rows and columns) are used.
+        A 2D or 3D array representing the intensity of the image.
+        If 3D, only the second and third dimensions (rows and columns) are used for visualization.
     block_row : int
         Number of rows in each block/subtile.
     block_col : int
         Number of columns in each block/subtile.
     threshold_tile : numpy.ndarray
-        2D array with threshold values for each block/subtile. Dimensions
-        should match the number of blocks in the intensity image.
-    output_dir : str
-        Directory path for saving visualizations.
-    fig_name : str
+        2D array containing the threshold values for each block/subtile.
+        Its dimensions should match the number of blocks in the intensity image.
+    outputdir : str
+        Path to the directory where visualizations will be saved.
+    figname : str
         Name for the saved visualization figure.
     """
 
@@ -845,6 +847,7 @@ def block_threshold_visualization(intensity, block_row, block_col,
                vmin=-20, vmax=-14)
 
     plt.savefig(os.path.join(output_dir, fig_name))
+
     plt.close()
 
 

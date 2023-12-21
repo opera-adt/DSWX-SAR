@@ -10,7 +10,9 @@ from osgeo import gdal, osr
 from pathlib import Path
 
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
+                                     _get_parser,
+                                     RunConfig)
 
 
 logger = logging.getLogger('dswx_s1')
@@ -118,9 +120,7 @@ class AncillaryRelocation:
             file name of output
         method : str
             interpolation method
-
         """
-
         self._interpolate_gdal(str(self.rtc_file_name),
                               ancillary_file_name,
                               os.path.join(self.scratch_dir,
@@ -133,7 +133,7 @@ class AncillaryRelocation:
                           method):
 
         """Interpolate the input image to have same projection and resolution
-        as the refernce file.
+        as the reference file.
 
         Parameters
         ----------
@@ -146,7 +146,6 @@ class AncillaryRelocation:
         method : str
             interpolation method
         """
-
         print(f"> gdalwarp {input_tif_str} -> {output_tif_str}")
 
         # get reference coordinate and projection
@@ -500,8 +499,21 @@ def main():
 
     generate_log.configure_log_file(cfg.groups.log_file)
 
-    run(cfg)
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
 
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

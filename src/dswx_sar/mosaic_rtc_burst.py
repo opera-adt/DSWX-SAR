@@ -15,10 +15,12 @@ from osgeo import osr, gdal
 from scipy import ndimage
 
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import (dswx_sar_util,
+from dswx_sar import (dswx_geogrid,
+                      dswx_sar_util,
                       generate_log)
 
 logger = logging.getLogger('dswx_s1')
+
 
 
 def majority_element(num_list):
@@ -758,14 +760,13 @@ def run(cfg):
         freqA_path = '/data/'
 
         output_file_list = []
-        metadata_list = []
         nlooks_list = []
         mask_list = []
         epsg_list = []
 
         for ind, input_dir in enumerate(input_list):
 
-            first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')
+            first_rtc_path_iter = glob.iglob(f'{input_dir}/*.tif')
             first_rtc_path = next(first_rtc_path_iter)
             if first_rtc_path:
                 rtc_meta = dswx_sar_util.get_meta_from_tif(first_rtc_path)
@@ -775,6 +776,8 @@ def run(cfg):
                 raise FileExistsError(err_msg)
 
         epsg_output = majority_element(epsg_list)
+        geogrid_in = dswx_geogrid.DSWXGeogrid()
+
         logger.info('All RTC bursts and associated masks will be mosaicked ' \
                     f'using the ESPG projection designated by {epsg_output}.')
         # for each directory, find metadata, and RTC files.
@@ -795,8 +798,13 @@ def run(cfg):
                         epsg_output=epsg_output,
                         output_nodata=255)
                     mask_list.append(temp_mask_path)
+
+                    # update geogrid using new GeoTiff file.
+                    geogrid_in.update_geogrid(temp_mask_path)
+
                 else:
                     mask_list.append(layover_path[0])
+                    geogrid_in.update_geogrid(layover_path[0])
 
             else:
                 # If mask GeoTiff is not available,
@@ -833,17 +841,24 @@ def run(cfg):
                 rtc_burst_imagery_list = []
 
                 for input_ind, input_dir in enumerate(input_list):
+                    rtc_path_inputs = glob.glob(f'{input_dir}/*_{pol}.tif')
+                    if rtc_path_inputs:
+                        rtc_path_input = rtc_path_inputs[0]
 
-                    rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
-                    if epsg_output != epsg_list[input_ind]:
-                        rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
-                        dswx_sar_util.change_epsg_tif(rtc_path_input,
-                                                      rtc_path_temp,
-                                                      epsg_output)
-                        rtc_burst_imagery_list.append(rtc_path_temp)
+                        if epsg_output != epsg_list[input_ind]:
+                            rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
+                            dswx_sar_util.change_epsg_tif(rtc_path_input,
+                                                          rtc_path_temp,
+                                                          epsg_output)
+                            rtc_burst_imagery_list.append(rtc_path_temp)
+
+                            # update geogrid using new GeoTiff file.
+                            geogrid_in.update_geogrid(rtc_path_temp)
+                        else:
+                            rtc_burst_imagery_list.append(rtc_path_input)
+                            geogrid_in.update_geogrid(rtc_path_input)
                     else:
-                        rtc_burst_imagery_list.append(rtc_path_input)
-
+                        print(f'polarzation {pol} is not found in {input_dir}')
                 nlooks_list = []
 
                 if len(rtc_burst_imagery_list) > 0:
@@ -856,7 +871,7 @@ def run(cfg):
                     mosaic_single_output_file(
                         rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
                         mosaic_mode, scratch_dir=scratch_path,
-                        geogrid_in=None, temp_files_list=None)
+                        geogrid_in=geogrid_in, temp_files_list=None)
 
         if mask_list:
             geo_mask_filename = \
@@ -867,7 +882,7 @@ def run(cfg):
             mosaic_single_output_file(
                 mask_list, nlooks_list, geo_mask_filename,
                 mosaic_mode, scratch_dir=scratch_path,
-                geogrid_in=None, temp_files_list=None,
+                geogrid_in=geogrid_in, temp_files_list=None,
                 no_data_value=255)
 
         # save files as COG format.

@@ -21,7 +21,6 @@ from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      _get_parser,
                                      RunConfig)
 
-from memory_profiler import profile
 
 logger = logging.getLogger('dswx_s1')
 
@@ -951,11 +950,6 @@ def run(cfg):
     # Worldcover map
     landcover_path = os.path.join(outputdir, 'interpolated_landcover.tif')
 
-    input_file_dict = {'intensity': filt_im_str,
-                       'landcover': landcover_path,
-                       'reference_water': interp_wbd_str,
-                       'water_mask': water_map_tif_str}
-
     # Identify dark land candidate areas from landcover
     mask_obj = FillMaskLandCover(landcover_path)
     mask_excluded_landcover = mask_obj.get_mask(
@@ -1022,6 +1016,11 @@ def run(cfg):
         geotransform=water_meta['geotransform'],
         projection=water_meta['projection'],
         scratch_dir=outputdir)
+
+    input_file_dict = {'intensity': filt_im_str,
+                       'landcover': landcover_path,
+                       'reference_water': interp_wbd_str,
+                       'water_mask': water_map_tif_str}
 
     split_mask_water_path = os.path.join(outputdir, 'split_mask_water_masking.tif')
     split_extended_water_parallel(

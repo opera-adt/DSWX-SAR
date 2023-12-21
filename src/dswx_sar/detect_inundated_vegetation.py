@@ -22,6 +22,8 @@ def run(cfg):
 
     processing_cfg = cfg.groups.processing
     outputdir = cfg.groups.product_path_group.scratch_path
+    pol_list = processing_cfg.polarizations
+    pol_all_str = '_'.join(pol_list)
 
     inundated_vege_cfg = processing_cfg.inundated_vegetation
     inundated_vege_ratio_max = inundated_vege_cfg.dual_pol_ratio_max

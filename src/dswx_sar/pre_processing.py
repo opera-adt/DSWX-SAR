@@ -37,7 +37,7 @@ def pol_coherence(array1, array2, array3):
     return np.abs(array3 / np.sqrt(array1 * array2))
 
 
-def check_validity(geotiff_path, value_list):
+def validate_gtiff(geotiff_path, value_list):
     """
     Check the validity of a GeoTIFF file based on
     the mean value of its pixels.
@@ -69,13 +69,9 @@ def check_validity(geotiff_path, value_list):
     image = dswx_sar_util.read_geotiff(geotiff_path)
     mean_value = np.mean(image)
     if np.isnan(mean_value):
-        raise ValueError(f'Some pixels in {geotiff_path} have NaN.')
-
-    mean_value = np.nanmean(image)
-    for check_value in value_list:
-        if mean_value == check_value:
-            raise ValueError(f'All pixels in {geotiff_path} have {mean_value}.')
-    del image
+        raise ValueError(f'NaN pixels found in {geotiff_path}.')
+    elif np.isin(image, value_list).all():
+        raise ValueError(f'All pixels in {geotiff_path} are within the specified value list.')
 
 
 class AncillaryRelocation:
@@ -102,8 +98,6 @@ class AncillaryRelocation:
         proj = osr.SpatialReference(wkt=reftif.GetProjection())
         self.epsg = proj.GetAttrValue('AUTHORITY',1)
         self.scratch_dir = scratch_dir
-        reftif = None
-        del reftif
 
     def relocate(self,
                  ancillary_file_name,
@@ -160,7 +154,6 @@ class AncillaryRelocation:
         yspacing = geotransform[5]
 
         reftif = None
-        del reftif
 
         if (len(lat0) != ysize) and (len(lon0) != xsize):
 
@@ -190,9 +183,8 @@ class AncillaryRelocation:
                                resampleAlg=method,
                                format='GTIFF')
 
-        ds = gdal.Warp(output_tif_str, input_tif_str, options=opt)
-        ds = None
-        del ds
+        gdal.Warp(output_tif_str, input_tif_str, options=opt)
+
 
     def _read_x_y_array_geotiff(self, intput_tif_str):
         """Read X and Y coordinates from given Geotiff image
@@ -318,7 +310,7 @@ def run(cfg):
     if not dem_reprocessing_flag:
         interpolated_dem_path = os.path.join(
             scratch_dir, 'interpolated_DEM.tif')
-        check_validity(interpolated_dem_path, [0])
+        validate_gtiff(interpolated_dem_path, [0])
 
     # check if the interpolated landcover exists
     landcover_interpolated_path = \

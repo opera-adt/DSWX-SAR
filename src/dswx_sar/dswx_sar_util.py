@@ -12,6 +12,7 @@ gdal.DontUseExceptions()
 
 
 np2gdal_conversion = {
+  "byte": 1,
   "uint8": 1,
   "int8": 1,
   "uint16": 2,
@@ -51,6 +52,7 @@ class Constants:
 
 def get_interpreted_dswx_s1_ctable():
     """Get colortable for DSWx-S1 products
+
     Returns
     -------
     dswx_ctable: gdal.ColorTable
@@ -107,6 +109,7 @@ def save_raster_gdal(data, output_file, geotransform,
                      projection, scratch_dir='.',
                      datatype='float32'):
     """Save images using Gdal
+
     Parameters
     ----------
     data: numpy.ndarray
@@ -163,6 +166,7 @@ def save_dswx_product(wtr, output_file, geotransform,
                       is_conf=False, datatype='uint8',
                       **dswx_processed_bands):
     """Save DSWx product for assigned classes with colortable
+
     Parameters
     ----------
     wtr: numpy.ndarray
@@ -314,6 +318,7 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
                     resample_method='nearest',
                     output_nodata='NaN'):
     """Resample the input geotiff image to new EPSG code.
+
     Parameters
     ----------
     input_tif: str
@@ -348,7 +353,6 @@ def get_invalid_area(geotiff_path,
         full path for filename to get invalid area
     output_file: str
         full path for filename to save invalid area
-
     scratch_dir: str
         temporary file path to process COG file.
     """
@@ -386,10 +390,12 @@ def get_invalid_area(geotiff_path,
 
 def get_meta_from_tif(tif_file_name):
     """Read metadata from geotiff
+
     Parameters
     ----------
     input_tif_str: str
         geotiff file path to read the band
+
     Returns
     -------
     meta_dict: dict
@@ -420,7 +426,7 @@ def create_geotiff_with_one_value(outpath, shape, filled_value):
     """
     Create a new GeoTIFF file filled with a specified value.
 
-    Parameters:
+    Parameters
     ----------
     outpath: str
         The file path where the new GeoTIFF will be saved.
@@ -498,40 +504,34 @@ def write_raster_block(out_raster, data,
                        datatype='byte',
                        cog_flag=False, 
                        scratch_dir='.'):
-    ''' Write processed block to out_raster.
+    """
+    Write processed data block to the specified raster file.
 
     Parameters
     ----------
-    out_raster: h5py.Dataset or str
-        Raster where data (i.e., filtered data) needs to be written.
-        String value represents filepath for GDAL rasters.
-    data: np.ndarray
-        Filtered data to write to out_raster.
-    block_param: BlockParam
-        Object specifying where and how much to write to out_raster.
-    '''
-    if datatype == 'float32':
-        gdal_type = gdal.GDT_Float32
-    elif datatype == 'float64':
-        gdal_type = gdal.GDT_Float64
-    elif datatype == 'uint16':
-        gdal_type = gdal.GDT_UInt16
-    elif datatype == 'byte':
-        gdal_type = gdal.GDT_Byte
-    elif datatype == 'int16':
-        gdal_type = gdal.GDT_Int16
-    elif datatype == 'int32':
-        gdal_type = gdal.GDT_Int32
+    out_raster : h5py.Dataset or str
+        Raster where data needs to be written. String value represents
+        filepath for GDAL rasters.
+    data : np.ndarray
+        Data to be written to the raster.
+    block_param : BlockParam
+        Specifications for the data block to be written.
+    geotransform : tuple
+        GeoTransform parameters for the raster.
+    projection : str
+        Projection string for the raster.
+    datatype : str, optional
+        Data type of the raster. Defaults to 'byte'.
+    cog_flag : bool, optional
+        If True, converts the raster to COG format. Defaults to False.
+    scratch_dir : str, optional
+        Directory for intermediate processing. Defaults to '.'.
+    """
+    gdal_type = np2gdal_conversion[datatype]
+
     data = np.array(data, dtype=datatype)
     ndim = data.ndim
-    if ndim == 2:
-        number_band = 1
-    elif ndim == 1:
-        number_band = 1
-        data = data[np.newaxis, :]
-    else:
-        # assume that first dimension represents the number of bands
-        number_band = data.shape[0]
+    number_band = 1 if ndim < 3 else data.shape[0]
 
     data_start_without_pad = block_param.write_start_line - \
         block_param.read_start_line
@@ -544,10 +544,15 @@ def write_raster_block(out_raster, data,
                                 block_param.data_width,
                                 block_param.data_length,
                                 number_band, gdal_type)
+        if not ds_data:
+            raise IOError(f"Failed to create raster: {out_raster}")
+
         ds_data.SetGeoTransform(geotransform)
         ds_data.SetProjection(projection)
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
+        if not ds_data:
+            raise IOError(f"Failed to open raster for update: {out_raster}")
 
     if ndim == 2:
         ds_data.GetRasterBand(1).WriteArray(
@@ -565,6 +570,8 @@ def write_raster_block(out_raster, data,
                 yoff=block_param.write_start_line)
 
     del ds_data
+
+    # Write COG is cog_flag is True and last block.
     if (block_param.write_start_line + block_param.block_length == \
         block_param.data_length) and cog_flag:
         _save_as_cog(out_raster, scratch_dir)
@@ -572,6 +579,7 @@ def write_raster_block(out_raster, data,
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):
     ''' Generator for block specific parameter class.
+
     Parameters
     ----------
     lines_per_block: int
@@ -580,6 +588,7 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         Length and width of input raster.
     pad_shape: tuple(int, int)
         Padding for the length and width of block to be filtered.
+
     Returns
     -------
     _: BlockParam
@@ -715,6 +724,10 @@ def merge_binary_layers(layer_list, value_list, merged_layer_path,
         Number of lines per block for processing the data in chunks.
     mode : str, optional
         Logical operation to apply for merging ('and' or 'or'). The default is 'or'.
+    cog_flag : bool, optional
+        Write to COG if True. Defaults to True.
+    scratch_dir : str, optional
+        Path to scrath dir. Defaults to '.'.
 
     Returns
     -------
@@ -761,6 +774,7 @@ def merge_binary_layers(layer_list, value_list, merged_layer_path,
             datatype='byte',
             cog_flag=cog_flag,
             scratch_dir=scratch_dir)
+
 
 def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     """save intensity images into png file
@@ -817,9 +831,8 @@ def block_threshold_visualization(intensity, block_row, block_col,
     elif intensity.ndim == 3:
         _, rows, cols = intensity.shape
 
-    nrow_tile = rows // block_row + (1 if rows % block_row > 0 else 0)
-    ncol_tile = cols // block_col + (1 if cols % block_col > 0 else 0)
-
+    nrow_tile = int(np.ceil(rows / block_row))
+    ncol_tile = int(np.ceil(cols / block_col))
     assert nrow_tile == threshold_tile.shape[0], 'Row tile size error'
     assert ncol_tile == threshold_tile.shape[1], 'Column tile size error'
 
@@ -838,6 +851,7 @@ def block_threshold_visualization(intensity, block_row, block_col,
             threshold_oversample[i*block_row:i_end, j*block_col:j_end] = \
                 threshold_tile[i, j]
 
+            # Draw the tile rectangle
             plt.plot([j*block_col, j_end, j_end, j*block_col, j*block_col],
                      [i*block_row, i*block_row, i_end, i_end, i*block_row],
                      'black')
@@ -855,7 +869,7 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
     """
     Visualize an intensity image overlaid with threshold values from provided blocks/subtiles.
 
-    Parameters:
+    Parameters
     -----------
     intensity : numpy.ndarray
         2D or 3D array representing the intensity of the image.
@@ -870,7 +884,7 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
     figname : str
         Base name for the saved visualization figures.
 
-    Returns:
+    Returns
     --------
     None. The visualized figures are saved to the specified directory.
     """

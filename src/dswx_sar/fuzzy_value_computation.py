@@ -9,7 +9,9 @@ import numpy as np
 from dswx_sar import (dswx_sar_util,
                       generate_log,
                       masking_with_ancillary)
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
+                                     _get_parser,
+                                     RunConfig)
 
 logger = logging.getLogger('dswx_s1')
 
@@ -91,8 +93,8 @@ def smf(values, minv, maxv):
     center_value = (minv + maxv) / 2
     output= np.zeros(np.shape(values), dtype='float32')
 
-    # When using numpy arrays for min and max values in 
-    # a membership function, identical elements in these 
+    # When using numpy arrays for min and max values in
+    # a membership function, identical elements in these
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
@@ -135,8 +137,8 @@ def zmf(values, minv, maxv):
     '''
     output = np.zeros(np.shape(values))
 
-    # When using numpy arrays for min and max values in 
-    # a membership function, identical elements in these 
+    # When using numpy arrays for min and max values in
+    # a membership function, identical elements in these
     # arrays are replaced with a slightly higher number
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
@@ -308,7 +310,7 @@ def compute_fuzzy_value(intensity,
         if pol in ['VH', 'HV']:
             pol_threshold = fuzzy_option['dark_area_land']
             water_threshold = fuzzy_option['dark_area_water']
-            low_backscatter = (intensity[int_id, :, :] < pol_threshold) 
+            low_backscatter = (intensity[int_id, :, :] < pol_threshold)
             # Low backscattering candidates
             low_backscatter_cand &= low_backscatter
             dark_water_cand &= intensity[int_id, :, :] < water_threshold
@@ -638,8 +640,20 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
-    run(cfg)
-
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

@@ -9,8 +9,9 @@ from joblib import Parallel, delayed
 
 from dswx_sar import (dswx_sar_util,
                       generate_log)
-from dswx_sar.dswx_runconfig import RunConfig, _get_parser
-
+from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
+                                     RunConfig,
+                                     _get_parser)
 
 logger = logging.getLogger('dswx_s1')
 
@@ -46,12 +47,12 @@ def region_growing(likelihood_image,
         Defaults to 0 which translates to infinite iterations.
     mode : str
         'ascending' or 'descending'
-        If region growing mode is 'ascending', 
+        If region growing mode is 'ascending',
         then algorithm starts from low value to high value
         to find the pixel lower than relaxed threshold.
         The 'descending' starts from high value and find
         the pixel higher than relaxed threshold.
-        
+
 
     Returns
     ----------
@@ -72,7 +73,7 @@ def region_growing(likelihood_image,
                       " should be smaller than relaxed threshold" \
                       f"{relaxed_threshold}."
             raise ValueError(err_str)
-    
+
 
     # Create initial binary image using seed value
     if mode == 'descending':
@@ -99,19 +100,19 @@ def region_growing(likelihood_image,
         # exclude the original binary pixels from buffer binary
         if exclude_area is not None:
             buffer_binary = np.logical_xor(
-                ndimage.binary_dilation(binary_image, 
+                ndimage.binary_dilation(binary_image,
                                         mask=target_area),
                                         binary_image)
         else:
             buffer_binary = np.logical_xor(
-                ndimage.binary_dilation(binary_image), 
+                ndimage.binary_dilation(binary_image),
                 binary_image)
 
         # define new_binary for the pixels higher than relaxed_threshold
         if mode == 'descending':
             new_binary = likelihood_image[buffer_binary] > relaxed_threshold
         else:
-            new_binary = likelihood_image[buffer_binary] < relaxed_threshold 
+            new_binary = likelihood_image[buffer_binary] < relaxed_threshold
 
         # add new pixels to binary_image
         binary_image[buffer_binary] = new_binary
@@ -378,7 +379,21 @@ def main():
     cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
     generate_log.configure_log_file(args.log_file)
 
-    run(cfg)
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
+
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

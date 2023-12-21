@@ -17,7 +17,9 @@ from dswx_sar import (dswx_sar_util,
                       generate_log,
                       refine_with_bimodality,
                       region_growing)
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
+                                     _get_parser,
+                                     RunConfig)
 
 
 logger = logging.getLogger('dswx_s1')
@@ -1067,8 +1069,20 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
-    run(cfg)
-
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

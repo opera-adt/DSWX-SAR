@@ -13,17 +13,67 @@ from osgeo import gdal, osr
 from pyproj import CRS
 import rasterio
 from rasterio.warp import transform_bounds
+from rasterio.merge import merge
 from shapely.geometry import Polygon
 
 from dswx_sar import (dswx_sar_util,
                       generate_log)
 from dswx_sar.dswx_sar_util import band_assign_value_dict
-from dswx_sar.dswx_runconfig import RunConfig, _get_parser
+from dswx_sar.dswx_runconfig import RunConfig, _get_parser, DSWX_S1_POL_DICT
 from dswx_sar.metadata import (create_dswx_sar_metadata,
                                collect_burst_id,
                                _populate_statics_metadata_datasets)
 
 logger = logging.getLogger('dswx_s1')
+
+
+def merge_pol_layers(list_layers,
+                     output_file,
+                     nodata_value=None,
+                     scratch_dir='.'):
+    """
+    Merge multiple GeoTIFF files into a single file using rasterio.
+    This function is used to merge the GeoTIFF with different polarizaitons.
+
+    Parameters
+    ----------
+    list_layers : list
+        List of GeoTIFF file paths to be merged.
+    output_file : str
+        Path for the output merged GeoTIFF file.
+    nodata_value : float
+        The no-data value to be considered in the merge.
+    """
+    # Open all the source files
+    src_files_to_mosaic = []
+    for file in list_layers:
+        src = rasterio.open(file)
+        src_files_to_mosaic.append(src)
+
+    # Merge function
+    if nodata_value is not None:
+        mosaic, out_trans = merge(src_files_to_mosaic, nodata=nodata_value)
+    else:
+        mosaic, out_trans = merge(src_files_to_mosaic)
+
+    # Get metadata from last file as kwargs for rasterio writing out the mosaic
+    kwargs = src.meta
+
+    # Update the metadata
+    kwargs.update({"driver": "GTiff",
+                     "height": mosaic.shape[1],
+                     "width": mosaic.shape[2],
+                     "transform": out_trans,})
+
+    # Write the mosaic raster to disk
+    with rasterio.open(output_file, "w", **kwargs) as dest:
+        dest.write(mosaic)
+
+    # Close the source files
+    for src in src_files_to_mosaic:
+        src.close()
+
+    dswx_sar_util._save_as_cog(output_file, scratch_dir)
 
 
 def get_bounding_box_from_mgrs_tile_db(
@@ -155,37 +205,38 @@ def find_intersecting_burst_with_bbox(ref_bbox,
 
     overlapped_rtc_dir_list = []
     for input_dir in input_rtc_dirs:
-        copol_rtc_path_iter = glob.iglob(f'{input_dir}/*_VV*.tif')
-        copol_rtc_path = next(copol_rtc_path_iter)
 
-        if not copol_rtc_path:
-            copol_rtc_path_iter = glob.iglob(f'{input_dir}/*_HH*.tif')
-            copol_rtc_path = next(copol_rtc_path_iter)
+        copol_file_list = [f for f in glob.glob(f'{input_dir}/*.tif')
+                           if any(pol in f
+                                  for pol in DSWX_S1_POL_DICT['CO_POL'])]
+        if copol_file_list:
+            with rasterio.open(copol_file_list[0]) as src:
+                epsg_code = int(src.crs.data['init'].split(':')[1])
 
-        with rasterio.open(copol_rtc_path) as src:
-            epsg_code = int(src.crs.data['init'].split(':')[1])
+                # Get bounds of the raster data
+                left, bottom, right, top = src.bounds
 
-            # Get bounds of the raster data
-            left, bottom, right, top = src.bounds
+                # Reproject to EPSG 4326 if the current EPSG is not 4326
+                if epsg_code != ref_epsg:
+                    left, bottom, right, top = \
+                        transform_bounds(src.crs,
+                                         {'init': f'EPSG:{ref_epsg}'},
+                                         left,
+                                         bottom,
+                                         right,
+                                         top)
+                rtc_polygon = Polygon([(left, bottom),
+                                       (left, top),
+                                       (right, top),
+                                       (right, bottom)])
 
-            # Reproject to EPSG 4326 if the current EPSG is not 4326
-            if epsg_code != ref_epsg:
-                left, bottom, right, top = \
-                    transform_bounds(src.crs,
-                                     {'init': f'EPSG:{ref_epsg}'},
-                                     left,
-                                     bottom,
-                                     right,
-                                     top)
-            rtc_polygon = Polygon([(left, bottom),
-                                   (left, top),
-                                   (right, top),
-                                   (right, bottom)])
-
-        # Check if bursts intersect the reference polygon
-        if ref_polygon.intersects(rtc_polygon) or \
-           ref_polygon.overlaps(rtc_polygon):
-            overlapped_rtc_dir_list.append(input_dir)
+            # Check if bursts intersect the reference polygon
+            if ref_polygon.intersects(rtc_polygon) or \
+            ref_polygon.overlaps(rtc_polygon):
+                overlapped_rtc_dir_list.append(input_dir)
+        else:
+            print('fail to find the overlapped rtc')
+            overlapped_rtc_dir_list = None
 
     return overlapped_rtc_dir_list
 
@@ -461,6 +512,7 @@ def run(cfg):
     # Processing parameters
     processing_cfg = cfg.groups.processing
     pol_str = '_'.join(processing_cfg.polarizations)
+    pol_mode = processing_cfg.polarization_mode
     co_pol = processing_cfg.copol
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
@@ -486,6 +538,7 @@ def run(cfg):
     os.makedirs(sas_outputdir, exist_ok=True)
 
     num_input_path = len(input_list)
+
     logger.info(f'Number of bursts to process: {num_input_path}')
     date_str_list = []
     for input_dir in input_list:
@@ -509,27 +562,49 @@ def run(cfg):
     platform_str = platform[0] + platform.split('-')[-1]
     resolution_str = str(int(resolution))
 
+    # Set merge_layer_flag and merge_pol_list based on pol_mode
+    merge_layer_flag = pol_mode in ['MIX_DUAL_POL', 'MIX_SINGLE_POL']
+    pol_type = 'DV_POL' if pol_mode == 'MIX_DUAL_POL' else 'SV_POL'
+    merge_pol_list = ['_'.join(DSWX_S1_POL_DICT[pol_type]),
+                      '_'.join(DSWX_S1_POL_DICT[pol_type.replace('V', 'H')])]
+
     # Depending on the workflow, the final product are different.
-    if dswx_workflow == 'opera_dswx_s1':
-        final_water_path = \
-            os.path.join(outputdir,
-                         f'bimodality_output_binary_{pol_str}.tif')
-    else:
-        # twele's workflow
-        final_water_path = \
-            os.path.join(outputdir,
-                         f'region_growing_output_binary_{pol_str}.tif')
+    prefix_dict = {
+    'final_water': 'bimodality_output_binary'
+        if dswx_workflow == 'opera_dswx_s1' else 'region_growing_output_binary',
+    'landcover_mask': 'refine_landcover_binary',
+    'no_data_area': 'no_data_area',
+    'inundated_veg': 'temp_inundated_vegetation',
+    'region_growing': 'region_growing_output_binary',
+    'fuzzy_value': 'fuzzy_image'
+    }
+
+    paths = {}
+    for key, prefix in prefix_dict.items():
+        file_path = f'{prefix}_{pol_str}.tif'
+        paths[key] = os.path.join(outputdir, file_path)
+        if merge_layer_flag:
+            list_layers = [os.path.join(outputdir, f'{prefix}_{pol_cand_str}.tif')
+                           for pol_cand_str in merge_pol_list]
+            if key == 'no_data_area':
+                extra_args = {'nodata_value': 1}
+            elif key == 'fuzzy_value':
+                extra_args = {'nodata_value': -1}
+            else:
+                extra_args = {'nodata_value': 0}
+            merge_pol_layers(list_layers,
+                             os.path.join(outputdir, file_path),
+                             **extra_args)
 
     # metadata for final product
     # e.g. geotransform, projection, length, width, utmzon, epsg
-    water_meta = dswx_sar_util.get_meta_from_tif(final_water_path)
+    water_meta = dswx_sar_util.get_meta_from_tif(paths['final_water'])
 
     # repackage the water map
     # 1) water map
-    water_map = dswx_sar_util.read_geotiff(final_water_path)
-    no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
-    no_data_raster = dswx_sar_util.read_geotiff(no_data_geotiff_path)
-    no_data_raster = no_data_raster | \
+    water_map = dswx_sar_util.read_geotiff(paths['final_water'])
+    no_data_raster = dswx_sar_util.read_geotiff(paths['no_data_area'])
+    no_data_raster = (no_data_raster > 0) | \
         (water_map == band_assign_value_dict['no_data'])
 
     # 2) layover/shadow
@@ -559,7 +634,7 @@ def run(cfg):
     # 4) inundated_vegetation
     if processing_cfg.inundated_vegetation.enabled:
         inundated_vegetation = dswx_sar_util.read_geotiff(
-            os.path.join(outputdir, "temp_inundated_vegetation.tif"))
+            paths['inundated_veg'])
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
@@ -572,13 +647,9 @@ def run(cfg):
         logger.info('BWTR and WTR Files are created from pre-computed files.')
 
         region_grow_map = \
-            dswx_sar_util.read_geotiff(
-                os.path.join(outputdir,
-                             f'region_growing_output_binary_{pol_str}.tif'))
+            dswx_sar_util.read_geotiff(paths['region_growing'])
         landcover_map =\
-            dswx_sar_util.read_geotiff(
-                os.path.join(outputdir,
-                             f'refine_landcover_binary_{pol_str}.tif'))
+            dswx_sar_util.read_geotiff(paths['landcover_mask'])
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
         bright_water_mask = (landcover_map == 0) & (water_map == 1)
@@ -614,8 +685,7 @@ def run(cfg):
             hand_mask=hand_mask,
             no_data=no_data_raster)
 
-        fuzzy_value = dswx_sar_util.read_geotiff(
-            os.path.join(outputdir, f'fuzzy_image_{pol_str}.tif'))
+        fuzzy_value = dswx_sar_util.read_geotiff(paths['fuzzy_value'])
         conf_value = np.round(fuzzy_value * 100)
 
         dswx_sar_util.save_dswx_product(
@@ -651,7 +721,7 @@ def run(cfg):
     if database_bool:
         mgrs_tile_list, most_overlapped = get_intersecting_mgrs_tiles_list_from_db(
             mgrs_collection_file=mgrs_collection_db_path,
-            image_tif=final_water_path)
+            image_tif=paths['final_water'])
         maximum_burst = most_overlapped['number_of_bursts']
         expected_burst_list = most_overlapped['bursts']
 
@@ -669,7 +739,7 @@ def run(cfg):
 
     else:
         mgrs_tile_list = get_intersecting_mgrs_tiles_list(
-            image_tif=final_water_path)
+            image_tif=paths['final_water'])
 
     unique_mgrs_tile_list = list(set(mgrs_tile_list))
     logger.info(f'MGRS tiles: {unique_mgrs_tile_list}')

@@ -7,7 +7,7 @@ import numpy as np
 import osgeo.gdal as gdal
 
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT, _get_parser, RunConfig
 from dswx_sar.pre_processing import pol_ratio
 from dswx_sar.masking_with_ancillary import FillMaskLandCover
 
@@ -21,8 +21,6 @@ def run(cfg):
     t_all = time.time()
 
     processing_cfg = cfg.groups.processing
-    pol_list = processing_cfg.polarizations
-    pol_all_str = '_'.join(pol_list)
     outputdir = cfg.groups.product_path_group.scratch_path
 
     pol_list = processing_cfg.polarizations
@@ -91,7 +89,7 @@ def run(cfg):
     output_data[inundated_vegetation] = 2
     output_data[mask_excluded] = 0
 
-    inundated_vege_path = f"{outputdir}/temp_inundated_vegetation.tif"
+    inundated_vege_path = f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
     dswx_sar_util.save_dswx_product(
         output_data,
         inundated_vege_path,
@@ -103,7 +101,8 @@ def run(cfg):
     if processing_cfg.debug_mode:
         dswx_sar_util.save_raster_gdal(
             data=filt_ratio_db,
-            output_file=os.path.join(outputdir, 'intensity_db_ratio.tif'),
+            output_file=os.path.join(outputdir,
+                                     f'intensity_db_ratio_{pol_all_str}.tif'),
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],
             scratch_dir=outputdir)
@@ -133,8 +132,21 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
-    run(cfg)
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
 
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

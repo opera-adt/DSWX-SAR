@@ -4,10 +4,14 @@ runconfig:
     processing:
         # dswx_workflow 'opera_dswx_s1', 'twele', 'opera_dswx_s1_inundated_vegetation'
         dswx_workflow: 'opera_dswx_s1'
-        # valid values for polarizations
-        # empty for all polarizations found in RSLC
-        # [polarizations] for list of specific frequency(s) e.g. [HH, HV] or [HH]
-        polarizations: ['VV', 'VH']
+        # Polarizations to be used for DSWx-SAR
+        # [polarizations] for list of specific frequency(s) e.g. [VV, VH] or [VV]
+        # 'dual-pol', 'co-pol', 'cross-pol' will search the polarizations Input GeoTiff files have. 
+        # For example, 'co-pol' uses ['HH'], ['VV'], or ['HH', 'VV'] by looking at the input data. 
+        polarizations: ['dual-pol']
+        # Additional for polarimetric computations to be performed in specific polarization modes (co/cross and co + cross)
+        # e.g. ['ratio', 'span'] 
+        polarimetric_option:
 
         # Specifiy the max_value for permanent water and no_data_value for invalid pixels
         reference_water:
@@ -18,7 +22,7 @@ runconfig:
             # number of pixel to apply erosion for drought case
             drought_erosion_pixel: 10
             # number of pixel to apply dilation for flood case
-            flood_dilation_pixel: 16 
+            flood_dilation_pixel: 16
 
         hand:
             mask_value: 200
@@ -27,8 +31,8 @@ runconfig:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
             # Burst Mosaic options
-            #   - average : overlapped areas are averaged. 
-            #   - first : choose one burst without average. 
+            #   - average : overlapped areas are averaged.
+            #   - first : choose one burst without average.
             mosaic_mode: 'first'
 
         # Flag to turn on/off the filtering for RTC image.
@@ -37,6 +41,7 @@ runconfig:
             enabled: True
             # Window size for filtering.
             window_size: 5
+            line_per_block: 1000
 
         initial_threshold:
             # Maximum tile size for initial threshold.
@@ -53,11 +58,11 @@ runconfig:
             selection_method: 'combined'
 
             # Thresholds to select tiles showing the boundary between water and nonwater
-            # using bimodality strategy. 
-            # One values are required for twele method 
+            # using bimodality strategy.
+            # One values are required for twele method
             tile_selection_twele: [0.09, 0.8, 0.97]
             # Thresholds to select tiles showing the boundary between water and nonwater
-            # using bimodality strategy. 
+            # using bimodality strategy.
             # One values are required for bimodality method
             tile_selection_bimodality: 0.7
             # Stratey to interpolate the tile-based thresholds.
@@ -78,27 +83,28 @@ runconfig:
             number_cpu: -1
             number_iterations: 1
             tile_average: False
+            line_per_block: 300
 
         fuzzy_value:
             line_per_block: 200
             hand:
-                # The units of the HAND is meters. 
+                # The units of the HAND is meters.
                 member_min: 0
                 member_max: 15
             # membership bound for slope angle
             slope:
-                # The units of the slope is degree. 
+                # The units of the slope is degree.
                 member_min: 0.5
                 member_max: 15
-            # membership bound for reference water                
+            # membership bound for reference water
             reference_water:
                 # Minimum reference water value for membership
                 member_min: 0.8
                 # Maximum reference water value for membership
                 member_max: 0.95
             # membership bound for area of initial water bodies
-            # area membership is only required for 'twele' workflow. 
-            # area unit is pixel number. 
+            # area membership is only required for 'twele' workflow.
+            # area unit is pixel number.
             area:
                 member_min: 0
                 member_max: 40
@@ -126,11 +132,26 @@ runconfig:
             line_per_block: 400
 
         masking_ancillary:
+            # Land covers that behaves like dark lands in DSWx-SAR. 
+            # The elements should be in given landcover file. 
+            # The elements will be masked out during this step.
+            land_cover_darkland_list: ['Bare sparse vegetation', 'Urban', 'Moss and lichen']
+            # The elements is considered as the dark land candidates
+            # where these elemtns are spatially connected to the dark land.
+            land_cover_darkland_extension_list: ['Grassland', 'Shrubs']
             # VV and VH threshold values for dark land candidates
             co_pol_threshold: -14.6
             cross_pol_threshold: -22.8
             # reference water threshold value for dark land candidates
-            water_threshold: 
+            water_threshold: 0.05
+            # Flag to enable the darkland extension.
+            extended_darkland: True
+            # Flag to enable the HAND filter.
+            hand_variation_mask: True
+            # pixels with HAND threshold is masked out.
+            hand_variation_threshold: 2.5
+            line_per_block: 400
+            number_cpu: 1
 
         refine_with_bimodality:
             minimum_pixel: 4
@@ -148,6 +169,7 @@ runconfig:
             dual_pol_ratio_threshold: 8
             cross_pol_min: -26
             line_per_block: 300
+            target_land_cover: ['Herbaceous wetland']
 
         # debug mode is true, intermediate product is generated.
         debug_mode: False

@@ -8,7 +8,11 @@ runconfig:
 
         # Polarizations to be used for DSWx-SAR
         # [polarizations] for list of specific frequency(s) e.g. [VV, VH] or [VV]
+        # 'dual-pol', 'co-pol', 'cross-pol' will search the polarizations Input GeoTiff files have. 
+        # For example, 'co-pol' uses ['HH'], ['VV'], or ['HH', 'VV'] by looking at the input data. 
         polarizations: any(list(str(min=2, max=10), min=1, max=4), str(min=4, max=4), null(), required=False)
+        # Additional for polarimetric computations to be performed in specific polarization modes (co/cross and co + cross)
+        polarimetric_option: any(list(enum('ratio', 'span'), min=1, max=2), enum('ratio', 'span'), null(), required=False)
 
         # Specifiy the max_value for permanent water and no_data_value for invalid pixels
         reference_water:
@@ -30,6 +34,7 @@ runconfig:
         filter:
             enabled: bool(required=False)
             window_size: num(min=1, max=999, required=False)
+            line_per_block: num(min=1, required=False)
 
         initial_threshold:
             # Maximum tile size for initial threshold.
@@ -51,7 +56,7 @@ runconfig:
             # 2) min value and 3) max value of mean of subtiles / mean of tiles
             tile_selection_twele: list(required=False)
             # Thresholds to select tiles showing the boundary between water and nonwater
-            # using bimodality strategy. 
+            # using bimodality strategy.
             # One values are required for bimodality method
             tile_selection_bimodality: num(required=False)
             # Strategy to interpolate the tile-based thresholds.
@@ -66,17 +71,18 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
-            # Flag to average the thresholds within the tile. 
-            # The output thresholds are assigned to each tile. 
+            # Flag to average the thresholds within the tile.
+            # The output thresholds are assigned to each tile.
             tile_average: bool(required=False)
             number_iterations: num(required=False)
             # Number of threads to run
             # -1 represents the all available threads
             number_cpu: num(required=False)
+            line_per_block: num(min=1, required=False)
 
         fuzzy_value:
             line_per_block: num(min=1, required=False)
-            hand: 
+            hand:
                 # Min and max values for hand are automatically calculated
                 # from input HAND, but they are not given,
                 # below values are used.
@@ -86,14 +92,14 @@ runconfig:
             slope:
                 member_min: num(required=False)
                 member_max: num(required=False)
-            # Membership bound for reference water                
+            # Membership bound for reference water
             reference_water:
                 # Minimum reference water value for membership
                 member_min: num(required=False)
                 # Maximum reference water value for membership
                 member_max: num(required=False)
             # Membership bound for area of initial water bodies.
-            # Area membership is only required for 'twele' workflow. 
+            # Area membership is only required for 'twele' workflow.
             area:
                 member_min: num(required=False)
                 member_max: num(required=False)
@@ -111,7 +117,7 @@ runconfig:
                 water_min_value: num(required=False)
                 # Maximum value for high frequent water
                 water_max_value: num(required=False)
-                        
+
         region_growing:
             # Seed value for region growing start
             initial_threshold: num(min=0, max=1, required=False)
@@ -120,11 +126,29 @@ runconfig:
             line_per_block: num(min=1, required=False)
 
         masking_ancillary:
+            # Land covers that behaves like dark lands in DSWx-SAR. 
+            # The elements should be in given landcover file. 
+            # The elements will be masked out during this step.
+            land_cover_darkland_list: list(required=False)
+            # The elements is considered as the dark land candidates
+            # where these elemtns are spatially connected to the dark land.
+            land_cover_darkland_extension_list: list(required=False)
             # VV and VH threshold values for dark land candidates
             co_pol_threshold: num(min=-30, max=10, required=False)
             cross_pol_threshold: num(min=-30, max=10, required=False)
             # Reference water threshold value for dark land candidates
             water_threshold: num(min=0, max=100, required=False)
+            minimum_pixel: num(min=0, required=False)
+            # Flag to enable the darkland extension.
+            extended_darkland: bool(required=False)
+            # Assuming the height of the water/land boundaries has low
+            # variation, the standard deviation is estimated along the boundaries
+            # and removed if the std is high. 
+            hand_variation_mask: bool(required=False)
+            # pixels with HAND threshold is masked out.
+            hand_variation_threshold: num(min=0, max=100, required=False)
+            line_per_block: num(min=1, required=False)
+            number_cpu: num(required=False)
 
         refine_with_bimodality:
             number_cpu: num(required=False)
@@ -142,6 +166,7 @@ runconfig:
             dual_pol_ratio_threshold: num(min=0, max=30, required=False)
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
-
-        # If debug mode is true, intermediate product is generated. 
+            # Land covers where the inundated vegetation is detected. 
+            target_land_cover: list(required=False)
+        # If debug mode is true, intermediate product is generated.
         debug_mode: bool(required=False)

@@ -15,10 +15,12 @@ from osgeo import osr, gdal
 from scipy import ndimage
 
 from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import (dswx_sar_util,
+from dswx_sar import (dswx_geogrid,
+                      dswx_sar_util,
                       generate_log)
 
 logger = logging.getLogger('dswx_s1')
+
 
 
 def majority_element(num_list):
@@ -725,6 +727,9 @@ def run(cfg):
 
     mosaic_mode = mosaic_cfg.mosaic_mode
     product_prefix = processing_cfg.mosaic.mosaic_prefix
+    pol_list = cfg.groups.processing.polarizations
+    first_pol = pol_list[0]
+
     imagery_extension = 'tif'
     os.makedirs(scratch_path, exist_ok=True)
 
@@ -738,7 +743,7 @@ def run(cfg):
         else:
             logger.info('Singple input directories is found.')
             logger.info('Mosaic is diabled for single burst RTC ')
-            mosaic_flag = False
+            mosaic_flag = True
     else:
         if num_input_path == 1:
             logger.info('Single input RTC is found.')
@@ -752,36 +757,61 @@ def run(cfg):
     if mosaic_flag:
         print('Number of bursts to process:', num_input_path)
 
-        pol_list = cfg.groups.processing.polarizations
-
         freqA_path = '/data/'
 
         output_file_list = []
-        metadata_list = []
         nlooks_list = []
         mask_list = []
         epsg_list = []
 
         for ind, input_dir in enumerate(input_list):
-            # find HDF5 metadata
-            metadata_path = glob.glob(f'{input_dir}/*h5')[0]
-            epsg_list.append(read_metadata_epsg(metadata_path)['epsg'])
+
+            first_rtc_path_iter = glob.iglob(f'{input_dir}/*.tif')
+            first_rtc_path = next(first_rtc_path_iter)
+            if first_rtc_path:
+                rtc_meta = dswx_sar_util.get_meta_from_tif(first_rtc_path)
+                epsg_list.append(rtc_meta['epsg'])
+            else:
+                err_msg = 'RTC files not found.'
+                raise FileExistsError(err_msg)
 
         epsg_output = majority_element(epsg_list)
+        geogrid_in = dswx_geogrid.DSWXGeogrid()
 
+        logger.info('All RTC bursts and associated masks will be mosaicked ' \
+                    f'using the ESPG projection designated by {epsg_output}.')
         # for each directory, find metadata, and RTC files.
         for ind, input_dir in enumerate(input_list):
 
             # find HDF5 metadata
-            metadata_path = glob.glob(f'{input_dir}/*h5')[0]
-            metadata_list.append(metadata_path)
-
             layover_path = glob.glob(f'{input_dir}/*mask.tif')
+            temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
+            # If both `*_mask.tif` and `*.h5` exists in RTC-S1 burst product directory:
+            # The metadata in `*_mask.tif` has priority over HDF5 file.
             if len(layover_path) > 0:
-                mask_list.append(layover_path[0])
+                logger.info('Layover/shadow GeoTIFF is found.')
+                if epsg_output != epsg_list[ind]:
+                    logger.info(f'{layover_path[0]}, {epsg_list[ind]} -> {epsg_output}')
+                    dswx_sar_util.change_epsg_tif(
+                        input_tif=layover_path,
+                        output_tif=temp_mask_path,
+                        epsg_output=epsg_output,
+                        output_nodata=255)
+                    mask_list.append(temp_mask_path)
+
+                    # update geogrid using new GeoTiff file.
+                    geogrid_in.update_geogrid(temp_mask_path)
+
+                else:
+                    mask_list.append(layover_path[0])
+                    geogrid_in.update_geogrid(layover_path[0])
+
             else:
-            # layover/shadow mask is saved from hdf5 metadata.
-                temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
+                # If mask GeoTiff is not available,
+                # layover/shadow mask may be saved in hdf5 metadata.
+                metadata_path = glob.glob(f'{input_dir}/*h5')[0]
+                logger.info('Metadata HDF5 is found.')
+
                 with h5py.File(metadata_path) as meta_src:
                     if 'mask' in meta_src[freqA_path]:
                         mask_name = 'mask'
@@ -811,17 +841,24 @@ def run(cfg):
                 rtc_burst_imagery_list = []
 
                 for input_ind, input_dir in enumerate(input_list):
+                    rtc_path_inputs = glob.glob(f'{input_dir}/*_{pol}.tif')
+                    if rtc_path_inputs:
+                        rtc_path_input = rtc_path_inputs[0]
 
-                    rtc_path_input = glob.glob(f'{input_dir}/*_{pol}.tif')[0]
-                    if epsg_output != epsg_list[input_ind]:
-                        rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
-                        dswx_sar_util.change_epsg_tif(rtc_path_input,
-                                                      rtc_path_temp,
-                                                      epsg_output)
-                        rtc_burst_imagery_list.append(rtc_path_temp)
+                        if epsg_output != epsg_list[input_ind]:
+                            rtc_path_temp = f'{scratch_path}/temp_{pol}_{input_ind}.tif'
+                            dswx_sar_util.change_epsg_tif(rtc_path_input,
+                                                          rtc_path_temp,
+                                                          epsg_output)
+                            rtc_burst_imagery_list.append(rtc_path_temp)
+
+                            # update geogrid using new GeoTiff file.
+                            geogrid_in.update_geogrid(rtc_path_temp)
+                        else:
+                            rtc_burst_imagery_list.append(rtc_path_input)
+                            geogrid_in.update_geogrid(rtc_path_input)
                     else:
-                        rtc_burst_imagery_list.append(rtc_path_input)
-
+                        print(f'polarzation {pol} is not found in {input_dir}')
                 nlooks_list = []
 
                 if len(rtc_burst_imagery_list) > 0:
@@ -834,19 +871,19 @@ def run(cfg):
                     mosaic_single_output_file(
                         rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
                         mosaic_mode, scratch_dir=scratch_path,
-                        geogrid_in=None, temp_files_list=None)
+                        geogrid_in=geogrid_in, temp_files_list=None)
 
-        geo_mask_filename = \
-            (f'{output_dir_mosaic_raster}/{product_prefix}_layovershadow_mask.'
-                f'{imagery_extension}')
-        logger.info(f'    {geo_mask_filename}')
-        output_file_list.append(geo_mask_filename)
-
-        mosaic_single_output_file(
-            mask_list, nlooks_list, geo_mask_filename,
-            mosaic_mode, scratch_dir=scratch_path,
-            geogrid_in=None, temp_files_list=None,
-            no_data_value=255)
+        if mask_list:
+            geo_mask_filename = \
+                (f'{output_dir_mosaic_raster}/{product_prefix}_layovershadow_mask.'
+                 f'{imagery_extension}')
+            logger.info(f'    {geo_mask_filename}')
+            output_file_list.append(geo_mask_filename)
+            mosaic_single_output_file(
+                mask_list, nlooks_list, geo_mask_filename,
+                mosaic_mode, scratch_dir=scratch_path,
+                geogrid_in=geogrid_in, temp_files_list=None,
+                no_data_value=255)
 
         # save files as COG format.
         if processing_cfg.mosaic.mosaic_cog_enable:

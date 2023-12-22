@@ -9,8 +9,9 @@ from joblib import Parallel, delayed
 
 from dswx_sar import (dswx_sar_util,
                       generate_log)
-from dswx_sar.dswx_runconfig import RunConfig, _get_parser
-
+from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
+                                     RunConfig,
+                                     _get_parser)
 
 logger = logging.getLogger('dswx_s1')
 
@@ -19,6 +20,7 @@ def region_growing(likelihood_image,
                    initial_threshold=0.6,
                    relaxed_threshold=0.45,
                    maxiter=200,
+                   exclude_area=None,
                    mode='descending',
                    verbose=True):
     """The regions are then grown from the seed points to adjacent
@@ -45,12 +47,12 @@ def region_growing(likelihood_image,
         Defaults to 0 which translates to infinite iterations.
     mode : str
         'ascending' or 'descending'
-        If region growing mode is 'ascending', 
+        If region growing mode is 'ascending',
         then algorithm starts from low value to high value
         to find the pixel lower than relaxed threshold.
         The 'descending' starts from high value and find
         the pixel higher than relaxed threshold.
-        
+
 
     Returns
     ----------
@@ -71,7 +73,7 @@ def region_growing(likelihood_image,
                       " should be smaller than relaxed threshold" \
                       f"{relaxed_threshold}."
             raise ValueError(err_str)
-    
+
 
     # Create initial binary image using seed value
     if mode == 'descending':
@@ -88,26 +90,36 @@ def region_growing(likelihood_image,
     if maxiter == 0:
         maxiter = np.inf
 
+    if exclude_area is not None:
+        target_area = np.invert(exclude_area)
+
     # Run region growing until maximum iteration reaches
     # and no more pixels are found
     while (itercount < maxiter) and (number_added > newpixelmin):
 
         # exclude the original binary pixels from buffer binary
-        buffer_binary = np.logical_xor(
-            ndimage.binary_dilation(binary_image), binary_image)
+        if exclude_area is not None:
+            buffer_binary = np.logical_xor(
+                ndimage.binary_dilation(binary_image,
+                                        mask=target_area),
+                                        binary_image)
+        else:
+            buffer_binary = np.logical_xor(
+                ndimage.binary_dilation(binary_image),
+                binary_image)
 
         # define new_binary for the pixels higher than relaxed_threshold
         if mode == 'descending':
             new_binary = likelihood_image[buffer_binary] > relaxed_threshold
         else:
-            new_binary = likelihood_image[buffer_binary] < relaxed_threshold 
+            new_binary = likelihood_image[buffer_binary] < relaxed_threshold
 
         # add new pixels to binary_image
         binary_image[buffer_binary] = new_binary
         number_added = np.sum(new_binary)
         itercount += 1
         if verbose:
-            logger.info(f"iteration {itercount}: {number_added:.3f} pixels added")
+            logger.info(f"full region growing iteration {itercount}: {number_added:.3f} pixels added")
 
     return binary_image
 
@@ -117,6 +129,7 @@ def process_region_growing_block(block_param,
                                  base_dir,
                                  fuzzy_base_name,
                                  input_tif_path,
+                                 exclude_area_path,
                                  initial_threshold,
                                  relaxed_threshold,
                                  maxiter):
@@ -157,6 +170,7 @@ def process_region_growing_block(block_param,
     """
     # At first loop, read block from intial fuzzy value geotiff
     # Otherwise, read block from previous loop
+
     if loopind == 0:
         fuzzy_map_temp = input_tif_path
     else:
@@ -165,11 +179,20 @@ def process_region_growing_block(block_param,
     data_block = dswx_sar_util.get_raster_block(
         fuzzy_map_temp, block_param)
 
+    if exclude_area_path is not None:
+        exclude_block = dswx_sar_util.get_raster_block(
+            exclude_area_path, block_param)
+    else:
+        exclude_block = None
+
     # Run region growing for fuzzy values
     region_grow_sub = region_growing(data_block,
                                      initial_threshold=initial_threshold,
                                      relaxed_threshold=relaxed_threshold,
-                                     maxiter=maxiter)
+                                     maxiter=maxiter,
+                                     exclude_area=exclude_block,
+                                     verbose=False)
+
     # replace fuzzy values with 1 for the pixels included by region growing
     data_block[region_grow_sub == 1] = 1
 
@@ -178,6 +201,7 @@ def process_region_growing_block(block_param,
 
 def run_parallel_region_growing(input_tif_path,
                                 output_tif_path,
+                                exclude_area_path=None,
                                 lines_per_block=200,
                                 initial_threshold=0.6,
                                 relaxed_threshold=0.45,
@@ -233,6 +257,7 @@ def run_parallel_region_growing(input_tif_path,
             lines_per_block_loop,
             data_shape,
             pad_shape)
+
         # run region-growing for blocks in parallel
         result = Parallel(n_jobs=-1)(delayed(process_region_growing_block)(
             block_param,
@@ -240,6 +265,7 @@ def run_parallel_region_growing(input_tif_path,
             base_dir,
             fuzzy_base_name,
             input_tif_path,
+            exclude_area_path,
             initial_threshold,
             relaxed_threshold,
             maxiter)
@@ -278,7 +304,13 @@ def run(cfg):
 
     processing_cfg = cfg.groups.processing
     outputdir = cfg.groups.product_path_group.scratch_path
-    pol_str = '_'.join(processing_cfg.polarizations)
+    pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+
+    pol_str = '_'.join(pol_list)
 
     # Region growing cfg
     region_growing_cfg = processing_cfg.region_growing
@@ -353,7 +385,21 @@ def main():
     cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
     generate_log.configure_log_file(args.log_file)
 
-    run(cfg)
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
+
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

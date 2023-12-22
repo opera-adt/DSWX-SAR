@@ -17,8 +17,9 @@ from skimage.filters import (threshold_otsu,
 from dswx_sar import (dswx_sar_util,
                       generate_log,
                       masking_with_ancillary)
-from dswx_sar.dswx_sar_util import band_assign_value_dict
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_runconfig import (_get_parser,
+                                     RunConfig,
+                                     DSWX_S1_POL_DICT)
 
 logger = logging.getLogger('dswx_s1')
 
@@ -73,9 +74,6 @@ class BimodalityMetrics:
         # then apply multi-threshold algorithm
         if self.threshold_global_otsu < gauss_dist_thres_bound[0]:
             multithreshold_global_otsu = threshold_multiotsu(int_db)
-            # if any(element for element in
-            #        multithreshold_global_otsu if element >=
-            #        gauss_dist_thres_bound[0]):
             if any(multithreshold_global_otsu >= gauss_dist_thres_bound[0]):
                 self.threshold_global_otsu_ind = \
                     np.where((multithreshold_global_otsu >
@@ -108,8 +106,8 @@ class BimodalityMetrics:
                                   self.prob,
                                   expected,
                                   bounds=(
-                                    (-30, 0, 0,
-                                    -30, 0, 0),
+                                    (-30, 1e-10, 0,
+                                    -30, 1e-10, 0),
                                     (5, 5, 1,
                                      5, 5, 1)))
             if params[0] > params[3]:
@@ -576,7 +574,10 @@ def process_dark_land_component(args):
     metric_output_i = np.zeros(5)
     watermask = water_label == i + 1
 
-    mask = np.array((watermask==1) & (landcover != 0))
+    # water mask == 1 represents areas where water is located from
+    # previous step. landcover == 0  is the no-data area
+    # (landcover != 0)) may need to be added
+    mask = np.array((watermask==1))
 
     # ref_land consists of 0 and 1 values
     ref_land_masked = ref_land[mask]
@@ -679,10 +680,10 @@ def process_bright_water_component(args):
         bands_str, ref_land_str, pol_ind, threshold = args
 
     # bounding box covering the bright waters
-    row , _, col, _ = bounds
+    x_off , _, y_off, _ = bounds
     width = bounds[1] - bounds[0]
     height = bounds[3] - bounds[2]
-    window = Window(row, col, width, height)
+    window = Window(x_off, y_off, width, height)
 
     image_paths = [landcover_str, bands_str,
                    output_water_str, ref_land_str]
@@ -743,6 +744,8 @@ def remove_false_water_bimodality_parallel(water_mask,
     Remove falsely detected water bimodality from an image in parallel.
     This function identifies and processes areas of water and adjacent lands
     to verify and refine the accuracy of water detection in an image.
+    This function should be used only for ['VV', 'VH', 'HH', 'HV'].
+    In the case that the other polarization is given, then return input as it is.
 
     Parameters:
     -----------
@@ -773,7 +776,6 @@ def remove_false_water_bimodality_parallel(water_mask,
     bimodality_total: numpy.ndarray
         An image indicating the bimodality values across the entire scene.
     """
-
     rows, cols = meta_info['length'], meta_info['width']
 
     # computes the connected components labeled image of boolean image
@@ -790,6 +792,7 @@ def remove_false_water_bimodality_parallel(water_mask,
                     output_file=water_label_str,
                     geotransform=meta_info['geotransform'],
                     projection=meta_info['projection'],
+                    datatype='int32',
                     scratch_dir=outputdir)
 
     bimodality_set = []
@@ -799,8 +802,14 @@ def remove_false_water_bimodality_parallel(water_mask,
     sizes = stats_water[1:, -1]
     bounding_boxes = stats_water[1:, :4]
 
+    # If the polarization is not in the list ['VV', 'VH', 'HH', 'HV'],
+    # Return input as it is without further modification.
+    bimodality_total = water_mask.copy()
+    del water_mask
+
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'VH', 'HH', 'HV']:
+            logger.info(f'removing false water using bimodality for {pol}')
             # 1 dimensional array for bimodality values
             bimodality_array = np.zeros([nb_components_water])
 
@@ -963,10 +972,10 @@ def fill_gap_water_bimodality_parallel(
                     output_file=water_label_str,
                     geotransform=meta_info['geotransform'],
                     projection=meta_info['projection'],
+                    datatype='int32',
                     scratch_dir=outputdir)
 
-    bimodality_set = []
-    ad_set = []
+    bimodality_set = np.zeros([rows, cols], dtype='byte')
 
     sizes = stats_water[1:, -1]
     bounding_boxes = stats_water[1:, :4]
@@ -989,9 +998,8 @@ def fill_gap_water_bimodality_parallel(
 
     for pol_ind, pol in enumerate(pol_list):
         if pol in ['VV', 'VH', 'HH', 'HV']:
-
-            bimodality_output = np.zeros([len(sizes)])
-            ad_output = np.zeros([len(sizes)])
+            logger.info(f'filling bright water bodies with bimodality using {pol}')
+            bimodality_output = np.zeros([len(sizes)], dtype='byte')
 
             args_list = [(i, sizes[i], coord_list[i], water_label_str,
                               input_dict['landcover'], input_dict['intensity'],
@@ -1003,8 +1011,10 @@ def fill_gap_water_bimodality_parallel(
                                             for args in args_list)
             for res in results:
                 bt_value, ad_value, result_ind = res
-                bimodality_output[result_ind] = bt_value
-                ad_output[result_ind] = ad_value
+                bimodality_bright_water = \
+                    (bt_value < threshold[0]) | \
+                    (ad_value < threshold[1])
+                bimodality_output[result_ind] = bimodality_bright_water
 
             output_water = np.array(output_water)
 
@@ -1012,21 +1022,17 @@ def fill_gap_water_bimodality_parallel(
 
             index_array_to_image = np.searchsorted(old_val, output_water)
             bimodality_output =  np.insert(bimodality_output, 0, 0, axis=0)
-            ad_output =  np.insert(ad_output, 0, 0, axis=0)
 
             bimodality_image = bimodality_output[index_array_to_image]
-            ad_image = ad_output[index_array_to_image]
+            bimodality_set += bimodality_image
 
-            bimodality_set.append(bimodality_image)
-            ad_set.append(ad_image)
+            del bimodality_image
 
     # bindary image is created for the pixels that passed two tests.
-    bimodal_ad_binary = (np.squeeze(np.nanmean(ad_set, axis=0)< threshold[1])) \
-        | (np.squeeze(np.nanmean(bimodality_set, axis=0)< threshold [0]))
+    bimodal_ad_binary = bimodality_set > 0
     # 0 value in output_water indicates the non-water
     bimodal_ad_binary[output_water==0] = False
-    del ad_set, bimodality_set
-
+    del bimodality_set
     return bimodal_ad_binary
 
 
@@ -1038,9 +1044,13 @@ def run(cfg):
     outputdir = cfg.groups.product_path_group.scratch_path
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+
     pol_str = '_'.join(pol_list)
-    co_pol = processing_cfg.copol
-    cross_pol = processing_cfg.crosspol
+    co_pol = list(set(processing_cfg.copol) & set(pol_list))
 
     bimodality_cfg = processing_cfg.refine_with_bimodality
     minimum_pixel = bimodality_cfg.minimum_pixel
@@ -1055,31 +1065,25 @@ def run(cfg):
     no_data_geotiff_path = os.path.join(outputdir, f"no_data_area_{pol_str}.tif")
     im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
 
-    dswx_sar_util.get_invalid_area(
-        filt_im_str,
-        no_data_geotiff_path,
-        projection=im_meta['projection'],
-        geotransform=im_meta['geotransform'],
-        scratch_dir=outputdir)
-
     # read the result of landcover masindex_array_to_imageg
     water_map_tif_str =  os.path.join(outputdir,
                                       'refine_landcover_binary_{}.tif'.format(pol_str))
     water_mask_image = dswx_sar_util.read_geotiff(water_map_tif_str)
 
     # read landcover map
-    landcover_map_tif_str = os.path.join(outputdir, 'interpolated_landcover')
+    landcover_map_tif_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     landcover_map = dswx_sar_util.read_geotiff(landcover_map_tif_str)
     landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 
-    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd')
+    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
 
     # Identify the non-water area from Landcover map
     if 'openSea' in landcover_label:
         landcover_not_water = (landcover_map != landcover_label['openSea']) &\
              (landcover_map != landcover_label['Permanent water bodies'])
     else:
-        landcover_not_water = (landcover_map != landcover_label['Permanent water bodies'])
+        landcover_not_water = (landcover_map != landcover_label['Permanent water bodies']) &\
+                              (landcover_map != landcover_label['No_data'])
 
     ref_land_str = os.path.join(outputdir,
                                 f'landcover_not_water_{pol_str}.tif')
@@ -1089,6 +1093,7 @@ def run(cfg):
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=outputdir)
+    del landcover_not_water, landcover_map
 
     # If the landcover is non-water,
     # compute the bimnodality one more time
@@ -1105,7 +1110,7 @@ def run(cfg):
     bimodal_binary = \
         remove_false_water_bimodality_parallel(
             water_mask_image==1,
-            pol_list=[co_pol],
+            pol_list=co_pol,
             thresholds=[ashman_threshold,
                         bhc_threshold,
                         surface_ratio_threshold,
@@ -1119,7 +1124,7 @@ def run(cfg):
 
     water_bindary = bimodal_binary > 0
     bimodal_binary = None
-
+    del water_mask_image
     # Identify gaps within the water bodies and fill the gaps
     # if bimodality exists
     fill_gap_bindary = \
@@ -1169,7 +1174,21 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
 
-    run(cfg)
+    processing_cfg = cfg.groups.processing
+    pol_mode = processing_cfg.polarization_mode
+    pol_list = processing_cfg.polarizations
+    if pol_mode == 'MIX_DUAL_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
+                        DSWX_S1_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_SINGLE_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    else:
+        proc_pol_set = [pol_list]
+
+    for pol_set in proc_pol_set:
+        processing_cfg.polarizations = pol_set
+        run(cfg)
 
 if __name__ == '__main__':
     main()

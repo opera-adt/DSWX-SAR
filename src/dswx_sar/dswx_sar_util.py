@@ -9,8 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
 
+gdal.DontUseExceptions()
+
 
 np2gdal_conversion = {
+  "byte": 1,
   "uint8": 1,
   "int8": 1,
   "uint16": 2,
@@ -32,15 +35,15 @@ band_assign_value_dict = {
     'hand_mask': 5,
     'layover_shadow_mask': 6,
     'inundated_vegetation': 7,
+    'ocean_mask': 254,
     'no_data': 120,
-    'ocean_mask': 254
 }
 
 band_assign_value_conf_dict = {
-    'no_data': 120,
     'hand_mask': 252,
     'layover_shadow_mask': 253,
     'ocean_mask': 254,
+    'no_data': 120,
 }
 
 '''
@@ -73,12 +76,17 @@ collapse_wtr_classes_dict = {
     band_assign_value_dict['ocean_mask']: band_assign_value_dict['ocean_mask'],
     }
 
-
 logger = logging.getLogger('dswx-s1')
+
+@dataclass
+class Constants:
+    # negligible number to avoid the zero-division warning.
+    negligible_value : float = 1e-5
 
 
 def get_interpreted_dswx_s1_ctable():
     """Get colortable for DSWx-S1 products
+
     Returns
     -------
     dswx_ctable: gdal.ColorTable
@@ -135,6 +143,7 @@ def save_raster_gdal(data, output_file, geotransform,
                      projection, scratch_dir='.',
                      datatype='float32'):
     """Save images using Gdal
+
     Parameters
     ----------
     data: numpy.ndarray
@@ -155,24 +164,26 @@ def save_raster_gdal(data, output_file, geotransform,
     #  Set the Pixel Data (Create some boxes)
     # set geotransform
     if data.ndim == 3:
-        nim = image_size[0]
+        ndim = image_size[0]
         ny = image_size[1]
         nx = image_size[2]
     elif data.ndim == 2:
         ny = image_size[0]
         nx = image_size[1]
-        nim = 1
+        ndim = 1
 
     driver = gdal.GetDriverByName("GTiff")
     output_file_path = os.path.join(output_file)
-    gdal_ds = driver.Create(output_file_path, nx, ny, nim, gdal_type)
+    gdal_ds = driver.Create(output_file_path,
+                            nx, ny,
+                            ndim, gdal_type)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
 
     if data.ndim == 2:
         gdal_ds.GetRasterBand(1).WriteArray(data)
     else:
-        for im_ind in range(0, nim):
+        for im_ind in range(0, ndim):
             gdal_ds.GetRasterBand(im_ind+1).WriteArray(
                 np.squeeze(data[im_ind, :, :]))
 
@@ -189,6 +200,7 @@ def save_dswx_product(wtr, output_file, geotransform,
                       is_conf=False, datatype='uint8',
                       **dswx_processed_bands):
     """Save DSWx product for assigned classes with colortable
+
     Parameters
     ----------
     wtr: numpy.ndarray
@@ -224,7 +236,7 @@ def save_dswx_product(wtr, output_file, geotransform,
             print(f'    {band_key.lower()} found {dswx_product_value}')
     gdal_type = np2gdal_conversion[str(datatype)]
 
-    gdal_ds = driver.Create(output_file, 
+    gdal_ds = driver.Create(output_file,
                             shape[1], shape[0], 1, gdal_type)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
@@ -251,6 +263,7 @@ def save_dswx_product(wtr, output_file, geotransform,
     del gdal_ds  # close the dataset (Python object and pointers)
 
     _save_as_cog(output_file, scratch_dir)
+
 
 def _save_as_cog(filename,
                  scratch_dir='.',
@@ -335,8 +348,11 @@ def _save_as_cog(filename,
     shutil.move(temp_file, filename)
 
 
-def change_epsg_tif(input_tif, output_tif, epsg_output):
+def change_epsg_tif(input_tif, output_tif, epsg_output,
+                    resample_method='nearest',
+                    output_nodata='NaN'):
     """Resample the input geotiff image to new EPSG code.
+
     Parameters
     ----------
     input_tif: str
@@ -349,8 +365,8 @@ def change_epsg_tif(input_tif, output_tif, epsg_output):
     metadata = get_meta_from_tif(input_tif)
     opt = gdal.WarpOptions(
         dstSRS=f'EPSG:{epsg_output}',
-        resampleAlg='nearest',
-        dstNodata='Nan',
+        resampleAlg=resample_method,
+        dstNodata=output_nodata,
         xRes=metadata['geotransform'][1],
         yRes=metadata['geotransform'][5],
         format='GTIFF')
@@ -360,48 +376,60 @@ def change_epsg_tif(input_tif, output_tif, epsg_output):
 
 def get_invalid_area(geotiff_path,
                      output_path=None,
-                     geotransform=None,
-                     projection=None, 
-                     scratch_dir=None):
-    """get invalid areas (NaN) from GeoTiff and save it 
+                     scratch_dir=None,
+                     lines_per_block=None):
+    """get invalid areas (NaN) from GeoTiff and save it
     to new GeoTiff
+
     Parameters
     ----------
     geotiff_path: str
         full path for filename to get invalid area
     output_file: str
         full path for filename to save invalid area
-    geotransform: gdal
-        gdaltransform information
-    projection: gdal
-        projection object
     scratch_dir: str
         temporary file path to process COG file.
     """
-    image = read_geotiff(geotiff_path)
-    if image.ndim == 3:
-        no_data_raster = np.isnan(
-            np.squeeze(image[0, :, :]))
-    else:
-        no_data_raster = np.isnan(image)
+    im_meta = get_meta_from_tif(geotiff_path)
 
-    if output_path and geotransform and projection and scratch_dir:
-        save_dswx_product(no_data_raster,
-                          output_path,
-                          geotransform,
-                          projection,
-                          scratch_dir=scratch_dir)
-    else:
-        print('Not enough inforamtion are not given for GeoTiff.')
-    return no_data_raster
+    pad_shape = (0, 0)
+    block_params = block_param_generator(
+        lines_per_block=lines_per_block,
+        data_shape=(im_meta['length'],
+                    im_meta['width']),
+        pad_shape=pad_shape)
+
+    for block_param in block_params:
+        image = get_raster_block(
+            geotiff_path,
+            block_param)
+
+        if image.ndim == 3:
+            no_data_raster = np.isnan(
+                np.squeeze(image[0, :, :]))
+        else:
+            no_data_raster = np.isnan(image)
+
+        write_raster_block(
+            out_raster=output_path,
+            data=no_data_raster,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='byte')
+
+    if scratch_dir is not None:
+        _save_as_cog(output_path, scratch_dir)
 
 
 def get_meta_from_tif(tif_file_name):
     """Read metadata from geotiff
+
     Parameters
     ----------
     input_tif_str: str
         geotiff file path to read the band
+
     Returns
     -------
     meta_dict: dict
@@ -426,6 +454,34 @@ def get_meta_from_tif(tif_file_name):
     tif_gdal = None
 
     return meta_dict
+
+
+def create_geotiff_with_one_value(outpath, shape, filled_value):
+    """
+    Create a new GeoTIFF file filled with a specified value.
+
+    Parameters
+    ----------
+    outpath: str
+        The file path where the new GeoTIFF will be saved.
+    shape: tuple
+        A tuple (height, width) representing the dimensions of the GeoTIFF.
+    filled_value: float
+        The value with which the GeoTIFF will be filled.
+    """
+    # Set up the new file's spatial properties
+    height, width= shape
+
+    # Create the file with a single band, Float32 type
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(outpath, width, height, 1, gdal.GDT_Float32)
+
+    # Write zeros to the raster band
+    band = ds.GetRasterBand(1)
+    band.WriteArray(np.full((height, width), filled_value, dtype=np.float32))
+    band.FlushCache()
+
+    ds = None  # Close the file
 
 
 def get_raster_block(raster_path, block_param):
@@ -460,61 +516,99 @@ def get_raster_block(raster_path, block_param):
             block_param.read_start_line,
             block_param.data_width,
             block_param.read_length)
-        
+
         # Pad data_block with zeros according to pad_length/pad_width
-        data_block = np.pad(data_block, block_param.block_pad, 
+        data_block = np.pad(data_block, block_param.block_pad,
                             mode='constant', constant_values=0)
-        
+
+        if data_block.ndim == 1:
+            data_block = data_block[np.newaxis, :]
         data_blocks.append(data_block)
     data_blocks = np.array(data_blocks)
 
     if num_bands == 1:
-        data_blocks = np.squeeze(data_blocks)
-
+        data_blocks = np.reshape(data_blocks,
+                                 [data_blocks.shape[1],
+                                  data_blocks.shape[2]])
     return data_blocks
 
 
 def write_raster_block(out_raster, data,
                        block_param, geotransform, projection,
-                       datatype='byte'):
-    ''' Write processed block to out_raster.
+                       datatype='byte',
+                       cog_flag=False, 
+                       scratch_dir='.'):
+    """
+    Write processed data block to the specified raster file.
 
     Parameters
     ----------
-    out_raster: h5py.Dataset or str
-        Raster where data (i.e., filtered data) needs to be written.
-        String value represents filepath for GDAL rasters.
-    data: np.ndarray
-        Filtered data to write to out_raster.
-    block_param: BlockParam
-        Object specifying where and how much to write to out_raster.
-    '''
-    if datatype == 'float32':
-        gdal_type = gdal.GDT_Float32
-    elif datatype == 'uint16':
-        gdal_type = gdal.GDT_UInt16
-    elif datatype == 'byte':
-        gdal_type = gdal.GDT_Byte
-    elif datatype == 'int16':
-        gdal_type = gdal.GDT_Int16
-    elif datatype == 'int32':
-        gdal_type = gdal.GDT_Int32
+    out_raster : h5py.Dataset or str
+        Raster where data needs to be written. String value represents
+        filepath for GDAL rasters.
+    data : np.ndarray
+        Data to be written to the raster.
+    block_param : BlockParam
+        Specifications for the data block to be written.
+    geotransform : tuple
+        GeoTransform parameters for the raster.
+    projection : str
+        Projection string for the raster.
+    datatype : str, optional
+        Data type of the raster. Defaults to 'byte'.
+    cog_flag : bool, optional
+        If True, converts the raster to COG format. Defaults to False.
+    scratch_dir : str, optional
+        Directory for intermediate processing. Defaults to '.'.
+    """
+    gdal_type = np2gdal_conversion[datatype]
+
+    data = np.array(data, dtype=datatype)
+    ndim = data.ndim
+    number_band = 1 if ndim < 3 else data.shape[0]
+
+    data_start_without_pad = block_param.write_start_line - \
+        block_param.read_start_line
+    data_end_without_pad = data_start_without_pad + \
+        block_param.block_length
 
     if block_param.write_start_line == 0:
         driver = gdal.GetDriverByName('GTiff')
         ds_data = driver.Create(out_raster,
                                 block_param.data_width,
                                 block_param.data_length,
-                                1, gdal_type)
+                                number_band, gdal_type)
+        if not ds_data:
+            raise IOError(f"Failed to create raster: {out_raster}")
+
         ds_data.SetGeoTransform(geotransform)
         ds_data.SetProjection(projection)
-        ds_data.WriteArray(data, xoff=0, yoff=0)
     else:
         ds_data = gdal.Open(out_raster, gdal.GA_Update)
+        if not ds_data:
+            raise IOError(f"Failed to open raster for update: {out_raster}")
+
+    if ndim == 2:
         ds_data.GetRasterBand(1).WriteArray(
-                data,
+                data[data_start_without_pad:data_end_without_pad,
+                    :],
                 xoff=0,
                 yoff=block_param.write_start_line)
+    else:
+        for im_ind in range(0, number_band):
+            ds_data.GetRasterBand(im_ind+1).WriteArray(
+                np.squeeze(data[im_ind,
+                                data_start_without_pad:data_end_without_pad,
+                                :]),
+                xoff=0,
+                yoff=block_param.write_start_line)
+
+    del ds_data
+
+    # Write COG is cog_flag is True and last block.
+    if (block_param.write_start_line + block_param.block_length == \
+        block_param.data_length) and cog_flag:
+        _save_as_cog(out_raster, scratch_dir)
 
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):
@@ -536,8 +630,9 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
     '''
     data_length, data_width = data_shape
     pad_length, pad_width = pad_shape
-    half_path_length = pad_length // 2
-    half_path_width = pad_width // 2
+    half_pad_length = pad_length // 2
+    half_pad_width = pad_width // 2
+
     # Calculate number of blocks to break raster into
     num_blocks = int(np.ceil(data_length / lines_per_block))
 
@@ -552,17 +647,16 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
         # Determine block size; Last block uses leftover lines
         block_length = data_length - start_line \
             if last_block else lines_per_block
-
         # Determine padding along length. Full padding for middle blocks
         # Half padding for start and end blocks
-        read_length_pad = pad_length if middle_block else half_path_length
+        read_length_pad = pad_length if middle_block else half_pad_length
 
         # Determine 1st line of output
         write_start_line = block * lines_per_block
 
         # Determine 1st dataset line to read. Subtract half padding length
         # to account for additional lines to be read.
-        read_start_line = block * lines_per_block - half_path_length
+        read_start_line = block * lines_per_block - half_pad_length
 
         # If applicable, save negative start line as deficit
         # to account for later
@@ -583,17 +677,15 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
 
         # Determine block padding in length
         if first_block:
-            # Only the top part of the block should be padded.
-            # If end_deficit_line=0
-            # we have a sufficient number of lines to be read in
-            # the subsequent block
-            top_pad = half_path_length
+            # Only the top part of the block should be padded. If end_deficit_line=0
+            # we have a sufficient number of lines to be read in the subsequent block
+            top_pad = half_pad_length
             bottom_pad = abs(end_line_deficit)
         elif last_block:
             # Only the bottom part of the block should be padded
             top_pad = abs(
                 start_line_deficit) if start_line_deficit < 0 else 0
-            bottom_pad = half_path_length
+            bottom_pad = half_pad_length
         else:
             # Top and bottom should be added taking into account line deficit
             top_pad = abs(
@@ -601,10 +693,15 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
             bottom_pad = abs(end_line_deficit)
 
         block_pad = ((top_pad, bottom_pad),
-                     (half_path_width, half_path_width))
+                     (half_pad_width, half_pad_width))
 
-        yield BlockParam(block_length, write_start_line, read_start_line,
-                         read_length, block_pad, data_width, data_length)
+        yield BlockParam(block_length,
+                         write_start_line,
+                         read_start_line,
+                         read_length,
+                         block_pad,
+                         data_width,
+                         data_length)
 
     return
 
@@ -640,6 +737,79 @@ class BlockParam:
     data_length: int
 
 
+def merge_binary_layers(layer_list, value_list, merged_layer_path, 
+                        lines_per_block, mode='or', cog_flag=True, 
+                        scratch_dir='.'):
+    """
+    Merges multiple raster layers into a single binary layer based on specified
+    values and a logical operation ('and' or 'or').
+
+    Parameters
+    ----------
+    layer_list : list of str
+        List of paths to the raster files (layers) to be merged.
+    value_list : list
+        List of values corresponding to each raster file. A pixel in the
+        output binary layer is set if it matches the value in the respective
+        input layer.
+    merged_layer_path : str
+        Path to save the merged binary layer.
+    lines_per_block : int
+        Number of lines per block for processing the data in chunks.
+    mode : str, optional
+        Logical operation to apply for merging ('and' or 'or'). The default is 'or'.
+    cog_flag : bool, optional
+        Write to COG if True. Defaults to True.
+    scratch_dir : str, optional
+        Path to scrath dir. Defaults to '.'.
+
+    Returns
+    -------
+    None
+        The function saves the merged binary layer at `merged_layer_path`.
+    """
+
+    if len(layer_list) != len(value_list):
+        raise ValueError('Number of layers does not match with number of values')
+
+    # Getting metadata from the reference layer
+    meta_info = get_meta_from_tif(layer_list[0])
+    data_shape = [meta_info['length'], meta_info['width']]
+
+    # Setting padding for block processing
+    pad_shape = (0, 0)
+    block_params = block_param_generator(
+        lines_per_block, data_shape, pad_shape)
+
+    # Determine the logical operation function
+    logical_function = np.logical_or if mode == 'or' else np.logical_and
+
+    # Iterating through blocks
+    for block_param in block_params:
+        combined_binary_image = None
+
+        for layer, value in zip(layer_list, value_list):
+            layer_block = get_raster_block(layer, block_param)
+            binary_image = (layer_block == value).astype(np.uint8)
+
+            if combined_binary_image is None:
+                combined_binary_image = binary_image
+            else:
+                combined_binary_image = logical_function(
+                    combined_binary_image, binary_image).astype(np.uint8)
+
+        # Writing the merged block to the output raster
+        write_raster_block(
+            out_raster=merged_layer_path,
+            data=combined_binary_image,
+            block_param=block_param,
+            geotransform=meta_info['geotransform'],
+            projection=meta_info['projection'],
+            datatype='byte',
+            cog_flag=cog_flag,
+            scratch_dir=scratch_dir)
+
+
 def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     """save intensity images into png file
 
@@ -666,71 +836,66 @@ def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     plt.savefig(os.path.join(outputdir, f'RTC_intensity_{pol}'))
 
 
-def block_threshold_visulaization(intensity, block_row, block_col, threshold_tile, outputdir, figname):
-    """Visualize an intensity image overlaid with threshold values from specified blocks/subtiles.
+def block_threshold_visualization(intensity, block_row, block_col,
+                                  threshold_tile, output_dir, fig_name):
+    """
+    Visualize an intensity image overlaid with threshold values from
+    specified blocks/subtiles.
 
     Parameters:
     -----------
     intensity : numpy.ndarray
-        A 2D or 3D array representing the intensity of the image. 
+        A 2D or 3D array representing the intensity of the image.
         If 3D, only the second and third dimensions (rows and columns) are used for visualization.
     block_row : int
-        The number of rows in each block/subtile.
+        Number of rows in each block/subtile.
     block_col : int
-        The number of columns in each block/subtile.
+        Number of columns in each block/subtile.
     threshold_tile : numpy.ndarray
-        2D array containing the threshold values for each block/subtile. 
+        2D array containing the threshold values for each block/subtile.
         Its dimensions should match the number of blocks in the intensity image.
     outputdir : str
         Path to the directory where visualizations will be saved.
     figname : str
         Name for the saved visualization figure.
-
-    Returns:
-    --------
-    None. The visualized figure is saved to the specified directory.
     """
-    if len(intensity.shape) == 2:
-        rows, cols = np.shape(intensity)  
-    elif len(intensity.shape) == 3:
-        _, rows, cols = np.shape(intensity)  
-    ## Tile Selection (w/o water body)
-    
-    nR = np.int16(rows / block_row) 
-    nC = np.int16(cols / block_col)
-    mR = np.mod(rows, block_row)
-    mC = np.mod(cols, block_col)
-    nR = nR + ( 1 if mR > 0 else 0) 
-    nC = nC + ( 1 if mC > 0 else 0) 
-    
-    assert nR == threshold_tile.shape[0], 'tile size error'
-    assert nC == threshold_tile.shape[1], 'tile size error'
 
-    intensity = 10*np.log10(intensity)
+    if intensity.ndim == 2:
+        rows, cols = intensity.shape
+    elif intensity.ndim == 3:
+        _, rows, cols = intensity.shape
 
-    plt.figure(figsize=(20,20))
-    vmin = np.nanpercentile(intensity,5)
-    vmax = np.nanpercentile(intensity,95)
-    plt.imshow(intensity, cmap = plt.get_cmap('gray'),vmin=vmin,vmax=vmax)
-       
-    threshold_oversample = np.zeros([rows, cols])
-    for ii in range(0,nR):
-        for jj in range(0,nC):
-            if (ii == nR) and ( mR > 0):
-                iend = rows
-            else:
-                iend = (ii + 1) * block_row
-            if (jj == nC) and ( mC > 0):
-                jend = cols
-            else:
-                jend = (jj + 1) * block_col 
-            threshold_oversample[ii*block_row : iend, jj*block_col:jend] = threshold_tile[ii, jj]
-            plt.plot( 
-                [jj*block_col,jend, jend, jj*block_col, jj*block_col],[ii*block_row, ii*block_row, iend, iend, ii*block_row] ,'black')
-    threshold_oversample[threshold_oversample==-50] = np.nan
-    plt.imshow(threshold_oversample, alpha=0.3, cmap = plt.get_cmap('jet'), vmin=-20, vmax=-14)
+    nrow_tile = int(np.ceil(rows / block_row))
+    ncol_tile = int(np.ceil(cols / block_col))
+    assert nrow_tile == threshold_tile.shape[0], 'Row tile size error'
+    assert ncol_tile == threshold_tile.shape[1], 'Column tile size error'
 
-    plt.savefig(os.path.join(outputdir, figname) )
+    intensity_db = 10 * np.log10(intensity)
+
+    plt.figure(figsize=(20, 20))
+    vmin, vmax = np.nanpercentile(intensity_db, [5, 95])
+    plt.imshow(intensity_db, cmap='gray', vmin=vmin, vmax=vmax)
+
+    threshold_oversample = np.zeros_like(intensity_db)
+    for i in range(nrow_tile):
+        for j in range(ncol_tile):
+            i_end = min((i + 1) * block_row, rows)
+            j_end = min((j + 1) * block_col, cols)
+
+            threshold_oversample[i*block_row:i_end, j*block_col:j_end] = \
+                threshold_tile[i, j]
+
+            # Draw the tile rectangle
+            plt.plot([j*block_col, j_end, j_end, j*block_col, j*block_col],
+                     [i*block_row, i*block_row, i_end, i_end, i*block_row],
+                     'black')
+
+    threshold_oversample[threshold_oversample == -50] = np.nan
+    plt.imshow(threshold_oversample, alpha=0.3, cmap='jet',
+               vmin=-20, vmax=-14)
+
+    plt.savefig(os.path.join(output_dir, fig_name))
+
     plt.close()
 
 
@@ -738,22 +903,22 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
     """
     Visualize an intensity image overlaid with threshold values from provided blocks/subtiles.
 
-    Parameters:
+    Parameters
     -----------
     intensity : numpy.ndarray
-        2D or 3D array representing the intensity of the image. 
+        2D or 3D array representing the intensity of the image.
         If 3D, the first dimension is considered as the band index.
     threshold_dict : dict
         A dictionary containing:
         * 'array': A nested list of threshold values for each band and block.
-        * 'subtile_coord': A nested list of block coordinates for each band and block, 
+        * 'subtile_coord': A nested list of block coordinates for each band and block,
           in the format [[start_row, end_row, start_col, end_col], ...].
     outputdir : str
         Path to the directory where visualizations will be saved.
     figname : str
         Base name for the saved visualization figures.
 
-    Returns:
+    Returns
     --------
     None. The visualized figures are saved to the specified directory.
     """
@@ -771,24 +936,24 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
         plt.figure(figsize=(20, 20))
         vmin = np.nanpercentile(intensity_db, 5)
         vmax = np.nanpercentile(intensity_db, 95)
-        
+
         # Display the main intensity image
         plt.imshow(intensity_db, cmap='gray', vmin=vmin, vmax=vmax)
-        
+
         # Prepare a matrix for the overlaid threshold values
         threshold_overlay = np.full((rows, cols), np.nan)
-        
+
         for threshold, coords in zip(threshold_dict['array'][band_index], threshold_dict['subtile_coord'][band_index]):
             start_row, end_row, start_col, end_col = coords
             threshold_overlay[start_row:end_row, start_col:end_col] = threshold
-            
+
             # Draw a block boundary for visualization
             plt.plot([start_col, end_col, end_col, start_col, start_col],
                      [start_row, start_row, end_row, end_row, start_row], 'black')
-        
+
         # Overlay the threshold values on top of the intensity image
         plt.imshow(threshold_overlay, alpha=0.3, cmap='jet', vmin=-20, vmax=-14)
-        
+
         # Save the visualization to file
         plt.savefig(os.path.join(outputdir, f'{figname}_{band_index}'))
         plt.close()
@@ -1133,3 +1298,4 @@ def create_browse_image(water_geotiff_filename,
         output_width=browse_image_width,
         logger=logger
         )
+

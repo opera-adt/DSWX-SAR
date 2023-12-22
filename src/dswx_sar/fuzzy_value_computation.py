@@ -47,10 +47,8 @@ def compute_slope_dem(dem):
 
 def create_slope_angle_geotiff(dem_path,
                                slope_path,
-                               geotransform,
-                               projection,
-                               scrath_dir):
-    """create Geotiff File for slope angel
+                               lines_per_block):
+    """create Geotiff File for slope angle
     Parameters
     ----------
     dem_path: str
@@ -63,15 +61,32 @@ def create_slope_angle_geotiff(dem_path,
         projection object
     scratch_dir: str
         temporary file path to process COG file.
+    lines_per_block: int
+        lines per block processing
     """
-    dem = dswx_sar_util.read_geotiff(dem_path)
-    slope = compute_slope_dem(dem)
-    dswx_sar_util.save_raster_gdal(
-        data=slope,
-        output_file=slope_path,
-        geotransform=geotransform,
-        projection=projection,
-        scratch_dir=scrath_dir)
+    pad_shape = (SOBEL_KERNEL_SIZE, 0)
+    im_meta = dswx_sar_util.get_meta_from_tif(dem_path)
+
+    block_params = dswx_sar_util.block_param_generator(
+        lines_per_block=lines_per_block,
+        data_shape=(im_meta['length'],
+                    im_meta['width']),
+        pad_shape=pad_shape)
+
+    for block_param in block_params:
+        dem = dswx_sar_util.get_raster_block(
+            dem_path,
+            block_param)
+        slope = compute_slope_dem(dem)
+
+        dswx_sar_util.write_raster_block(
+            out_raster=slope_path,
+            data=slope,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='float32')
+
 
 def smf(values, minv, maxv):
     ''' Generate S-shape function for the given values
@@ -287,7 +302,7 @@ def compute_fuzzy_value(intensity,
 
     for int_id, pol  in enumerate(pol_list):
 
-        thresh_valley_str = os.path.join(outputdir, f"int_threshold_filled_{pol}.tif")
+        thresh_valley_str = os.path.join(outputdir, f"intensity_threshold_filled_{pol}.tif")
         thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol}.tif")
 
         valley_threshold_raster = dswx_sar_util.get_raster_block(
@@ -295,7 +310,7 @@ def compute_fuzzy_value(intensity,
         peak_threshold_raster = dswx_sar_util.get_raster_block(
             thresh_peak_str, block_param)
 
-        intensity_band = np.squeeze(intensity[int_id, :, :])
+        intensity_band = intensity[int_id, :, :]
 
         # Fuzzy membership computation from intensity
         # lower intensity is more likely to be water -> zmf
@@ -432,6 +447,11 @@ def run(cfg):
 
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
+    pol_options = processing_cfg.polarimetric_option
+    
+    if pol_options is not None:
+        pol_list += pol_options
+    
     pol_all_str = '_'.join(pol_list)
 
     # reference water cfg
@@ -483,8 +503,9 @@ def run(cfg):
     landcover_gdal_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
     slope_gdal_str = os.path.join(outputdir, 'slope.tif')
-    no_data_raster_path = os.path.join(outputdir,
-                                         f"no_data_area_{pol_all_str}.tif")
+    no_data_raster_path = os.path.join(
+        outputdir,
+        f"no_data_area_{pol_all_str}.tif")
 
     # Output of Fuzzy_computation
     fuzzy_output_str = os.path.join(
@@ -497,9 +518,7 @@ def run(cfg):
     create_slope_angle_geotiff(
         dem_gdal_str,
         slope_gdal_str,
-        geotransform=im_meta['geotransform'],
-        projection=im_meta['projection'],
-        scrath_dir=outputdir)
+        lines_per_block=lines_per_block)
 
     landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
 
@@ -587,7 +606,9 @@ def run(cfg):
                 dswx_sar_util.write_raster_block(
                     out_raster=\
                         os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
-                    data=np.squeeze(intensity_z[polind,:,:]),
+                    data=np.reshape(intensity_z[polind,:,:], 
+                                    [intensity_z.shape[1],
+                                     intensity_z.shape[2]]),
                     block_param=block_param,
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],

@@ -9,6 +9,9 @@ runconfig:
         # 'dual-pol', 'co-pol', 'cross-pol' will search the polarizations Input GeoTiff files have. 
         # For example, 'co-pol' uses ['HH'], ['VV'], or ['HH', 'VV'] by looking at the input data. 
         polarizations: ['dual-pol']
+        # Additional for polarimetric computations to be performed in specific polarization modes (co/cross and co + cross)
+        # e.g. ['ratio', 'span'] 
+        polarimetric_option:
 
         # Specifiy the max_value for permanent water and no_data_value for invalid pixels
         reference_water:
@@ -38,6 +41,7 @@ runconfig:
             enabled: True
             # Window size for filtering.
             window_size: 5
+            line_per_block: 1000
 
         initial_threshold:
             # Maximum tile size for initial threshold.
@@ -79,6 +83,7 @@ runconfig:
             number_cpu: -1
             number_iterations: 1
             tile_average: False
+            line_per_block: 300
 
         fuzzy_value:
             line_per_block: 200
@@ -145,6 +150,7 @@ runconfig:
             hand_variation_mask: True
             # pixels with HAND threshold is masked out.
             hand_variation_threshold: 2.5
+            line_per_block: 400
             number_cpu: 1
 
         refine_with_bimodality:
@@ -163,6 +169,7 @@ runconfig:
             dual_pol_ratio_threshold: 8
             cross_pol_min: -26
             line_per_block: 300
+            target_land_cover: ['Herbaceous wetland']
 
         # debug mode is true, intermediate product is generated.
         debug_mode: False

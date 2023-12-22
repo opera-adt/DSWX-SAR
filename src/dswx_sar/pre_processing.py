@@ -26,16 +26,6 @@ def pol_ratio(array1, array2):
 
     return array1 / array2
 
-def pol_coherence(array1, array2, array3):
-    '''
-    Compute polarimetric coherence from two co-pol and one cross-pol
-    '''
-    array1 = np.asarray(array1, dtype='float32') # VVVV
-    array2 = np.asarray(array2, dtype='float32') # VHVH
-    array3 = np.asarray(array3, dtype='complex') # VVVH
-
-    return np.abs(array3 / np.sqrt(array1 * array2))
-
 
 def validate_gtiff(geotiff_path, value_list):
     """
@@ -364,10 +354,13 @@ def run(cfg):
                 for temp_pol in temp_pol_list:
                     filename = \
                         f'{scratch_dir}/{mosaic_prefix}_{temp_pol}.tif'
+
                     block_data = dswx_sar_util.get_raster_block(
                         filename,
                         block_param)
+
                     temp_raster_set.append(block_data)
+
                 temp_raster_set = np.array(temp_raster_set)
                 if pol in ['ratio']:
                     ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
@@ -377,7 +370,7 @@ def run(cfg):
 
                 if pol in ['span']:
                     span = np.squeeze(temp_raster_set[0, :, :] +
-                            2 * np.squeeze(temp_raster_set[1, :, :]))
+                                      2 * temp_raster_set[1, :, :])
                     output_image_set.append(span)
             else:
                 if mosaic_flag:
@@ -386,7 +379,6 @@ def run(cfg):
 
                     intensity = dswx_sar_util.get_raster_block(
                         intensity_path, block_param)
-
                 else:
                     intensity = dswx_sar_util.read_geotiff(
                             ref_filename, band_ind=polind)
@@ -429,8 +421,6 @@ def run(cfg):
         for pol_ind, pol in enumerate(pol_list):
             if pol == 'ratio':
                 immin, immax = None, None
-            if pol == 'coherence':
-                immin, immax = 0, 0.4
             else:
                 immin, immax = -30, 0
             single_intensity = np.squeeze(filtered_intensity[pol_ind, :, :])
@@ -441,7 +431,7 @@ def run(cfg):
                 immin,
                 immax)
 
-            if pol in ['ratio', 'coherence']:
+            if pol in ['ratio']:
                 dswx_sar_util.save_raster_gdal(
                     data=single_intensity,
                     output_file=os.path.join(

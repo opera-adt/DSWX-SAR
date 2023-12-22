@@ -11,9 +11,8 @@ runconfig:
         # 'dual-pol', 'co-pol', 'cross-pol' will search the polarizations Input GeoTiff files have. 
         # For example, 'co-pol' uses ['HH'], ['VV'], or ['HH', 'VV'] by looking at the input data. 
         polarizations: any(list(str(min=2, max=10), min=1, max=4), str(min=4, max=4), null(), required=False)
-        # Additional options for polarimetric measurements such as co/cross ratio and co + cross
-        # e.g. ['ratio', 'span'] 
-        polarimetric_option: any(list(str(min=2, max=10), min=1, max=4), str(min=4, max=4), null(), required=False)
+        # Additional for polarimetric computations to be performed in specific polarization modes (co/cross and co + cross)
+        polarimetric_option: any(list(enum('ratio', 'span'), min=1, max=2), enum('ratio', 'span'), null(), required=False)
 
         # Specifiy the max_value for permanent water and no_data_value for invalid pixels
         reference_water:

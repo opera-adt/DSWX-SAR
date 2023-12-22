@@ -9,7 +9,7 @@ runconfig:
         # 'dual-pol', 'co-pol', 'cross-pol' will search the polarizations Input GeoTiff files have. 
         # For example, 'co-pol' uses ['HH'], ['VV'], or ['HH', 'VV'] by looking at the input data. 
         polarizations: ['dual-pol']
-        # Additional options for polarimetric measurements such as co/cross ratio and co + cross
+        # Additional for polarimetric computations to be performed in specific polarization modes (co/cross and co + cross)
         # e.g. ['ratio', 'span'] 
         polarimetric_option:
 

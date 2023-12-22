@@ -1,6 +1,7 @@
 import argparse
 from dataclasses import dataclass
 from functools import singledispatch
+import glob
 import os
 import sys
 import logging
@@ -14,6 +15,19 @@ import dswx_sar
 logger = logging.getLogger('dswx-s1')
 
 WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
+
+# Potential polarization scenarios for DSWx-S1
+# NOTE: DO NOT CHANGE THE ORDER of the items in the dictionary below.
+DSWX_S1_POL_DICT = {
+    'CO_POL' : ['HH', 'VV'],
+    'CROSS_POL' : ['HV', 'VH'],
+    'MIX_DUAL_POL' : ['HH', 'HV', 'VV', 'VH'],
+    'MIX_SINGLE_POL' : ['HH', 'VV'],
+    'DV_POL' : ['VV', 'VH'],
+    'SV_POL' : ['VV'],
+    'DH_POL' : ['HH', 'HV'],
+    'SH_POL' : ['HH'],
+    }
 
 def _get_parser():
     parser = argparse.ArgumentParser(description='',
@@ -160,30 +174,120 @@ def check_file_path(file_path: str) -> None:
         logger.error(err_str)
         raise FileNotFoundError(err_str)
 
+def _find_polarization_from_data_dirs(input_dir_list):
+    """
+    This function walks through each directory in the given list of input directories,
+    searches for specific file names that match the OPERA L2 RTC standard,
+    and extracts the polarization part from these filenames.
+    It then returns a list of unique polarizations found in these files.
 
-def check_polarizations(pol_list):
-    """Sort polarizations so that co-pols are preceded. 
+    Parameters
+    ----------
+    input_dir_list : list
+        List of the input directories containing RTC
+        GeoTIFF files. The function will search through
+        all subdirectories in these input directories.
+
+    Returns
+    -------
+    list
+        A list of unique polarization types extracted from the file names.
+        This list contains the polarization identifiers
+        (like 'HH', 'VV', etc.) found in the filenames.
+    """
+    def get_path_pol(path):
+        # convenience function to get polarization from RTC file path
+        # basename separates file name from directory in path string
+        # splitext removes the file extension from basename
+        # split('_')[-1] gets polarization
+        return os.path.splitext(os.path.basename(path))[0].split('_')[-1]
+
+    extracted_strings = []
+    for input_dir in input_dir_list:
+        for f in glob.glob(f"{input_dir}/OPERA_L2_RTC-*.tif"):
+            extracted_strings.append(get_path_pol(f))
+
+    # if nothing found raise error
+    if not extracted_strings:
+        err_str = 'Failed to find polarizations from RTC files.'
+        raise ValueError(err_str)
+        
+    # return only unique polarizations
+    return list(set(extracted_strings))
+
+def check_polarizations(pol_list, input_dir_list):
+    """
+    Sort polarizations so that co-polarizations are preceded. This function
+    identifies the common polarizations between the requested polarizations
+    and the ones available in the input directories. It then sorts them,
+    prioritizing co-polarizations (VV, HH) over cross-polarizations (VH, HV).
+
     Parameters
     ----------
     pol_list : list
         List of polarizations.
+    input_dir_list : list
+        List of the input directories with RTC GeoTIFF files.
+
+    Returns
+    -------
+    co_pol_list : list
+        List of co-polarizations present in both the request
+        and input directories.
+    cross_pol_list : list
+        List of cross-polarizations present in both the request and input
+        directories.
+    sorted_pol_list : list
+        List of all polarizations sorted, prioritizing co-polarizations.
     """
-    co_pol_list = []
-    cross_pol_list = []
+    if 'dual-pol' in pol_list:
+        proc_pol_list = ['VV', 'VH', 'HH', 'HV']
+    elif 'co-pol' in pol_list:
+        proc_pol_list = ['VV', 'HH']
+    elif 'cross-pol' in pol_list:
+        proc_pol_list = ['VH', 'HV']
+    else:
+        proc_pol_list = pol_list
+
+    # Find polarization of files in list of directories
+    found_pol = _find_polarization_from_data_dirs(input_dir_list)
+
+    # Find the common polarizations between requests and files.
+    proc_pol_list = list(set(proc_pol_list) & set(found_pol))
+
+    if not proc_pol_list:
+        err_str = f'No RTC files found with requested polarizations {pol_list}'
+        logger.error(err_str)
+        raise FileNotFoundError(err_str)
+
     def custom_sort(pol):
-        if pol in ['VV', 'HH']:
+        if pol in DSWX_S1_POL_DICT['CO_POL']:
             return (0, pol)  # Sort 'VV' and 'HH' before others
         return (1, pol)
 
-    pol_list = sorted(pol_list, key=custom_sort)
+    sorted_pol_list = sorted(proc_pol_list, key=custom_sort)
 
-    for pol in pol_list:
-        if pol in ['VV', 'HH']:
+    co_pol_list = []
+    cross_pol_list = []
+    for pol in sorted_pol_list:
+        if pol in DSWX_S1_POL_DICT['CO_POL']:
             co_pol_list.append(pol)
         else:
             cross_pol_list.append(pol)
 
-    return co_pol_list, cross_pol_list, pol_list
+    # Even though the first subset is found, the code should keep searching. 
+    # For example, the ['VV', 'VH'] is a subset of `MIX_DUAL_POL` and `DV_POL`.
+    # The expected output is `DV_POL`. 
+    # So, the items in `DSWX_S1_POL_DICT` are sorted in an ordered manner.
+    pol_mode = None
+    for pol_mode_name, pols_in_mode in DSWX_S1_POL_DICT.items():
+        if set(sorted_pol_list).issubset(set(pols_in_mode)):
+            pol_mode = pol_mode_name
+
+    if pol_mode is None:
+        err_msg = 'unable to identify polarzation mode.'
+        logger.warning(err_msg)
+    return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
 
 
 def validate_group_dict(group_cfg: dict) -> None:
@@ -258,9 +362,9 @@ def unwrap_to_dict(sns: SimpleNamespace) -> dict:
 
     return sns_as_dict
 
-@dataclass(frozen=True)
+@dataclass
 class RunConfig:
-    '''dataclass containing RTC runconfig'''
+    '''dataclass containing DSWX runconfig'''
     # workflow name
     name: str
     # runconfig options converted from dict
@@ -290,15 +394,23 @@ class RunConfig:
 
         algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameters,
                                            f'algorithm_parameter_{sensor.lower()}')
-        co_pol, cross_pol, pol_list = check_polarizations(
-            algorithm_cfg['runconfig']['processing']['polarizations'])
-        
+
+        # Check if input files have the requested polarizations and
+        # sort the order of the polarizations.
+        input_dir_list = \
+            cfg['runconfig']['groups']['input_file_group']['input_file_path']
+        requested_pol = algorithm_cfg['runconfig']['processing']['polarizations']
+        co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
+            requested_pol, input_dir_list)
+
+        # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list
-        algorithm_cfg['runconfig']['processing']['copol'] = co_pol[0]
-        algorithm_cfg['runconfig']['processing']['crosspol'] = cross_pol[0]
+        algorithm_cfg['runconfig']['processing']['copol'] = co_pol if co_pol else None
+        algorithm_cfg['runconfig']['processing']['crosspol'] = cross_pol if cross_pol else None
+        algorithm_cfg['runconfig']['processing']['polarization_mode'] = pol_mode
 
         algorithm_sns = wrap_namespace(algorithm_cfg['runconfig']['processing'])
-        
+
         # copy runconfig parameters from dictionary
         sns.processing = algorithm_sns
         processing_group = sns.processing

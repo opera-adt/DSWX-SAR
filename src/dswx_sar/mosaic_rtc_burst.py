@@ -765,7 +765,7 @@ def run(cfg):
 
         for ind, input_dir in enumerate(input_list):
 
-            first_rtc_path_iter = glob.iglob(f'{input_dir}/*_{first_pol}.tif')
+            first_rtc_path_iter = glob.iglob(f'{input_dir}/*.tif')
             first_rtc_path = next(first_rtc_path_iter)
             if first_rtc_path:
                 rtc_meta = dswx_sar_util.get_meta_from_tif(first_rtc_path)

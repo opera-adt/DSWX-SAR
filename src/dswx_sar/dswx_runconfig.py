@@ -11,6 +11,7 @@ import yamale
 from ruamel.yaml import YAML
 
 import dswx_sar
+from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 
 logger = logging.getLogger('dswx-s1')
 
@@ -310,7 +311,9 @@ def validate_group_dict(group_cfg: dict) -> None:
                             ref_water_path, hand_path]
 
     for path in ancillary_file_paths:
-        if not path.startswith('/vsis3/'):
+        if path.startswith('/vsis3/'):
+            check_gdal_raster_s3(path)
+        else:
             check_file_path(path)
 
     # Check 'product_group' section of runconfig.

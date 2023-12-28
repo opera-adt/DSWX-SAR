@@ -170,10 +170,14 @@ def check_file_path(file_path: str) -> None:
     file_path : str
         Path to file to be checked
     """
-    if not os.path.exists(file_path):
-        err_str = f'{file_path} not found'
-        logger.error(err_str)
-        raise FileNotFoundError(err_str)
+    if file_path.startswith('/vsis3/'):
+        check_gdal_raster_s3(file_path, raise_error=True)
+
+    else:
+        if not os.path.exists(file_path):
+            err_str = f'{file_path} not found'
+            logger.error(err_str)
+            raise FileNotFoundError(err_str)
 
 def _find_polarization_from_data_dirs(input_dir_list):
     """
@@ -311,10 +315,7 @@ def validate_group_dict(group_cfg: dict) -> None:
                             ref_water_path, hand_path]
 
     for path in ancillary_file_paths:
-        if path.startswith('/vsis3/'):
-            check_gdal_raster_s3(path)
-        else:
-            check_file_path(path)
+        check_file_path(path)
 
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions

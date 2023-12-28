@@ -67,7 +67,7 @@ def create_slope_angle_geotiff(dem_path,
         data_shape=(im_meta['length'],
                     im_meta['width']),
         pad_shape=pad_shape)
-    print('scratch', scratch_dir)
+
     for block_param in block_params:
         dem = dswx_sar_util.get_raster_block(
             dem_path,

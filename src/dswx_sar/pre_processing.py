@@ -40,7 +40,7 @@ def validate_gtiff(geotiff_path, value_list):
     2. If the mean value equals any value in the provided 'value_list',
        it suggests that all pixels in the file might have the same value.
 
-    Parameters:
+    Parameters
     -----------
     geotiff_path : str
         The file path to the GeoTIFF file to be checked.
@@ -48,13 +48,13 @@ def validate_gtiff(geotiff_path, value_list):
         A list of values against which the mean pixel value of the GeoTIFF
         file is compared.
 
-    Return:
+    Returns
     -------
-    validation_result: bool
+    validation_result: str
         If any of the checks fail, return bool indicating potential issues
         with the GeoTIFF file.
         - Return 'nan_value' if some pixels in the file have NaN values.
-        - Return 'no_data_only' if the mean pixel value matches any value
+        - Return 'invalid_only' if the mean pixel value matches any value
           in 'value_list', suggesting uniform pixel values across the file.
     """
     image = dswx_sar_util.read_geotiff(geotiff_path)    
@@ -77,6 +77,7 @@ def validate_gtiff(geotiff_path, value_list):
                        'the specified invalid value list.')
 
     return validation_result
+
 
 class AncillaryRelocation:
     '''
@@ -423,7 +424,7 @@ def run(cfg):
             os.path.join(scratch_dir, anc_filename),
             [no_data, np.inf])
 
-        if validation_result not in 'okay':
+        if validation_result not in ['okay']:
             if (anc_type in ['dem', 'hand']) and \
                 (validation_result in ['nan_value', 'invalid_only']):
                 err_msg = f'Unable to get valid {anc_type}'

@@ -22,7 +22,6 @@ from dswx_sar import (dswx_geogrid,
 logger = logging.getLogger('dswx_s1')
 
 
-
 def majority_element(num_list):
     """
     Determine the majority element in a list

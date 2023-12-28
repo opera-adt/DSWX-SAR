@@ -11,6 +11,7 @@ import yamale
 from ruamel.yaml import YAML
 
 import dswx_sar
+from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 
 logger = logging.getLogger('dswx-s1')
 
@@ -169,10 +170,14 @@ def check_file_path(file_path: str) -> None:
     file_path : str
         Path to file to be checked
     """
-    if not os.path.exists(file_path):
-        err_str = f'{file_path} not found'
-        logger.error(err_str)
-        raise FileNotFoundError(err_str)
+    if file_path.startswith('/vsis3/'):
+        check_gdal_raster_s3(file_path, raise_error=True)
+
+    else:
+        if not os.path.exists(file_path):
+            err_str = f'{file_path} not found'
+            logger.error(err_str)
+            raise FileNotFoundError(err_str)
 
 def _find_polarization_from_data_dirs(input_dir_list):
     """

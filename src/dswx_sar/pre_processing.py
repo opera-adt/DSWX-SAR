@@ -13,7 +13,7 @@ from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      _get_parser,
                                      RunConfig)
-
+from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 
 logger = logging.getLogger('dswx_s1')
 
@@ -293,7 +293,7 @@ def run(cfg):
     if not dem_interpolated_path.is_file():
         logger.info('interpolated dem : not found ')
 
-        if os.path.isfile(dem_file):
+        if os.path.isfile(dem_file) or check_gdal_raster_s3(dem_file, raise_error=False):
             logger.info('interpolated dem file was not found')
             ancillary_reloc.relocate(dem_file,
                                      'interpolated_DEM.tif',

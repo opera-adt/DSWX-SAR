@@ -940,7 +940,8 @@ def check_gdal_raster_s3(path_raster_s3: str, raise_error=True):
     Returns
     -------
     _: Bool
-        True when the file is accessible; False otherwise
+        True when the file is accessible; False otherwise.
+        Optional when the parameter `raise_error` is `False`.
 
     Raises
     ------

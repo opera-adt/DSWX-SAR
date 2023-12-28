@@ -22,7 +22,6 @@ from dswx_sar import (dswx_geogrid,
 logger = logging.getLogger('dswx_s1')
 
 
-
 def majority_element(num_list):
     """
     Determine the majority element in a list
@@ -134,7 +133,9 @@ def save_h5_metadata_to_tif(h5_meta_path,
                      xRes=xres,
                      yRes=abs(yres),
                      resampleAlg='nearest',
-                     format='GTIFF')
+                     format='GTIFF',
+                     creationOptions=['COMPRESS=DEFLATE',
+                                      'PREDICTOR=2'])
         gdal.Warp(output_tif_path, output_tif_temp_path, options=opt)
         os.remove(output_tif_temp_path)
 
@@ -412,6 +413,10 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
 
             if temp_files_list is not None:
                 temp_files_list.append(relocated_file)
+            
+            warp_creation_options = gdal.WarpOptions(
+                creationOptions=['COMPRESS=DEFLATE',
+                                 'PREDICTOR=2'])
 
             gdal.Warp(relocated_file, path_rtc,
                         format='GTiff',
@@ -428,7 +433,8 @@ def compute_mosaic_array(list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=
                         yRes=abs(geogrid_in.spacing_y),
                         resampleAlg='average',
                         errorThreshold=0,
-                        dstNodata=np.nan)
+                        dstNodata=np.nan,
+                        options=warp_creation_options)
             path_rtc = relocated_file
 
             if path_nlooks is not None:

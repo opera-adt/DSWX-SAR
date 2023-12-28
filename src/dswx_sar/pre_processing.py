@@ -14,7 +14,9 @@ from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      _get_parser,
                                      RunConfig)
+from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 from dswx_sar.masking_with_ancillary import get_label_landcover_esa_10
+
 
 logger = logging.getLogger('dswx_s1')
 
@@ -405,6 +407,7 @@ def run(cfg):
             no_data = ref_water_no_data
         elif anc_type in ['landcover']:
             no_data = landcover_label['No_data']
+
         else:
             no_data = np.nan
 

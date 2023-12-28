@@ -923,3 +923,43 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
         # Save the visualization to file
         plt.savefig(os.path.join(outputdir, f'{figname}_{band_index}'))
         plt.close()
+
+
+def check_gdal_raster_s3(path_raster_s3: str, raise_error=True):
+    '''
+    Check if the GDAL raster in S3 bucket is available
+
+    Parameter
+    ---------
+    path_raster_s3: str
+        Path to the GDAL raster in S3 bucket starts with `/vsis3`
+    raise_error: bool
+        Raise an error when the file is not accessible, rather than
+        returning a boolean flag
+
+    Returns
+    -------
+    _: Bool
+        True when the file is accessible; False otherwise.
+        Optional when the parameter `raise_error` is `False`.
+
+    Raises
+    ------
+    RuntimeError
+        When the GDAL raster in AWS S3 is not available.
+        Optional when the parameter `raise_error` is `True`.
+    '''
+    if not path_raster_s3.startswith('/vsis3/'):
+        raise RuntimeError(f'The raster path {path_raster_s3} is not a '
+                           'valid format for GDAL raster in S3 bucket')
+
+    # Currently `gdal.DontUseExceptions()` is called in this code.
+    # In that case, failed `gdal.Open()` will return None
+    gdal_in = gdal.Open(path_raster_s3)
+
+    is_gdal_file_exist = gdal_in is not None
+
+    if not is_gdal_file_exist and raise_error:
+        raise RuntimeError(f'GDAL raster "{path_raster_s3}" is not available.')
+
+    return is_gdal_file_exist

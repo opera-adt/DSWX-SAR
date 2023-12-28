@@ -941,6 +941,12 @@ def check_gdal_raster_s3(path_raster_s3: str, raise_error=True):
     -------
     _: Bool
         True when the file is accessible; False otherwise
+
+    Raises
+    ------
+    RuntimeError
+        When the GDAL raster in AWS S3 is not available.
+        Optional when the parameter `raise_error` is `True`.
     '''
     if not path_raster_s3.startswith('/vsis3/'):
         raise RuntimeError(f'The raster path {path_raster_s3} is not a '
@@ -953,6 +959,6 @@ def check_gdal_raster_s3(path_raster_s3: str, raise_error=True):
     is_gdal_file_exist = gdal_in is not None
 
     if not is_gdal_file_exist and raise_error:
-        raise FileNotFoundError(path_raster_s3)
+        raise RuntimeError(f'GDAL raster "{path_raster_s3}" is not available.')
 
     return is_gdal_file_exist

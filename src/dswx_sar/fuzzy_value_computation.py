@@ -55,24 +55,19 @@ def create_slope_angle_geotiff(dem_path,
         GeoTiff path for filename to read input dem
     slope_path: str
         full path for filename to save the slope angle
-    geotransform: gdal
-        gdaltransform information
-    projection: gdal
-        projection object
-    scratch_dir: str
-        temporary file path to process COG file.
     lines_per_block: int
         lines per block processing
     """
     pad_shape = (SOBEL_KERNEL_SIZE, 0)
     im_meta = dswx_sar_util.get_meta_from_tif(dem_path)
+    scratch_dir = os.path.dirname(slope_path)
 
     block_params = dswx_sar_util.block_param_generator(
         lines_per_block=lines_per_block,
         data_shape=(im_meta['length'],
                     im_meta['width']),
         pad_shape=pad_shape)
-
+    print('scratch', scratch_dir)
     for block_param in block_params:
         dem = dswx_sar_util.get_raster_block(
             dem_path,
@@ -85,7 +80,9 @@ def create_slope_angle_geotiff(dem_path,
             block_param=block_param,
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],
-            datatype='float32')
+            datatype='float32',
+            cog_flag=True,
+            scratch_dir=scratch_dir)
 
 
 def smf(values, minv, maxv):
@@ -581,7 +578,9 @@ def run(cfg):
             block_param=block_param,
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],
-            datatype='float32')
+            datatype='float32',
+            cog_flag=True,
+            scratch_dir=outputdir)
 
         if processing_cfg.debug_mode:
 
@@ -600,7 +599,9 @@ def run(cfg):
                     block_param=block_param,
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
-                    datatype='float32')
+                    datatype='float32',
+                    cog_flag=True,
+                    scratch_dir=outputdir)
 
             for polind, pol in enumerate(pol_list):
                 dswx_sar_util.write_raster_block(
@@ -612,7 +613,9 @@ def run(cfg):
                     block_param=block_param,
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
-                    datatype='float32')
+                    datatype='float32',
+                    cog_flag=True,
+                    scratch_dir=outputdir)
 
     if processing_cfg.debug_mode:
 

@@ -1299,6 +1299,13 @@ def fill_threshold_with_gdal(threshold_array,
             # Close the dataset
             ds = None
 
+        dswx_sar_util._save_as_cog(
+            tif_file_str,
+            outputdir,
+            logger,
+            compression='DEFLATE',
+            nbits=16)
+
 
 def fill_threshold_with_distance(threshold_array,
                                  rows,

@@ -295,7 +295,9 @@ def replace_reference_water_nodata_from_ancillary(
             block_param=block_param,
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],
-            datatype='float32')
+            datatype='float32',
+            cog_flag=True,
+            scratch_dir=scratch_dir)
 
 
 def run(cfg):

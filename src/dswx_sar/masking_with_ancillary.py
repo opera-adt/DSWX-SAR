@@ -607,7 +607,6 @@ def extend_land_cover(landcover_path,
         excluded_rg_path,
         geotransform=metainfo['geotransform'],
         projection=metainfo['projection'],
-        description='Water classification (WTR)',
         scratch_dir=scratch_dir
         )
 
@@ -618,7 +617,6 @@ def extend_land_cover(landcover_path,
         darkland_tif_str,
         geotransform=metainfo['geotransform'],
         projection=metainfo['projection'],
-        description='Water classification (WTR)',
         scratch_dir=scratch_dir
         )
 

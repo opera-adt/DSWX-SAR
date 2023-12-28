@@ -51,7 +51,7 @@ def validate_gtiff(geotiff_path, value_list):
     Returns
     -------
     validation_result: str
-        If any of the checks fail, return bool indicating potential issues
+        If any of the checks fail, return a string that indicates potential issues
         with the GeoTIFF file.
         - Return 'nan_value' if some pixels in the file have NaN values.
         - Return 'invalid_only' if the mean pixel value matches any value

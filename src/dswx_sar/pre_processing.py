@@ -61,7 +61,7 @@ def validate_gtiff(geotiff_path, value_list):
     """
     image = dswx_sar_util.read_geotiff(geotiff_path)    
     mean_value = np.nanmean(image)
-    print(f'checking {geotiff_path}')
+
     validation_result = 'okay'
 
     for invalid_value in value_list:
@@ -153,7 +153,7 @@ class AncillaryRelocation:
         method : str
             interpolation method
         """
-        print(f"> gdalwarp {input_tif_str} -> {output_tif_str}")
+        print(f"   >> gdalwarp {input_tif_str} -> {output_tif_str}")
 
         # get reference coordinate and projection
         reftif = gdal.Open(ref_file, gdal.GA_ReadOnly)
@@ -175,7 +175,7 @@ class AncillaryRelocation:
                           np.min(lon0) - xspacing / 2,
                           np.max(lon0) + xspacing / 2]
 
-            print('Note: latitude shape is not same as image shape')
+            print('    Note: latitude shape is not same as image shape')
 
         else:
             N, S, W, E = [np.max(lat0),
@@ -183,7 +183,7 @@ class AncillaryRelocation:
                           np.min(lon0),
                           np.max(lon0)]
 
-        print('bounding box', N, S , W, E)
+        print('   bounding box', N, S , W, E)
 
         # Crop (gdalwarp)image based on geo infomation of reference image
         if yspacing < 0:
@@ -399,7 +399,8 @@ def run(cfg):
             os.path.join(scratch_dir, anc_filename))
 
         # Check if input ancillary data is valid. 
-        if not os.path.isfile(dem_file):
+        if not os.path.isfile(input_anc_path) and \
+            not check_gdal_raster_s3(input_anc_path, raise_error=False):
             err_msg = f'Input {anc_type} file not found'
             raise FileNotFoundError(err_msg)
 
@@ -407,7 +408,6 @@ def run(cfg):
             no_data = ref_water_no_data
         elif anc_type in ['landcover']:
             no_data = landcover_label['No_data']
-
         else:
             no_data = np.nan
 
@@ -463,14 +463,14 @@ def run(cfg):
     for block_ind, block_param in enumerate(block_params):
         output_image_set = []
         for polind, pol in enumerate(pol_list):
-            logger.info(f'block processing {block_ind} - {pol}')
+            logger.info(f'  block processing {block_ind} - {pol}')
 
             if pol in ['ratio', 'span']:
 
                 # If ratio/span is in the list,
                 # then compute the ratio from VVVV and VHVH
                 temp_pol_list = co_pol + cross_pol
-                logger.info(f'>> computing {pol} {temp_pol_list}')
+                logger.info(f'  >> computing {pol} {temp_pol_list}')
 
                 temp_raster_set = []
                 for temp_pol in temp_pol_list:
@@ -488,7 +488,7 @@ def run(cfg):
                     ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
                                       np.squeeze(temp_raster_set[1, :, :]))
                     output_image_set.append(ratio)
-                    logger.info(f'computing ratio {co_pol}/{cross_pol}')
+                    logger.info(f'  computing ratio {co_pol}/{cross_pol}')
 
                 if pol in ['span']:
                     span = np.squeeze(temp_raster_set[0, :, :] +

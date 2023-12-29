@@ -4,6 +4,7 @@ import mimetypes
 import numpy as np
 import os
 import pathlib
+import shutil
 import time
 
 from osgeo import gdal, osr
@@ -14,6 +15,8 @@ from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      _get_parser,
                                      RunConfig)
 from dswx_sar.dswx_sar_util import check_gdal_raster_s3
+from dswx_sar.masking_with_ancillary import get_label_landcover_esa_10
+
 
 logger = logging.getLogger('dswx_s1')
 
@@ -39,7 +42,7 @@ def validate_gtiff(geotiff_path, value_list):
     2. If the mean value equals any value in the provided 'value_list',
        it suggests that all pixels in the file might have the same value.
 
-    Parameters:
+    Parameters
     -----------
     geotiff_path : str
         The file path to the GeoTIFF file to be checked.
@@ -47,21 +50,35 @@ def validate_gtiff(geotiff_path, value_list):
         A list of values against which the mean pixel value of the GeoTIFF
         file is compared.
 
-    Raises:
+    Returns
     -------
-    ValueError:
-        If any of the checks fail, indicating potential issues
+    validation_result: str
+        If any of the checks fail, return a string that indicates potential issues
         with the GeoTIFF file.
-        - Raises an error if some pixels in the file have NaN values.
-        - Raises an error if the mean pixel value matches any value
+        - Return 'nan_value' if some pixels in the file have NaN values.
+        - Return 'invalid_only' if the mean pixel value matches any value
           in 'value_list', suggesting uniform pixel values across the file.
     """
-    image = dswx_sar_util.read_geotiff(geotiff_path)
-    mean_value = np.mean(image)
+    image = dswx_sar_util.read_geotiff(geotiff_path)    
+    mean_value = np.nanmean(image)
+
+    validation_result = 'okay'
+
+    for invalid_value in value_list:
+        if np.any(image == invalid_value):
+            validation_result = 'invalid_found'
+            logger.warning(f'Some pixels in {geotiff_path} are within '\
+                           'the specified value list.')
+
     if np.isnan(mean_value):
-        raise ValueError(f'NaN pixels found in {geotiff_path}.')
+        validation_result = 'nan_value'
+        logger.warning(f'NaN pixels found in {geotiff_path}.')
     elif np.isin(image, value_list).all():
-        raise ValueError(f'All pixels in {geotiff_path} are within the specified value list.')
+        validation_result = 'invalid_only'
+        logger.warning(f'All pixels in {geotiff_path} are within '\
+                       'the specified invalid value list.')
+
+    return validation_result
 
 
 class AncillaryRelocation:
@@ -92,7 +109,8 @@ class AncillaryRelocation:
     def relocate(self,
                  ancillary_file_name,
                  relocated_file_str,
-                 method='near'):
+                 method='near',
+                 no_data=np.nan):
 
         """ resample image
 
@@ -109,12 +127,17 @@ class AncillaryRelocation:
                               ancillary_file_name,
                               os.path.join(self.scratch_dir,
                                            relocated_file_str),
-                              method)
+                              method,
+                              no_data=no_data)
+        dswx_sar_util._save_as_cog(
+            os.path.join(self.scratch_dir, relocated_file_str),
+                         self.scratch_dir)
 
     def _interpolate_gdal(self, ref_file,
                           input_tif_str,
                           output_tif_str,
-                          method):
+                          method,
+                          no_data):
 
         """Interpolate the input image to have same projection and resolution
         as the reference file.
@@ -130,7 +153,7 @@ class AncillaryRelocation:
         method : str
             interpolation method
         """
-        print(f"> gdalwarp {input_tif_str} -> {output_tif_str}")
+        print(f"   >> gdalwarp {input_tif_str} -> {output_tif_str}")
 
         # get reference coordinate and projection
         reftif = gdal.Open(ref_file, gdal.GA_ReadOnly)
@@ -152,7 +175,7 @@ class AncillaryRelocation:
                           np.min(lon0) - xspacing / 2,
                           np.max(lon0) + xspacing / 2]
 
-            print('Note: latitude shape is not same as image shape')
+            print('    Note: latitude shape is not same as image shape')
 
         else:
             N, S, W, E = [np.max(lat0),
@@ -160,7 +183,7 @@ class AncillaryRelocation:
                           np.min(lon0),
                           np.max(lon0)]
 
-        print('bounding box', N, S , W, E)
+        print('   bounding box', N, S , W, E)
 
         # Crop (gdalwarp)image based on geo infomation of reference image
         if yspacing < 0:
@@ -171,7 +194,8 @@ class AncillaryRelocation:
                                yRes=yspacing,
                                outputBounds=[W, S, E, N],
                                resampleAlg=method,
-                               format='GTIFF')
+                               format='GTIFF',
+                               dstNodata=no_data)
 
         gdal.Warp(output_tif_str, input_tif_str, options=opt)
 
@@ -205,6 +229,80 @@ class AncillaryRelocation:
 
         return ycoord, xcoord
 
+
+def replace_reference_water_nodata_from_ancillary(
+        reference_water_path : str,
+        landcover_path : str,
+        hand_path : str,
+        reference_water_max : float,
+        reference_water_no_data : float,
+        line_per_block : int):
+    """
+    Replace no-data areas in a reference water raster 
+    with maximum values based on landcover and HAND data.
+
+    Parameters:
+    -----------
+    reference_water_path : str
+        Path to the reference water raster file.
+    landcover_path : str
+        Path to the landcover raster file.
+    hand_path : str
+        Path to the HAND raster file.
+    reference_water_max : float
+        Maximum value to replace no-data areas in the reference water raster.
+    reference_water_no_data : float
+        No-data value in the reference water raster.
+    lines_per_block : int
+        Number of lines per block for processing the raster data.
+    """
+    scratch_dir = os.path.dirname(reference_water_path)
+    temp_water_path = os.path.join(scratch_dir, 'temp_ref_water.tif')
+    shutil.copy2(reference_water_path, temp_water_path)
+
+    pad_shape = (0, 0)
+    im_meta = dswx_sar_util.get_meta_from_tif(reference_water_path)
+    block_params = dswx_sar_util.block_param_generator(
+        lines_per_block=line_per_block,
+        data_shape=(im_meta['length'],
+                    im_meta['width']),
+        pad_shape=pad_shape)
+
+    landcover_label = get_label_landcover_esa_10()
+
+    for block_param in block_params:
+        ref_water_block, landcover_block, hand_block = [
+            dswx_sar_util.get_raster_block(path, block_param)
+            for path in [temp_water_path,
+                         landcover_path, 
+                         hand_path]]
+
+        # Both invalid and no-water areas have zero value
+        # in reference water. The area with zero values are
+        # replaced with maximum values where the permanent water
+        # area in landcover.
+
+        replaced_area = np.logical_and(
+            ref_water_block == reference_water_no_data,
+            landcover_block == landcover_label['Permanent water bodies'])
+
+        no_data_area = np.logical_and(
+            ref_water_block == reference_water_no_data,
+            hand_block <= 0.002)
+        ref_water_block[no_data_area | replaced_area] = reference_water_max
+
+        # write updated reference water 
+        dswx_sar_util.write_raster_block(
+            out_raster=reference_water_path,
+            data=ref_water_block,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='float32',
+            cog_flag=True,
+            scratch_dir=scratch_dir)
+
+
 def run(cfg):
 
     logger.info("")
@@ -222,6 +320,8 @@ def run(cfg):
     dem_file = dynamic_data_cfg.dem_file
     hand_file = dynamic_data_cfg.hand_file
 
+    ref_water_max = processing_cfg.reference_water.max_value
+    ref_water_no_data = processing_cfg.reference_water.no_data_value
     pol_list = processing_cfg.polarizations
     pol_options = processing_cfg.polarimetric_option
     
@@ -263,7 +363,7 @@ def run(cfg):
             logger.error(err_str)
             raise ValueError(err_str)
 
-    logger.info(f'ancillary data is reprojected using {ref_filename}')
+    logger.info(f'Ancillary data is reprojected using {ref_filename}')
 
     pathlib.Path(scratch_dir).mkdir(parents=True, exist_ok=True)
     filtered_images_str = f"filtered_image_{pol_all_str}.tif"
@@ -276,59 +376,81 @@ def run(cfg):
     # create instance to relocate ancillary data
     ancillary_reloc = AncillaryRelocation(ref_filename, scratch_dir)
 
-    # Check if the interpolated water body file exists
-    wbd_interpolated_path = Path(
-        os.path.join(scratch_dir, 'interpolated_wbd.tif'))
+    # Note : landcover should precede before reference water.
+    relocated_ancillary_filename_set = {
+        'dem': 'interpolated_DEM.tif',
+        'hand': 'interpolated_hand.tif',
+        'landcover': 'interpolated_landcover.tif',
+        'reference_water': 'interpolated_wbd.tif',
+    }
 
-    if not wbd_interpolated_path.is_file():
-        logger.info('interpolated wbd file was not found')
-        ancillary_reloc.relocate(wbd_file,
-                                 'interpolated_wbd.tif',
-                                 method='near')
+    input_ancillary_filename_set = {
+        'dem': dem_file,
+        'hand': hand_file,
+        'landcover': landcover_file,
+        'reference_water': wbd_file,
+    }
 
-    # Check if the interpolated DEM exists
-    dem_interpolated_path = \
-        Path(scratch_dir) / 'interpolated_DEM.tif'
-    dem_reprocessing_flag = False
-    if not dem_interpolated_path.is_file():
-        logger.info('interpolated dem : not found ')
+    landcover_label = get_label_landcover_esa_10()
 
-        if os.path.isfile(dem_file) or check_gdal_raster_s3(dem_file, raise_error=False):
-            logger.info('interpolated dem file was not found')
-            ancillary_reloc.relocate(dem_file,
-                                     'interpolated_DEM.tif',
-                                     method='near')
+    for anc_type, anc_filename in relocated_ancillary_filename_set.items():
+        input_anc_path = input_ancillary_filename_set[anc_type]
+        ancillary_path = Path(
+            os.path.join(scratch_dir, anc_filename))
+
+        # Check if input ancillary data is valid. 
+        if not os.path.isfile(input_anc_path) and \
+            not check_gdal_raster_s3(input_anc_path, raise_error=False):
+            err_msg = f'Input {anc_type} file not found'
+            raise FileNotFoundError(err_msg)
+
+        if anc_type in ['reference_water']:
+            no_data = ref_water_no_data
+        elif anc_type in ['landcover']:
+            no_data = landcover_label['No_data']
         else:
-            raise FileNotFoundError
+            no_data = np.nan
 
-    # check if interpolated DEM has valid values
-    if not dem_reprocessing_flag:
-        interpolated_dem_path = os.path.join(
-            scratch_dir, 'interpolated_DEM.tif')
-        validate_gtiff(interpolated_dem_path, [0])
+        # crop or relocate ancillary images to fit the reference 
+        # intensity (RTC) image. 
+        if not ancillary_path.is_file():
+            logger.info(f'Relocated {anc_type} file will be created from ' \
+                        f'{input_anc_path}.')
+            ancillary_reloc.relocate(
+                input_anc_path,
+                anc_filename,
+                method='near',
+                no_data=no_data)
 
-    # check if the interpolated landcover exists
-    landcover_interpolated_path = \
-        Path(scratch_dir) / 'interpolated_landcover.tif'
-    if not landcover_interpolated_path.is_file():
-        ancillary_reloc.relocate(landcover_file,
-                                 'interpolated_landcover.tif',
-                                 method='near')
+        # check if relocated ancillaries are filled with invalid values
+        validation_result = validate_gtiff(
+            os.path.join(scratch_dir, anc_filename),
+            [no_data, np.inf])
 
-    # Check if the interpolated HAND exists
-    hand_interpolated_path = os.path.join(
-        scratch_dir, 'interpolated_hand.tif')
-    if not os.path.isfile(hand_interpolated_path):
-        # Check if compuated HAND exists
-        if hand_file is None:
-            logger.info('>> HAND file is not found, so will be computed.')
-            # hand_calc.hand(dem_interpolated_path, args.scratch_dir)
-            # args.hand_file = os.path.join(args.scratch_dir, 'temp_hand.tif')
+        if validation_result not in ['okay']:
+            if (anc_type in ['dem', 'hand']) and \
+                (validation_result in ['nan_value', 'invalid_only']):
+                err_msg = f'Unable to get valid {anc_type}'
+                raise ValueError(err_msg)
+    
+            elif anc_type in ['landcover']:
+                logger.warning(f'{anc_type} has invalid values.')
 
-        ancillary_reloc.relocate(hand_file,
-                                 'interpolated_hand.tif',
-                                 method='near')
-    del ancillary_reloc
+            elif anc_type in ['reference_water']:
+                logger.warning(f'{anc_type} has invalid values.')
+                # update reference water if any values of reference water
+                # are invalid.
+                replace_reference_water_nodata_from_ancillary(
+                    os.path.join(scratch_dir,
+                                 relocated_ancillary_filename_set['reference_water']),
+                    os.path.join(scratch_dir,
+                                 relocated_ancillary_filename_set['landcover']),
+                    os.path.join(scratch_dir,
+                                 relocated_ancillary_filename_set['hand']),
+                    reference_water_max=ref_water_max,
+                    reference_water_no_data=ref_water_no_data,
+                    line_per_block=line_per_block
+                )
 
     # apply SAR filtering
     pad_shape = (filter_size, 0)
@@ -341,14 +463,14 @@ def run(cfg):
     for block_ind, block_param in enumerate(block_params):
         output_image_set = []
         for polind, pol in enumerate(pol_list):
-            logger.info(f'block processing {block_ind} - {pol}')
+            logger.info(f'  block processing {block_ind} - {pol}')
 
             if pol in ['ratio', 'span']:
 
                 # If ratio/span is in the list,
                 # then compute the ratio from VVVV and VHVH
                 temp_pol_list = co_pol + cross_pol
-                logger.info(f'>> computing {pol} {temp_pol_list}')
+                logger.info(f'  >> computing {pol} {temp_pol_list}')
 
                 temp_raster_set = []
                 for temp_pol in temp_pol_list:
@@ -366,7 +488,7 @@ def run(cfg):
                     ratio = pol_ratio(np.squeeze(temp_raster_set[0, :, :]),
                                       np.squeeze(temp_raster_set[1, :, :]))
                     output_image_set.append(ratio)
-                    logger.info(f'computing ratio {co_pol}/{cross_pol}')
+                    logger.info(f'  computing ratio {co_pol}/{cross_pol}')
 
                 if pol in ['span']:
                     span = np.squeeze(temp_raster_set[0, :, :] +

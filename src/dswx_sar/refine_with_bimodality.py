@@ -87,10 +87,18 @@ class BimodalityMetrics:
         self.prob = self.counts * self.binstep
 
         # Initial values for curve fitting using threshold computed above
-        mean_lt = np.nanmean(int_db[int_db < self.threshold_global_otsu])
-        mean_gt= np.nanmean(int_db[int_db > self.threshold_global_otsu])
-        std_lt = np.std(int_db[int_db < self.threshold_global_otsu])
-        std_gt = np.std(int_db[int_db > self.threshold_global_otsu])
+        left_sample = int_db[int_db < self.threshold_global_otsu]
+        right_sample = int_db[int_db > self.threshold_global_otsu]
+        if len(left_sample)>0 and len(right_sample)>0:
+            mean_lt = np.nanmean(left_sample)
+            mean_gt= np.nanmean(right_sample)
+            std_lt = np.std(left_sample)
+            std_gt = np.std(right_sample)
+        else:
+            mean_lt = self.threshold_global_otsu - 1
+            mean_gt = self.threshold_global_otsu + 1
+            std_lt, std_gt = 1, 1
+
         amp_lt_ind = np.abs(self.bincenter - mean_lt).argmin()
         amp_lt = self.prob[amp_lt_ind]
         amp_gt_ind = np.abs(self.bincenter - mean_gt).argmin()
@@ -441,50 +449,73 @@ def estimate_bimodality(array,
     counts, bins = np.histogram(array,
                                 bins=hist_bin,
                                 density=False)
+
     bincenter = ((bins[:-1] + bins[1:]) /2)
 
-    # smooth histogram by appling gaussian filter
+    # # smooth histogram by appling gaussian filter
     counts_smooth = scipy.signal.convolve(counts,
                                           [0.2261, 0.5478, 0.2261],
                                           'same')
-    std_int = np.nanstd(array, ddof=1)**2
+    sigma_max = np.nan
+    ad_max = np.nan
 
-    sigma_b = np.zeros_like(bincenter)
-    ads = np.zeros_like(bincenter)
-    countsum=np.nansum(counts_smooth)
+    if len(array) > 2:
 
-    for bin_idx, value in enumerate(bincenter):
-        cand_left = bincenter <= value
-        cand_right = bincenter >= value
-        left_sum = np.nansum(counts_smooth[cand_left])
-        right_sum = np.nansum(counts_smooth[cand_right])
+        ddof = 0 if len(array) == 1 else 1
+        std_int = np.nanstd(array, ddof=ddof)**2
 
-        # when number of histogram bin is not zero
-        if left_sum > 0 and right_sum > 0:
-            meanp_left = \
-                np.nansum(counts_smooth[cand_left] * bincenter[cand_left]) \
-                / left_sum
-            meanp_right = \
-                np.nansum(counts_smooth[cand_right] * bincenter[cand_right]) \
-                / right_sum
-            stdp_left = np.sqrt(np.nansum(
-                ((counts_smooth[cand_left] * bincenter[cand_left])
-                - meanp_left )**2)) / left_sum
-            stdp_right = np.sqrt(np.nansum(
-                ((counts_smooth[cand_right] * bincenter[cand_right])
-                - meanp_right )**2)) / right_sum
-            probp_left = np.nansum(counts_smooth[cand_left]) / countsum
-            probp_right = np.nansum(counts_smooth[cand_right]) / countsum
+        sigma_b = np.zeros_like(bincenter)
+        ads = np.zeros_like(bincenter)
+        countsum = np.nansum(counts_smooth)
 
-            sigma_b[bin_idx] = probp_left * probp_right * (
-                (meanp_left - probp_right)**2) / std_int
-            ads[bin_idx] = np.sqrt(2) * (
-                np.abs(meanp_left - probp_right)) / np.sqrt(
-                (stdp_left ** 2 + stdp_right ** 2))
+        for bin_idx, value in enumerate(bincenter):
+            cand_left = bincenter <= value
+            cand_right = bincenter >= value
 
-    sigma_max = np.nanmax(sigma_b)
-    ad_max = np.nanmax(ads)
+            if np.any(cand_left):
+                left_sum = np.nansum(counts_smooth[cand_left])
+            else:
+                left_sum = hist_bin[0]
 
+            if np.any(cand_right):
+                right_sum = np.nansum(counts_smooth[cand_right])
+            else:
+                right_sum = hist_bin[-1]
+
+            # # when number of histogram bin is not zero
+            if left_sum > 0 and right_sum > 0:
+                if np.any(cand_left):
+                    meanp_left = \
+                        np.nansum(counts_smooth[cand_left] * bincenter[cand_left]) \
+                        / left_sum
+                    stdp_left = np.sqrt(np.nansum(
+                        ((counts_smooth[cand_left] * bincenter[cand_left])
+                        - meanp_left )**2)) / left_sum
+                    probp_left = np.nansum(counts_smooth[cand_left]) / countsum
+
+                else:
+                    meanp_left, stdp_left, probp_left = 0, 0, 0
+
+                if np.any(cand_right):            
+                    meanp_right = \
+                        np.nansum(counts_smooth[cand_right] * bincenter[cand_right]) \
+                        / right_sum
+                    stdp_right = np.sqrt(np.nansum(
+                        ((counts_smooth[cand_right] * bincenter[cand_right])
+                        - meanp_right )**2)) / right_sum
+                    probp_right = np.nansum(counts_smooth[cand_right]) / countsum
+                else:
+                    meanp_right, stdp_right, probp_right = 0, 0, 0
+
+                sigma_b[bin_idx] = probp_left * probp_right * (
+                    (meanp_left - meanp_right)**2) / std_int
+                ads[bin_idx] = np.sqrt(2) * (
+                    np.abs(meanp_left - meanp_right)) / np.sqrt(
+                    (stdp_left ** 2 + stdp_right ** 2))
+
+        sigma_max = np.nanmax(sigma_b)
+        ad_max = np.nanmax(ads)
+    
     return sigma_max, ad_max
 
 
@@ -708,7 +739,14 @@ def process_bright_water_component(args):
     landcover_water = (ref_land == 0) | (landcover == 0)
 
     mask_water = output_water == ind_bright_water + 1
-    landcover_portion = np.nanmean(landcover_water[mask_water])
+    # print(bounds)
+    # print(np.sum(mask_water))
+    # print(landcover_water)
+    landcover_water_target = landcover_water[mask_water]
+    if len(landcover_water_target) > 0:
+        landcover_portion = np.nanmean(landcover_water_target)
+    else:
+        landcover_portion = 0
 
     # Initially, value is set to be higher than threshold
     ad_value = threshold[1] + 0.5
@@ -917,7 +955,8 @@ def fill_gap_water_bimodality_parallel(
         meta_info=None,
         outputdir=None,
         input_dict=None,
-        number_workers=1):
+        number_workers=1,
+        debug_mode=False):
     """Fill gaps in water bodies using bimodality and
     normalized separation metrics in parallel.
 
@@ -926,37 +965,35 @@ def fill_gap_water_bimodality_parallel(
     and normalized separation for bright water components,
     and combines the metrics to create a binary image indicating water gaps.
 
-    Parameters:
-        water_mask (numpy.ndarray):
-            The binary water mask as a 2D NumPy array.
-        pol_list (list):
-            List of polarization bands.
-        threshold (list):
-            A list containing two threshold values for Bt and Ad metrics.
-        meta_info (dict):
-            Metadata information such as geotransform and projection.
-        outputdir (str):
-            Directory path for saving intermediate raster outputs.
-        input_dict (dict):
-            A dictionary containing file paths for landcover, intensity bands,
-            binary water mask, and raster dataset representing land areas.
+    Parameters
+    ----------
+    water_mask : numpy.ndarray
+        The binary water mask as a 2D NumPy array.
+    pol_list : list
+        List of polarization bands.
+    threshold : list
+        A list containing two threshold values for Bt and Ad metrics.
+    meta_info : dict
+        Metadata information such as geotransform and projection.
+    outputdir : str
+        Directory path for saving intermediate raster outputs.
+    input_dict : dict
+        A dictionary containing file paths for landcover, intensity bands,
+        binary water mask, and raster dataset representing land areas.
+    debug_mode: bool
+        If True, additional output metrics and
+        images are saved for debugging purposes.
 
-    Returns:
-        tuple: A tuple containing the following:
-            - bimodality_set (list):
-                A list of 1D NumPy arrays containing the bimodality metric
-                values for each bright water component.
-            - ad_set (list):
-                A list of 1D NumPy arrays containing the normalized separation (AD)
-                metric values for each bright water component.
-            - bimodal_ad_binary (numpy.ndarray):
-                A binary 2D NumPy array indicating the water gaps.
-
+    Returns
+    -------
+    bimodal_ad_binary : numpy.ndarray
+        A binary 2D NumPy array indicating the water gaps.
     """
     rows, cols = meta_info['length'], meta_info['width']
 
+    water_mask = np.array(water_mask)
     out_boundary = dswx_sar_util.read_geotiff(input_dict['no_data'])
-    water_mask[out_boundary] = 0
+    water_mask[out_boundary==1] = 0
     # computes the connected components labeled image of boolean image
     # and also produces a statistics output for each label
     nb_components_water, output_water, stats_water, _ = \
@@ -1026,6 +1063,16 @@ def fill_gap_water_bimodality_parallel(
             bimodality_image = bimodality_output[index_array_to_image]
             bimodality_set += bimodality_image
 
+            if debug_mode:
+
+                dswx_sar_util.save_raster_gdal(
+                    data=bimodality_image,
+                    output_file=os.path.join(outputdir,
+                                             'fill_gap_bimodality_{}.tif'.format(pol)),
+                    geotransform=meta_info['geotransform'],
+                    projection=meta_info['projection'],
+                    scratch_dir=outputdir)
+
             del bimodality_image
 
     # bindary image is created for the pixels that passed two tests.
@@ -1045,7 +1092,7 @@ def run(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
 
@@ -1136,7 +1183,8 @@ def run(cfg):
             meta_info=im_meta,
             outputdir=outputdir,
             input_dict=input_file_dict,
-            number_workers=number_workers)
+            number_workers=number_workers,
+            debug_mode=processing_cfg.debug_mode)
 
     water_bindary[fill_gap_bindary] = True
     fill_gap_bindary = None

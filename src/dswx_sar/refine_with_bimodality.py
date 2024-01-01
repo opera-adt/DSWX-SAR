@@ -1,3 +1,4 @@
+import copy
 import logging
 import mimetypes
 import os
@@ -739,9 +740,7 @@ def process_bright_water_component(args):
     landcover_water = (ref_land == 0) | (landcover == 0)
 
     mask_water = output_water == ind_bright_water + 1
-    # print(bounds)
-    # print(np.sum(mask_water))
-    # print(landcover_water)
+
     landcover_water_target = landcover_water[mask_water]
     if len(landcover_water_target) > 0:
         landcover_portion = np.nanmean(landcover_water_target)
@@ -1090,7 +1089,7 @@ def run(cfg):
 
     outputdir = cfg.groups.product_path_group.scratch_path
     processing_cfg = cfg.groups.processing
-    pol_list = processing_cfg.polarizations
+    pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
 
     if pol_options is not None:

@@ -1,3 +1,4 @@
+import copy
 import mimetypes
 import logging
 import os
@@ -308,7 +309,7 @@ def run(cfg):
 
     processing_cfg = cfg.groups.processing
     outputdir = cfg.groups.product_path_group.scratch_path
-    pol_list = processing_cfg.polarizations
+    pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
     
     if pol_options is not None:

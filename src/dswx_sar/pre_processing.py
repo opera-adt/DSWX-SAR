@@ -1,3 +1,4 @@
+import copy
 import glob
 import logging
 import mimetypes
@@ -322,7 +323,7 @@ def run(cfg):
 
     ref_water_max = processing_cfg.reference_water.max_value
     ref_water_no_data = processing_cfg.reference_water.no_data_value
-    pol_list = processing_cfg.polarizations
+    pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
     
     if pol_options is not None:

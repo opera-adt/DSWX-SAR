@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr
+from pyproj import Transformer
 
 gdal.DontUseExceptions()
 
@@ -314,6 +315,36 @@ def _save_as_cog(filename,
     shutil.move(temp_file, filename)
 
 
+def convert_rounded_coordinates(
+        corners,
+        from_epsg, to_epsg,
+        x_snap=30, y_snap=30):
+    """
+    Transform coordinates from source EPSG to destination EPSG.
+
+    Parameters:
+    coord_pairs : list of tuples
+        A list of coordinate pairs (x, y) in the source CRS.
+    src_epsg : int
+        The EPSG code of the source coordinate reference system.
+    dest_epsg : int
+        The EPSG code of the destination coordinate reference system.
+
+    Returns:
+    transformed_coords : list of tuples
+        A list of transformed coordinate pairs (x, y) in the destination CRS.
+    """
+    transformer = Transformer.from_crs(f"epsg:{from_epsg}", f"epsg:{to_epsg}", always_xy=True)
+
+    rounded_coords = []
+    for corner in corners:
+        x, y = transformer.transform(corner[0], corner[1])
+        rounded_coords.append((np.round(x / x_snap) * x_snap,
+                               np.round(y / y_snap) * y_snap))
+
+    return rounded_coords
+
+
 def change_epsg_tif(input_tif, output_tif, epsg_output,
                     resample_method='nearest',
                     output_nodata='NaN'):
@@ -329,13 +360,55 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
         new EPSG code
     """
     metadata = get_meta_from_tif(input_tif)
+
+    # Get coordinates of the upper left corner
+    x_min = metadata['geotransform'][0]
+    y_max = metadata['geotransform'][3]
+
+    # Get pixel dimensions
+    pixel_x_spacing = metadata['geotransform'][1]
+    pixel_y_sapcing = metadata['geotransform'][5]
+
+    # Get the number of rows and columns
+    cols = metadata['width']
+    rows = metadata['length']
+
+    # Calculate coordinates of the lower right corner
+    x_max = x_min + (cols * pixel_x_spacing)
+    y_min = y_max + (rows * pixel_y_sapcing)
+
+    corners = [
+        (x_min, y_max),  # Top-left
+        (x_max, y_max),  # Top-right
+        (x_min, y_min),  # Bottom-left
+        (x_max, y_min)  # Bottom-right
+    ]
+
+    corner_output = convert_rounded_coordinates(
+        corners,
+        metadata['epsg'],
+        epsg_output,
+        x_snap=pixel_x_spacing,
+        y_snap=pixel_y_sapcing)
+    
+    x_coords, y_coords = zip(*corner_output)
+    x_min_output, x_max_output = min(x_coords), max(x_coords)
+    y_min_output, y_max_output = min(y_coords), max(y_coords)
+
     opt = gdal.WarpOptions(
         dstSRS=f'EPSG:{epsg_output}',
         resampleAlg=resample_method,
+        outputBounds=[
+            x_min_output,
+            y_min_output,
+            x_max_output,
+            y_max_output],
         dstNodata=output_nodata,
         xRes=metadata['geotransform'][1],
         yRes=metadata['geotransform'][5],
-        format='GTIFF')
+        format='GTIFF',
+        creationOptions=['COMPRESS=DEFLATE',
+                         'PREDICTOR=2'])
 
     gdal.Warp(output_tif, input_tif, options=opt)
 

@@ -1,3 +1,4 @@
+import copy
 import logging
 import mimetypes
 import os
@@ -11,6 +12,7 @@ from scipy.interpolate import Rbf
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 from scipy.spatial import cKDTree
+from scipy.stats import norm
 from skimage.filters import threshold_multiotsu, threshold_otsu
 
 from dswx_sar import (dswx_sar_util,
@@ -271,7 +273,7 @@ class TileSelection:
                            intensity,
                            water_mask,
                            win_size=200,
-                           selection_method='combined',
+                           selection_method=['combined'],
                            mininum_tile=20,
                            minimum_pixel_number=40):
         '''Select the tile candidates containing water and non-water
@@ -289,7 +291,7 @@ class TileSelection:
         win_size : integer
             size of window to search the water body that should be smaller
             than size of intensity
-        selection_method : str
+        selection_method : list
             window type {twele, chini, bimodality, combined}
             'combined' method runs all methods
 
@@ -348,7 +350,8 @@ class TileSelection:
             selected_tile_twele = []
             selected_tile_chini = []
             selected_tile_bimodality = []
-
+            selected_tile = []
+            detected_box_array = []
             # convert linear to dB scale
             intensity_db = convert_pow2db(intensity)
 
@@ -419,7 +422,11 @@ class TileSelection:
                                 and water_area_sublock_flag \
                                 and validnum > num_pixel_max:
 
-                                if selection_method in ['twele', 'combined']:
+                                # Initially set flag as True
+                                tile_selected_flag = True
+
+                                if any(item in ['twele', 'combined']
+                                       for item in selection_method):
                                     tile_selected_flag, _, _ = \
                                         self.select_tile_twele(
                                             intensity_sub_gray,
@@ -428,8 +435,11 @@ class TileSelection:
                                         selected_tile_twele.append(True)
                                     else:
                                         selected_tile_twele.append(False)
+                                else:
+                                    selected_tile_twele.append(False)
 
-                                if selection_method in ['chini', 'combined']:
+                                if any(item in ['chini', 'combined']
+                                       for item in selection_method):
                                     # Once 'combined' method is selected,
                                     # the chini test is carried when the
                                     # 'twele' method passed.
@@ -447,7 +457,11 @@ class TileSelection:
                                         else:
                                             selected_tile_chini.append(False)
 
-                                if selection_method in ['bimodality', 'combined']:
+                                else:
+                                    selected_tile_chini.append(False)
+
+                                if any(item in ['bimodality', 'combined']
+                                       for item in selection_method):
 
                                     if (selection_method == 'combined') and \
                                         not tile_selected_flag:
@@ -463,6 +477,8 @@ class TileSelection:
                                             selected_tile_bimodality.append(True)
                                         else:
                                             selected_tile_bimodality.append(False)
+                                else:
+                                    selected_tile_bimodality.append(False)
 
                             else:
                                 bimodality_max_set.append(np.nan)
@@ -477,16 +493,7 @@ class TileSelection:
                                  y_start, y_end])
                             ind_subtile += 1
 
-                    if selection_method in ['twele']:
-                        num_detected_box = np.sum(selected_tile_twele)
-
-                    if selection_method in ['chini']:
-                        num_detected_box = np.sum(selected_tile_chini)
-
-                    if selection_method in ['bimodality']:
-                        num_detected_box = np.sum(selected_tile_bimodality)
-
-                    if selection_method in ['combined']:
+                    if 'combined' in selection_method:
                         selected_tile_merged = np.logical_and(
                             selected_tile_twele,
                             selected_tile_chini)
@@ -494,10 +501,28 @@ class TileSelection:
                             selected_tile_merged,
                             selected_tile_bimodality)
                         num_detected_box = np.sum(selected_tile_merged)
+                    else:
+                        # Initialize the result array with False values
+                        detected_box_array = np.ones_like(selected_tile_twele,
+                                                          dtype=bool)
+                        # Check and aggregate the results based on the selection_method
+                        if 'twele' in selection_method:
+                            detected_box_array = np.logical_and(
+                                detected_box_array,
+                                selected_tile_twele)
+                        if 'chini' in selection_method:
+                            detected_box_array = np.logical_and(
+                                detected_box_array,
+                                selected_tile_chini)
+                        if 'bimodality' in selection_method:
+                            detected_box_array = np.logical_and(
+                                detected_box_array,
+                                selected_tile_bimodality)
+                        num_detected_box = np.sum(detected_box_array)
 
                     if num_detected_box_sum <= mininum_tile:
                         # try tile-selection with smaller win size
-                        win_size = int(win_size * 0.8)
+                        win_size = int(win_size * 0.5)
                         num_pixel_max = win_size * win_size / 3
 
                     num_detected_box_sum += num_detected_box
@@ -505,20 +530,15 @@ class TileSelection:
             else:
                 logger.info('No water body found')
 
-            if selection_method in ['twele']:
-                selected_tile = selected_tile_twele
-            if selection_method in ['chini']:
-                selected_tile = selected_tile_chini
-            if selection_method in ['bimodality']:
-                selected_tile = selected_tile_bimodality
-            if selection_method == 'combined':
+            if 'combined' in selection_method:
                 selected_tile = np.logical_and(
                     selected_tile_twele,
                     selected_tile_chini)
                 selected_tile = np.logical_and(
                     selected_tile,
                     selected_tile_bimodality)
-
+            else:
+                selected_tile = detected_box_array
             coordinate = np.array(coordinate)
             candidate_tile_coords = coordinate[selected_tile]
 
@@ -747,7 +767,8 @@ def determine_threshold(
         step_histogram=0.1,
         bounds=[-20, -13],
         method='ki',
-        mutli_threshold=True):
+        mutli_threshold=True,
+        adjust_threshold_nonoverlapped_distribution=True):
     """Compute the thresholds and peak values for left Gaussian
     from intensity image for given candidate coordinates.
     The three methods are supported:
@@ -780,6 +801,9 @@ def determine_threshold(
         Thresholding algorithm ('ki', 'otsu', 'rg')
     multi_threshold : bool
         Flag indicating whether tri-mode Gaussian distribution is assumed or not.
+    adjust_threshold_nonoverlapped_distribution : bool
+        Flag enabling the adjustment of the threshold
+        If True, the threshold goes up to the point where the lower distribution ends
 
     Returns
     -------
@@ -1011,6 +1035,7 @@ def determine_threshold(
         except:
             tri_optimization = False
             logger.info(f'Trimodal curve Fitting fails in threshold computation.')
+
         if tri_optimization:
             intensity_sub2 = intensity_sub[intensity_sub < tri_second_mode[0]]
             tau_bound_gauss = threshold_otsu(intensity_sub2)
@@ -1096,6 +1121,27 @@ def determine_threshold(
                 rg_tolerance = rms_xx[min_rms_ind[0][0]]
                 threshold = (rg_tolerance + threshold) / 2
 
+        if adjust_threshold_nonoverlapped_distribution:
+            old_threshold = threshold
+
+            if optimization:
+                mean1, std1 = first_mode[0:2]
+                mean2, std2 = second_mode[0:2]
+
+            elif tri_optimization:
+                mean1, std1 = tri_first_mode[0:2]
+                mean2, std2 = tri_second_mode[0:2]
+
+            if optimization or tri_optimization:
+                threshold = optimize_inter_distribution_threshold(
+                    old_threshold,
+                    mean1=mean1,
+                    std1=std1,
+                    mean2=mean2,
+                    std2=std2,
+                    step_fraction=0.05,
+                    max_iterations=100)
+
         # add final threshold to threshold list
         threshold_array.append(threshold)
         threshold_idx_array.append(idx_threshold)
@@ -1112,6 +1158,62 @@ def determine_threshold(
     glob_mode_thres = mode_array
 
     return global_threshold, glob_mode_thres
+
+def optimize_inter_distribution_threshold(
+        threshold,
+        mean1,
+        std1,
+        mean2,
+        std2,
+        step_fraction=0.05,
+        max_iterations=100):
+    """
+    Compute the threshold between two Gaussian distributions.
+
+    This function optimizes the threshold value between two non-overlapped Gaussian distributions.
+    The optimization is done iteratively, moving the threshold towards the second distribution's mean
+    in each step until the overlap criterion is met or the maximum number of iterations is reached.
+
+    Parameters
+    ----------
+    threshold : float
+        Initial threshold value.
+    mean1 : float
+        Mean of the first Gaussian distribution.
+    std1 : float
+        Standard deviation of the first Gaussian distribution.
+    mean2 : float
+        Mean of the second Gaussian distribution.
+    std2 : float
+        Standard deviation of the second Gaussian distribution.
+    step_fraction : float, optional
+        Fraction of distance to move the threshold towards the
+        mean of the second distribution at each iteration.
+        Default is 0.05.
+    max_iterations : int, optional
+        Maximum number of iterations to adjust the threshold.
+        Default is 100.
+
+    Returns
+    -------
+    threshold : float
+        The optimized threshold value which best separates the two Gaussian distributions.
+
+    Notes
+    -----
+    The function uses a while loop to iteratively adjust the threshold. The loop terminates
+    when either the overlap criterion (based on cumulative distribution functions) is met,
+    or the maximum number of iterations is reached.
+    """
+    # Adjust the threshold if the distributions do not overlap
+    iteration = 0
+    while (norm.cdf(threshold, mean1, std1) < 0.95 or norm.cdf(threshold, mean2, std2) < 0.05) \
+        and iteration < max_iterations:
+        # Move threshold towards the mean of the second distribution
+        threshold += (mean2 - threshold) * step_fraction
+        iteration += 1
+
+    return threshold
 
 
 def fill_threshold_with_gdal(threshold_array,
@@ -1161,7 +1263,6 @@ def fill_threshold_with_gdal(threshold_array,
     else:
         x_coarse_grid = np.arange(0, cols + 1, 400)
         y_coarse_grid = np.arange(0, rows + 1, 400)
-
 
     for polind, pol in enumerate(pol_list):
         if average_tile:
@@ -1486,7 +1587,7 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
     mutli_threshold_flag = threshold_cfg.multi_threshold
     tile_selection_twele = threshold_cfg.tile_selection_twele
     tile_selection_bimodality = threshold_cfg.tile_selection_bimodality
-
+    adjust_threshold_flag = threshold_cfg.adjust_threshold_nonoverlapped_distribution
     # water cfg
     water_cfg = processing_cfg.reference_water
 
@@ -1562,7 +1663,9 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                 step_histogram=step_histogram,
                 bounds=[-28, threshold_temp_max],
                 method=threshold_method,
-                mutli_threshold=mutli_threshold_flag)
+                mutli_threshold=mutli_threshold_flag,
+                adjust_threshold_nonoverlapped_distribution=adjust_threshold_flag
+                )
 
             logger.info(f'method {threshold_method} for {pol}')
             logger.info(f'global threshold and bound : {intensity_threshold} {threshold_temp_max}')
@@ -1836,9 +1939,9 @@ def run(cfg):
     logger.info('Start Initial Threshold')
 
     processing_cfg = cfg.groups.processing
-    pol_list = processing_cfg.polarizations
+    pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
 
@@ -2092,7 +2195,6 @@ def run(cfg):
 
         # create initial map for iteration method
     if processing_cfg.debug_mode:
-        # initial_water_set = np.zeros([height, width, len(pol_list)])
 
         data_shape = (height, width)
         pad_shape = (0, 0)
@@ -2104,13 +2206,13 @@ def run(cfg):
                 lines_per_block,
                 data_shape,
                 pad_shape)
-            
+
             thresh_file_path = os.path.join(
                 outputdir, f"intensity_threshold_filled_{pol}.tif")
             initial_water_tif_path = os.path.join(
                 outputdir, f"initial_water_{pol}_{iter_ind}.tif")
             threshold_geotiff = os.path.join(
-                outputdir, f"intensity_threshold_filled_{pol}_georef.tif")            
+                outputdir, f"intensity_threshold_filled_{pol}_georef.tif")
 
             for block_param in block_params:
                 threshold_block = dswx_sar_util.get_raster_block(

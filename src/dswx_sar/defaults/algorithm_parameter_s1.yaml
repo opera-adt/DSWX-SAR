@@ -77,7 +77,8 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: True
-
+            # Flag to adjust threshold where two gaussian distribution is not overlapped. 
+            adjust_threshold_nonoverlapped_distribution: True
             # Number of threads to run
             # -1 represents the all available threads
             number_cpu: -1

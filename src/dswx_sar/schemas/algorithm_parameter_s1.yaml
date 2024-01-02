@@ -49,7 +49,7 @@ runconfig:
             # Tile selecting strategy to identify the boundary between water and nonwater
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
-            selection_method: str(required=False)
+            selection_method: list(enum('twele', 'chini', 'bimodality', 'combined'), min=1, max=3, required=False)
             # Thresholds to select tiles showing the boundary between water and nonwater
             # three values are required for twele method
             # 1) std / mean of tiles
@@ -71,6 +71,8 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
+            # Flag to adjust threshold where two gaussian distribution is not overlapped. 
+            adjust_threshold_nonoverlapped_distribution: bool(required=False)
             # Flag to average the thresholds within the tile.
             # The output thresholds are assigned to each tile.
             tile_average: bool(required=False)

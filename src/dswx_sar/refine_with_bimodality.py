@@ -453,7 +453,7 @@ def estimate_bimodality(array,
 
     bincenter = ((bins[:-1] + bins[1:]) /2)
 
-    # # smooth histogram by appling gaussian filter
+    # smooth histogram by appling gaussian filter
     counts_smooth = scipy.signal.convolve(counts,
                                           [0.2261, 0.5478, 0.2261],
                                           'same')

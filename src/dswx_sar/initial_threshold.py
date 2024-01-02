@@ -2193,8 +2193,24 @@ def run(cfg):
                         no_data=-50,
                         average_tile=average_threshold_flag)
 
-        # create initial map for iteration method
     if processing_cfg.debug_mode:
+
+        intensity_whole = dswx_sar_util.read_geotiff(filt_im_str)
+        if not average_threshold_flag:
+            dswx_sar_util.block_threshold_visualization_rg(
+                intensity_whole,
+                threshold_tau_dict,
+                outputdir=outputdir,
+                figname=f'int_threshold_visualization_')
+        else:
+            for band_ind2 in range(band_number):
+                dswx_sar_util.block_threshold_visualization(
+                    np.squeeze(intensity_whole[band_ind2, :, :]),
+                    block_row,
+                    block_col,
+                    threshold_tau_set[:, :, band_ind2],
+                    outputdir,
+                    f'int_threshold_visualization_{pol_list[band_ind2]}')
 
         data_shape = (height, width)
         pad_shape = (0, 0)

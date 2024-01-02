@@ -865,7 +865,7 @@ def block_threshold_visualization(intensity, block_row, block_col,
     plt.close()
 
 
-def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figname):
+def block_threshold_visualization_rg(intensity, threshold_dict, outputdir, figname):
     """
     Visualize an intensity image overlaid with threshold values from provided blocks/subtiles.
 

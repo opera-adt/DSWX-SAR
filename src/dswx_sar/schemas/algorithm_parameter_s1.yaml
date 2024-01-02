@@ -76,7 +76,6 @@ runconfig:
             # Flag to average the thresholds within the tile.
             # The output thresholds are assigned to each tile.
             tile_average: bool(required=False)
-            number_iterations: num(required=False)
             # Number of threads to run
             # -1 represents the all available threads
             number_cpu: num(required=False)

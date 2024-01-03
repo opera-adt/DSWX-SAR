@@ -26,23 +26,16 @@ np2gdal_conversion = {
 }
 
 band_assign_value_dict = {
-    'no_water': 0,
+    'nonwater': 0,
     'water': 1,  # water body
     'bright_water_fill': 2,
-    'dark_land_mask': 3,
-    'landcover_mask': 4,
-    'hand_mask': 5,
-    'layover_shadow_mask': 6,
-    'inundated_vegetation': 7,
+    'inundated_vegetation': 3,
+    'dark_land_mask': 5,
+    'landcover_mask': 6,
+    'hand_mask': 250,
+    'layover_shadow_mask': 251,
     'ocean_mask': 254,
-    'no_data': 120,
-}
-
-band_assign_value_conf_dict = {
-    'hand_mask': 252,
-    'layover_shadow_mask': 253,
-    'ocean_mask': 254,
-    'no_data': 120,
+    'no_data': 255,
 }
 
 @dataclass
@@ -62,16 +55,24 @@ def get_interpreted_dswx_s1_ctable():
     dswx_ctable = gdal.ColorTable()
 
     # set color for each value
-    dswx_ctable.SetColorEntry(0, (255, 255, 255))  # White - Not water
-    dswx_ctable.SetColorEntry(1, (0, 0, 255))  # Blue - Water (high confidence)
-    dswx_ctable.SetColorEntry(2, (120, 120,  240 ))  # baby blue - bright water
-    dswx_ctable.SetColorEntry(3, (240, 20,  20 ))  # Red - dark land
-    dswx_ctable.SetColorEntry(4, (128, 255, 128))  # Light green - Landcover mask
-    dswx_ctable.SetColorEntry(5, (200, 200, 200))  # light gray - Hand mask
-    dswx_ctable.SetColorEntry(6, (128, 128, 128))  # Gray - Layover/shadow mask
-    dswx_ctable.SetColorEntry(7, (200, 200, 50))  # Gray - Inundated vegetation
-
-    dswx_ctable.SetColorEntry(120, (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
+    dswx_ctable.SetColorEntry(band_assign_value_dict['nonwater'],
+                              (255, 255, 255))  # White - Not water
+    dswx_ctable.SetColorEntry(band_assign_value_dict['water'],
+                              (0, 0, 255))  # Blue - Water (high confidence)
+    dswx_ctable.SetColorEntry(band_assign_value_dict['bright_water_fill'],
+                              (120, 120,  240 ))  # baby blue - bright water
+    dswx_ctable.SetColorEntry(band_assign_value_dict['landcover_mask'],
+                              (240, 20,  20 ))  # Red - dark land
+    dswx_ctable.SetColorEntry(band_assign_value_dict['hand_mask'],
+                              (128, 255, 128))  # Light green - Landcover mask
+    dswx_ctable.SetColorEntry(band_assign_value_dict['hand_mask'],
+                              (200, 200, 200))  # light gray - Hand mask
+    dswx_ctable.SetColorEntry(band_assign_value_dict['layover_shadow_mask'], 
+                              (128, 128, 128))  # Gray - Layover/shadow mask
+    dswx_ctable.SetColorEntry(band_assign_value_dict['inundated_vegetation'],
+                              (200, 200, 50))  # Gray - Inundated vegetation
+    dswx_ctable.SetColorEntry(band_assign_value_dict['no_data'],
+                              (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
 
     return dswx_ctable
 
@@ -163,7 +164,8 @@ def save_raster_gdal(data, output_file, geotransform,
 def save_dswx_product(wtr, output_file, geotransform,
                       projection, scratch_dir='.',
                       description=None, metadata=None,
-                      is_conf=False, datatype='uint8',
+                      is_diag=False, datatype='uint8',
+                      logger=None,
                       **dswx_processed_bands):
     """Save DSWx product for assigned classes with colortable
 
@@ -188,18 +190,25 @@ def save_dswx_product(wtr, output_file, geotransform,
     driver = gdal.GetDriverByName("GTiff")
     wtr = np.asarray(wtr, dtype=datatype)
     dswx_processed_bands_keys = dswx_processed_bands.keys()
-    print(f'Saving dswx product : {output_file} ')
 
-    if is_conf:
-        band_value_dict = band_assign_value_conf_dict
+    msg = f'Saving dswx product : {output_file} '
+    if logger is not None:
+        logger.info(msg)
     else:
-        band_value_dict = band_assign_value_dict
+        print(msg)
+
+    band_value_dict = band_assign_value_dict
 
     for band_key in band_value_dict.keys():
         if band_key.lower() in dswx_processed_bands_keys:
             dswx_product_value = band_value_dict[band_key]
             wtr[dswx_processed_bands[band_key.lower()]==1] = dswx_product_value
-            print(f'    {band_key.lower()} found {dswx_product_value}')
+            msg = f'    {band_key.lower()} found {dswx_product_value}'
+            if logger is not None:
+                logger.info(msg)
+            else:
+                print(msg)
+
     gdal_type = np2gdal_conversion[str(datatype)]
 
     gdal_ds = driver.Create(output_file,
@@ -212,7 +221,7 @@ def save_dswx_product(wtr, output_file, geotransform,
     gdal_band.SetNoDataValue(band_value_dict['no_data'])
     gdal_band.SetMetadata(metadata)
     # set color table and color interpretation
-    if not is_conf:
+    if not is_diag:
         dswx_ctable = get_interpreted_dswx_s1_ctable()
         gdal_band.SetRasterColorTable(dswx_ctable)
         gdal_band.SetRasterColorInterpretation(

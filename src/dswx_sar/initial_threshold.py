@@ -2067,15 +2067,16 @@ def run(cfg):
         n_jobs = number_workers
 
         results = Parallel(n_jobs=n_jobs)(
-            delayed(process_block)(ii, jj,
-                                n_rows_block, n_cols_block,
-                                m_rows_block, m_cols_block,
-                                block_row, block_col,
-                                width, filt_im_str,
-                                water_mask_tif_str, cfg,
-                                thres_max, average_threshold_flag)
-            for ii in range(0, n_rows_block)
-            for jj in range(0, n_cols_block)
+            delayed(process_block)(
+                ii, jj,
+                n_rows_block, n_cols_block,
+                m_rows_block, m_cols_block,
+                block_row, block_col,
+                width, filt_im_str,
+                water_mask_tif_str, cfg,
+                thres_max, average_threshold_flag)
+                for ii in range(0, n_rows_block)
+                for jj in range(0, n_cols_block)
             )
 
         # If average_threshold_flag is True, all thresholds within
@@ -2128,11 +2129,10 @@ def run(cfg):
 
                     if threshold_tau_subset:
                         # window center for row and col
-                        window_center_row_list = [int(ii * block_row +
-                                                    (sub_window[1] +
-                                                    sub_window[2])/2)
-                                                for sub_window in
-                                                window_coord]
+                        window_center_row_list = [
+                            int(ii * block_row + 
+                                (sub_window[1] + sub_window[2]) / 2)
+                                for sub_window in window_coord]
 
                         window_center_col_list = [int(jj * block_col +
                                                     (sub_window[3] +
@@ -2140,16 +2140,13 @@ def run(cfg):
                                                 for sub_window in
                                                 window_coord]
                         # window coordinates
-                        absolute_window_coord = [[ii * block_row +
-                                                sub_window[1],
-                                                ii * block_row +
-                                                sub_window[2],
-                                                jj * block_col +
-                                                sub_window[3],
-                                                jj * block_col +
-                                                sub_window[4]]
-                                                for sub_window in
-                                                window_coord]
+                        absolute_window_coord = [
+                            [ii * block_row + sub_window[1],
+                             ii * block_row + sub_window[2],
+                             jj * block_col + sub_window[3],
+                             jj * block_col + sub_window[4]]
+                                for sub_window in window_coord]
+
                         coord_row_list[pol_index] = coord_row_list[pol_index] + \
                             window_center_row_list
                         coord_col_list[pol_index] = coord_col_list[pol_index] + \

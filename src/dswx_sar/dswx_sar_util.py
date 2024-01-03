@@ -1044,7 +1044,7 @@ def _compute_browse_array(
 
 def _collapse_wtr_classes(interpreted_layer):
     """
-       Collapse interpreted layer classes onto final DSWx-HLS
+       Collapse interpreted layer classes onto final DSWx-SAR
         product WTR classes
 
        Parameters
@@ -1070,12 +1070,12 @@ def _save_array(input_array, output_file, dswx_metadata_dict, geotransform,
                 projection, description = None, scratch_dir = '.',
                 output_files_list = None, output_dtype = gdal.GDT_Byte,
                 ctable = None, no_data_value = None):
-    """Save a generic DSWx-HLS layer (e.g., diagnostic layer, shadow layer, etc.)
+    """Save a generic DSWx-SAR layer (e.g., diagnostic layer, shadow layer, etc.)
 
        Parameters
        ----------
        input_array: numpy.ndarray
-              DSWx-HLS layer to be saved
+              DSWx-SAR layer to be saved
        output_file: str
               Output filename
        dswx_metadata_dict: dict
@@ -1220,36 +1220,31 @@ def create_browse_image(water_geotiff_filename,
     - Converts the GeoTIFF to a PNG file, resized to the specified dimensions.
 
     Parameters
-    -----------
+    ----------
     water_geotiff_filename : str
-        The path to the input water GeoTIFF file.
+        Path to the input water-related GeoTIFF file.
     output_dir_path : str
-        The directory path where the output PNG will be saved.
+        Directory path for saving the output PNG file.
     browser_filename : str
-        The filename for the output browse image PNG.
+        Filename for the output browse image PNG.
     browse_image_height : int
-        The height of the output browse image.
+        Desired height of the output browse image.
     browse_image_width : int 
-        The width of the output browse image.
+        Desired width of the output browse image.
     scratch_dir : str 
-        The directory path used for temporary storage during processing.
-   flag_collapse_wtr_classes : bool, optional
-        Flag to collapse water classes if set to True. Default is True.
+        Directory path for temporary storage during processing.
+    flag_collapse_wtr_classes : bool, optional
+        If True, collapses water classes. Default is True.
     exclude_inundated_vegetation : bool, optional
-        Flag to exclude inundated vegetation from processing if set to True. 
-        Default is False.
+        If True, excludes inundated vegetation from the processing. Default is False.
     set_not_water_to_nodata : bool, optional
-        Flag to set non-water pixels to NoData value if set to True. 
-        Default is False.
+        If True, sets non-water pixels to NoData. Default is False.
     set_hand_mask_to_nodata : bool, optional
-        Flag to set HAND mask pixels to NoData value if set to True. 
-        Default is False.
+        If True, sets HAND mask pixels to NoData. Default is False.
     set_layover_shadow_to_nodata : bool, optional
-        Flag to set layover and shadow pixels to NoData value if set to True. 
-        Default is False.
+        If True, sets layover and shadow pixels to NoData. Default is False.
     set_ocean_masked_to_nodata : bool, optional
-        Flag to set ocean-masked pixels to NoData value if set to True. 
-        Default is False.
+        If True, sets ocean-masked pixels to NoData. Default is False.
 
     Returns
     --------

@@ -96,11 +96,9 @@ runconfig:
             browse_image_width: int(min=1, required=False)
 
             # Flag to collapse water classes if set to True. Default is True.
-
             flag_collapse_wtr_classes:  bool(required=False)
 
             # Flag to exclude inundated vegetation from processing if set to True. 
-
             exclude_inundated_vegetation:  bool(required=False)
 
             # Flag to set non-water pixels to NoData value if set to True. 

@@ -281,7 +281,9 @@ def run_parallel_region_growing(input_tif_path,
                 block_param,
                 geotransform=meta_dict['geotransform'],
                 projection=meta_dict['projection'],
-                datatype='float32')
+                datatype='float32',
+                cog_flag=True,
+                scratch_dir=base_dir)
 
             # In final loop, write the result to output_tif_path
             if loopind == num_loop - 1:
@@ -291,7 +293,9 @@ def run_parallel_region_growing(input_tif_path,
                     block_param,
                     geotransform=meta_dict['geotransform'],
                     projection=meta_dict['projection'],
-                    datatype='float32')
+                    datatype='float32',
+                    cog_flag=True,
+                    scratch_dir=base_dir)
 
 
 def run(cfg):

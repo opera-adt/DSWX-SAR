@@ -120,7 +120,9 @@ def run(cfg):
             block_param=block_param,
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],
-            datatype='byte')
+            datatype='byte',
+            cog_flag=True,
+            scratch_dir=outputdir)
 
         if processing_cfg.debug_mode:
             dswx_sar_util.write_raster_block(
@@ -130,7 +132,9 @@ def run(cfg):
                 block_param=block_param,
                 geotransform=im_meta['geotransform'],
                 projection=im_meta['projection'],
-                datatype='float32')
+                datatype='float32',
+                cog_flag=True,
+                scratch_dir=outputdir)
 
     dswx_sar_util._save_as_cog(inundated_vege_path, outputdir)
 

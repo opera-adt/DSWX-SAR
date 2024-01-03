@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import signal
 
-from dswx_sar_util import Constants
+from  dswx_sar.dswx_sar_util import Constants
 
 K_DEFAULT = 1.0
 CU_DEFAULT = 0.523

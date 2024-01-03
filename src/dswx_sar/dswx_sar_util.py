@@ -2,6 +2,7 @@ import logging
 import os
 import shutil
 import tempfile
+import rasterio
 
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
@@ -45,10 +46,43 @@ band_assign_value_conf_dict = {
     'no_data': 120,
 }
 
+'''
+Internally, DSWx-S1 has 2 water classes; 
+    1. low-backscattering water
+    2. high-backscattering water
+There classes are collapesed into water class when 
+WTR layers converts to BWTR. 
+
+Low-backscattering land (dark land) is captured from  
+    1. masking_with_ancillary
+    2. refine_with_bimodality
+These classes are collapsed into no-water class 
+'''
+
+collapse_wtr_classes_dict = {
+    band_assign_value_dict['no_water'] : band_assign_value_dict['no_water'],
+    band_assign_value_dict['water']: band_assign_value_dict['water'],
+    band_assign_value_dict['bright_water_fill']: band_assign_value_dict['water'],
+    band_assign_value_dict['dark_land_mask']: \
+        band_assign_value_dict['no_water'],
+    band_assign_value_dict['landcover_mask']: \
+        band_assign_value_dict['no_water'],
+    band_assign_value_dict['hand_mask']: \
+        band_assign_value_dict['hand_mask'],
+    band_assign_value_dict['layover_shadow_mask']: \
+        band_assign_value_dict['layover_shadow_mask'],    
+    band_assign_value_dict['inundated_vegetation']: band_assign_value_dict['inundated_vegetation'],
+    band_assign_value_dict['no_data']: band_assign_value_dict['no_data'],
+    band_assign_value_dict['ocean_mask']: band_assign_value_dict['ocean_mask'],
+    }
+
+logger = logging.getLogger('dswx-s1')
+
 @dataclass
 class Constants:
     # negligible number to avoid the zero-division warning.
     negligible_value : float = 1e-5
+
 
 def get_interpreted_dswx_s1_ctable():
     """Get colortable for DSWx-S1 products
@@ -65,11 +99,11 @@ def get_interpreted_dswx_s1_ctable():
     dswx_ctable.SetColorEntry(0, (255, 255, 255))  # White - Not water
     dswx_ctable.SetColorEntry(1, (0, 0, 255))  # Blue - Water (high confidence)
     dswx_ctable.SetColorEntry(2, (120, 120,  240 ))  # baby blue - bright water
-    dswx_ctable.SetColorEntry(3, (240, 20,  20 ))  # Red - dark land
-    dswx_ctable.SetColorEntry(4, (128, 255, 128))  # Light green - Landcover mask
+    dswx_ctable.SetColorEntry(3, (240, 20,  20 ))  # Red - dark land (bimodality test)
+    dswx_ctable.SetColorEntry(4, (200, 200, 50))   # Yellow - dark land (Landcover mask)
     dswx_ctable.SetColorEntry(5, (200, 200, 200))  # light gray - Hand mask
     dswx_ctable.SetColorEntry(6, (128, 128, 128))  # Gray - Layover/shadow mask
-    dswx_ctable.SetColorEntry(7, (200, 200, 50))  # Gray - Inundated vegetation
+    dswx_ctable.SetColorEntry(7, (0, 255, 0))  # Green - Inundated vegetation
 
     dswx_ctable.SetColorEntry(120, (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
 
@@ -923,6 +957,343 @@ def block_threshold_visulaization_rg(intensity, threshold_dict, outputdir, figna
         # Save the visualization to file
         plt.savefig(os.path.join(outputdir, f'{figname}_{band_index}'))
         plt.close()
+
+
+def _compute_browse_array(
+        masked_interpreted_water_layer,
+        flag_collapse_wtr_classes=True,
+        exclude_inundated_vegetation=False,
+        set_not_water_to_nodata=False,
+        set_hand_mask_to_nodata=False,
+        set_layover_shadow_to_nodata=False,
+        set_ocean_masked_to_nodata=True):
+    """
+    Generate a version of the WTR layer where the
+    pixels marked with dark land and bright water in the CLOUD layer
+    are designated with unique values per dswx_hls.py constants (see notes).
+
+    Parameters
+    ----------
+    masked_interpreted_water_layer : numpy.ndarray
+        interpreted water layer
+        (i.e. the DSWx-S1 WTR layer)
+    flag_collapse_wtr_classes : bool
+        Collapse interpreted layer water classes following standard
+        DSWx-S1 product water classes
+    exclude_inundated_vegetation : bool
+        True to exclude Inundated vegetation
+        in output layer and instead display them as Not Water. 
+        False to display these pixels as PSW. Default is False.
+    set_not_water_to_nodata : bool
+        How to code the Not Water pixels. Defaults to False. Options are:
+            True : Not Water pixels will be marked with UINT8_FILL_VALUE
+            False : Not Water will remain WATER_NOT_WATER_CLEAR
+    set_hand_mask_to_nodata : bool
+        How to code the hand mask pixels. Defaults to False. Options are:
+            True : cloud pixels will be marked with UINT8_FILL_VALUE
+            False : cloud will remain WTR_CLOUD_MASKED
+    set_layover_shadow_to_nodata : bool
+        How to code the snow pixels. Defaults to False. Options are:
+            True : snow pixels will be marked with UINT8_FILL_VALUE
+            False : snow will remain WTR_SNOW_MASKED
+   set_ocean_masked_to_nodata : bool
+        How to code the ocean-masked pixels. Defaults to True. Options are:
+            True : ocean-masked pixels will be marked with UINT8_FILL_VALUE
+            False : ocean-masked will remain WTR_OCEAN_MASKED
+    
+    Returns
+    -------
+    browse_arr : numpy.ndarray
+        Interpreted water layer adjusted for the input parameters provided.
+    """
+
+    # Create a copy of the masked_interpreted_water_layer.
+    browse_arr = masked_interpreted_water_layer.copy()
+
+    if flag_collapse_wtr_classes:
+        browse_arr = _collapse_wtr_classes(browse_arr)
+
+    # Discard the Partial Surface Water Aggressive class
+    if exclude_inundated_vegetation:
+        browse_arr[
+            browse_arr == band_assign_value_dict['inundated_vegetation']] = \
+                band_assign_value_dict['water']
+
+    if set_not_water_to_nodata:
+        browse_arr[
+            browse_arr == band_assign_value_dict['no_water']] = \
+            band_assign_value_dict['no_data']
+
+    if set_hand_mask_to_nodata:
+        browse_arr[
+            browse_arr == band_assign_value_dict['hand_mask']] = \
+            band_assign_value_dict['no_data']
+
+    if set_layover_shadow_to_nodata:
+        browse_arr[
+            browse_arr == band_assign_value_dict['layover_shadow_mask']] = \
+            band_assign_value_dict['no_data']
+
+    if set_ocean_masked_to_nodata:
+        browse_arr[
+            browse_arr == band_assign_value_dict['ocean_mask']] = \
+            band_assign_value_dict['no_data']
+
+    return browse_arr
+
+
+def _collapse_wtr_classes(interpreted_layer):
+    """
+       Collapse interpreted layer classes onto final DSWx-SAR
+        product WTR classes
+
+       Parameters
+       ----------
+       interpreted_layer: np.ndarray
+              Interpreted layer
+
+       Returns
+       -------
+       collapsed_interpreted_layer: np.ndarray
+              Interpreted layer with collapsed classes
+    """
+    collapsed_interpreted_layer = np.full_like(
+        interpreted_layer,
+        band_assign_value_dict['no_data'])
+    for original_value, new_value in collapse_wtr_classes_dict.items():
+        collapsed_interpreted_layer[interpreted_layer == original_value] = \
+            new_value
+    return collapsed_interpreted_layer
+
+
+def _save_array(input_array, output_file, dswx_metadata_dict, geotransform,
+                projection, description = None, scratch_dir = '.',
+                output_files_list = None, output_dtype = gdal.GDT_Byte,
+                ctable = None, no_data_value = None):
+    """Save a generic DSWx-SAR layer (e.g., diagnostic layer, shadow layer, etc.)
+
+       Parameters
+       ----------
+       input_array: numpy.ndarray
+              DSWx-SAR layer to be saved
+       output_file: str
+              Output filename
+       dswx_metadata_dict: dict
+              Metadata dictionary to be written into the output file
+       geotransform: numpy.ndarray
+              Geotransform describing the output file geolocation
+       projection: str
+              Output file's projection
+       description: str (optional)
+              Band description
+       scratch_dir: str (optional)
+              Directory for temporary files
+       output_files_list: list (optional)
+              Mutable list of output files
+       output_dtype: gdal.DataType
+              GDAL data type
+       ctable: GDAL ColorTable object
+              GDAL ColorTable object
+       no_data_value: numeric
+              No data value
+    """
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    shape = input_array.shape
+    driver = gdal.GetDriverByName("GTiff")
+    gdal_ds = driver.Create(output_file, shape[1], shape[0], 1, output_dtype)
+    if dswx_metadata_dict is not None:
+        gdal_ds.SetMetadata(dswx_metadata_dict)
+    gdal_ds.SetGeoTransform(geotransform)
+    gdal_ds.SetProjection(projection)
+    raster_band = gdal_ds.GetRasterBand(1)
+    raster_band.WriteArray(input_array)
+    if no_data_value is not None:
+        raster_band.SetNoDataValue(no_data_value)
+
+    if description is not None:
+        raster_band.SetDescription(description)
+
+    if ctable is not None:
+        raster_band.SetRasterColorTable(ctable)
+        raster_band.SetRasterColorInterpretation(
+                gdal.GCI_PaletteIndex)
+
+    gdal_ds.FlushCache()
+    gdal_ds = None
+
+    _save_as_cog(output_file, scratch_dir, logger)
+
+    if output_files_list is not None:
+        output_files_list.append(output_file)
+    logger.info(f'file saved: {output_file}')
+
+
+def geotiff2png(src_geotiff_filename,
+                dest_png_filename,
+                output_height=None,
+                output_width=None,
+                logger=None,
+                ):
+    """
+    Convert a GeoTIFF file to a png file.
+
+    Parameters
+    ----------
+    src_geotiff_filename : str
+        Name (with path) of the source geotiff file to be 
+        converted. This file must already exist.
+    dest_png_filename : str
+        Name (with path) for the output .png file
+    output_height : int, optional.
+        Height in Pixels for the output png. If not provided, 
+        will default to the height of the source geotiff.
+    output_width : int, optional.
+        Width in Pixels for the output png. If not provided, 
+        will default to the width of the source geotiff.
+    logger : Logger, optional
+        Logger for the project
+
+    """
+    # Load the source dataset
+    gdal_ds = gdal.Open(src_geotiff_filename, gdal.GA_ReadOnly)
+
+    # Set output height
+    if output_height is None:
+        output_height = gdal_ds.GetRasterBand(1).YSize
+
+    # Set output height
+    if output_width is None:
+        output_width = gdal_ds.GetRasterBand(1).XSize
+    # select the resampling algorithm to use based on dtype
+    
+    gdal_dtype = gdal_ds.GetRasterBand(1).DataType
+    dtype_name = gdal.GetDataTypeName(gdal_dtype).lower()
+    is_integer = 'byte' in dtype_name  or 'int' in dtype_name
+
+    if is_integer:
+        resamp_algorithm = 'NEAREST'
+    else:
+        resamp_algorithm = 'CUBICSPLINE'
+
+    del gdal_ds  # close the dataset (Python object and pointers)
+
+    # Do not output the .aux.xml file alongside the PNG
+    gdal.SetConfigOption('GDAL_PAM_ENABLED', 'NO')
+
+    # Translate the existing geotiff to the .png format
+    gdal.Translate(dest_png_filename, 
+                   src_geotiff_filename, 
+                   format='PNG',
+                   height=output_height,
+                   width=output_width,
+                   resampleAlg=resamp_algorithm,
+                   nogcp=True,  # do not print GCPs
+    )
+
+    if logger is None:
+        logger = logging.getLogger('dswx_s1')
+    logger.info(f'Browse Image PNG created: {dest_png_filename}')
+
+
+def create_browse_image(water_geotiff_filename, 
+                        output_dir_path,
+                        browser_filename,
+                        browse_image_height,
+                        browse_image_width,
+                        scratch_dir,
+                        flag_collapse_wtr_classes=True,
+                        exclude_inundated_vegetation=False,
+                        set_not_water_to_nodata=False,
+                        set_hand_mask_to_nodata=False,
+                        set_layover_shadow_to_nodata=False,
+                        set_ocean_masked_to_nodata=False):
+    """
+    Process a water-related GeoTIFF file to create a browse image.
+
+    The function performs the following steps:
+    - Opens the specified GeoTIFF file and reads the water layer.
+    - Extracts relevant metadata for geospatial referencing.
+    - Computes a browse array based on various masking and data classification criteria.
+    - Forms a color table for data visualization.
+    - Saves the processed data as a new GeoTIFF file in a scratch directory.
+    - Converts the GeoTIFF to a PNG file, resized to the specified dimensions.
+
+    Parameters
+    ----------
+    water_geotiff_filename : str
+        Path to the input water-related GeoTIFF file.
+    output_dir_path : str
+        Directory path for saving the output PNG file.
+    browser_filename : str
+        Filename for the output browse image PNG.
+    browse_image_height : int
+        Desired height of the output browse image.
+    browse_image_width : int 
+        Desired width of the output browse image.
+    scratch_dir : str 
+        Directory path for temporary storage during processing.
+    flag_collapse_wtr_classes : bool, optional
+        If True, collapses water classes. Default is True.
+    exclude_inundated_vegetation : bool, optional
+        If True, excludes inundated vegetation from the processing. Default is False.
+    set_not_water_to_nodata : bool, optional
+        If True, sets non-water pixels to NoData. Default is False.
+    set_hand_mask_to_nodata : bool, optional
+        If True, sets HAND mask pixels to NoData. Default is False.
+    set_layover_shadow_to_nodata : bool, optional
+        If True, sets layover and shadow pixels to NoData. Default is False.
+    set_ocean_masked_to_nodata : bool, optional
+        If True, sets ocean-masked pixels to NoData. Default is False.
+
+    Returns
+    --------
+    None
+    """
+    # # Build the browse image
+    # # Create the source image as a geotiff
+    # # Reason: gdal.Create() cannot currently create .png files, so we
+    # # must start from a GeoTiff, etc.
+    # # Source: https://gis.stackexchange.com/questions/132298/gdal-c-api-how-to-create-png-or-jpeg-from-scratch
+    with rasterio.open(water_geotiff_filename) as src:
+        wtr_layer = src.read(1)
+    meta_info = get_meta_from_tif(water_geotiff_filename)
+
+    browse_arr = _compute_browse_array(
+        masked_interpreted_water_layer=wtr_layer,  # WTR layer
+        flag_collapse_wtr_classes=flag_collapse_wtr_classes,
+        exclude_inundated_vegetation=exclude_inundated_vegetation,
+        set_not_water_to_nodata=set_not_water_to_nodata,
+        set_hand_mask_to_nodata=set_hand_mask_to_nodata,
+        set_layover_shadow_to_nodata=set_layover_shadow_to_nodata,
+        set_ocean_masked_to_nodata=set_ocean_masked_to_nodata,)
+
+    # Form color table
+    browse_ctable = get_interpreted_dswx_s1_ctable()
+    water_geotiff_basename = os.path.basename(water_geotiff_filename)
+    browse_image_geotiff_filename = os.path.join(scratch_dir, 
+                                                 water_geotiff_basename)
+
+    _save_array(
+        input_array=browse_arr,
+        output_file=browse_image_geotiff_filename,
+        dswx_metadata_dict=None,
+        geotransform=meta_info['geotransform'],
+        projection=meta_info['projection'],
+        scratch_dir=scratch_dir,
+        output_dtype=gdal.GDT_Byte,  # unsigned int 8
+        ctable=browse_ctable,
+        no_data_value=band_assign_value_dict['no_data'])
+
+    # Convert the geotiff to a resized PNG to create the browse image PNG
+    geotiff2png(
+        src_geotiff_filename=browse_image_geotiff_filename,
+        dest_png_filename=os.path.join(output_dir_path,
+                                       browser_filename),
+        output_height=browse_image_height,
+        output_width=browse_image_width,
+        logger=logger
+        )
 
 
 def check_gdal_raster_s3(path_raster_s3: str, raise_error=True):

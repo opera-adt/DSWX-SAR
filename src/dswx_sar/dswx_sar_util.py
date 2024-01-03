@@ -320,19 +320,36 @@ def convert_rounded_coordinates(
         from_epsg, to_epsg,
         x_snap=30, y_snap=30):
     """
-    Transform coordinates from source EPSG to destination EPSG.
+    Transform and round coordinates from one EPSG coordinate system to another.
 
-    Parameters:
-    coord_pairs : list of tuples
-        A list of coordinate pairs (x, y) in the source CRS.
-    src_epsg : int
-        The EPSG code of the source coordinate reference system.
-    dest_epsg : int
-        The EPSG code of the destination coordinate reference system.
+    Parameters
+    ----------
+    corners : list of tuples
+        A list of coordinate pairs (x, y) in the source coordinate reference
+        system (CRS).
+    from_epsg : int
+        The EPSG code of the source CRS.
+    to_epsg : int
+        The EPSG code of the destination CRS.
+    x_snap : int, optional
+        The grid size in the x-direction to which transformed x-coordinates will
+        be rounded. Default is 30.
+    y_snap : int, optional
+        The grid size in the y-direction to which transformed y-coordinates will
+        be rounded. Default is 30.
 
-    Returns:
+    Returns
+    -------
     transformed_coords : list of tuples
-        A list of transformed coordinate pairs (x, y) in the destination CRS.
+        A list of transformed and rounded coordinate pairs (x, y) in the
+        destination CRS.
+
+    Notes
+    -----
+    This function converts a list of coordinates from one EPSG coordinate system
+    to another and then rounds the transformed coordinates to the nearest
+    multiples of specified grid sizes (x_snap and y_snap). This is useful for
+    aligning coordinates to a regular grid in the destination CRS.
     """
     transformer = Transformer.from_crs(f"epsg:{from_epsg}", f"epsg:{to_epsg}", always_xy=True)
 

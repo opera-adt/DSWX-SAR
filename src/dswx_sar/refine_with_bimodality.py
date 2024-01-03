@@ -462,8 +462,7 @@ def estimate_bimodality(array,
 
     if len(array) > 2:
 
-        ddof = 0 if len(array) == 1 else 1
-        std_int = np.nanstd(array, ddof=ddof)**2
+        std_int = np.nanstd(array, ddof=1)**2
 
         sigma_b = np.zeros_like(bincenter)
         ads = np.zeros_like(bincenter)
@@ -483,7 +482,7 @@ def estimate_bimodality(array,
             else:
                 right_sum = hist_bin[-1]
 
-            # # when number of histogram bin is not zero
+            # when number of histogram bin is not zero
             if left_sum > 0 and right_sum > 0:
                 if np.any(cand_left):
                     meanp_left = \

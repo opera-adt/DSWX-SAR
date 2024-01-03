@@ -661,8 +661,9 @@ def run(cfg):
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
         bright_water_mask = (landcover_map == 0) & (water_map == 1)
-        # Open water/landcover mask/bright water/dark land
-        # layover shadow mask/hand mask/inundated vegetation
+
+        # Open water/inundated vegetation
+        # layover shadow mask/hand mask/no_data
         # will be saved in WTR product
         dswx_sar_util.save_dswx_product(
             water_map == 1,
@@ -677,8 +678,11 @@ def run(cfg):
             inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
             )
-        # Open water/layover shadow mask/hand mask/
-        # inundated vegetation will be saved in WTR product
+
+        # water/ No-water
+        # layover shadow mask/hand mask/no_data
+        # will be saved in BWTR product
+        # Water includes open water and inundated vegetation.
         dswx_sar_util.save_dswx_product(
             np.logical_or(water_map == 1, inundated_vegetation == 2),
             full_bwtr_water_set_path,
@@ -693,7 +697,7 @@ def run(cfg):
 
         # Open water/landcover mask/bright water/dark land
         # layover shadow mask/hand mask/inundated vegetation
-        # will be saved in WTR product
+        # will be saved in CONF product
         dswx_sar_util.save_dswx_product(
             water_map == 1,
             full_conf_water_set_path,
@@ -711,9 +715,11 @@ def run(cfg):
             no_data=no_data_raster,
             )
 
+        # Values ranging from 0 to 100 are used to represent the likelihood
+        # or possibility of the presence of water. A higher value within
+        # this range signifies a higher likelihood of water being present. 
         fuzzy_value = dswx_sar_util.read_geotiff(paths['fuzzy_value'])
         fuzzy_value = np.round(fuzzy_value * 100)
-
         dswx_sar_util.save_dswx_product(
             fuzzy_value,
             full_diag_water_set_path,

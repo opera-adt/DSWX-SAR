@@ -1207,7 +1207,7 @@ def optimize_inter_distribution_threshold(
     """
     # Adjust the threshold if the distributions do not overlap
     iteration = 0
-    while (norm.cdf(threshold, mean1, std1) < 0.95 or norm.cdf(threshold, mean2, std2) < 0.05) \
+    while (norm.cdf(threshold, mean1, std1) < 0.95 and norm.cdf(threshold, mean2, std2) < 0.05) \
         and iteration < max_iterations:
         # Move threshold towards the mean of the second distribution
         threshold += (mean2 - threshold) * step_fraction

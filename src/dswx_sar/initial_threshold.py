@@ -2134,11 +2134,11 @@ def run(cfg):
                                 (sub_window[1] + sub_window[2]) / 2)
                                 for sub_window in window_coord]
 
-                        window_center_col_list = [int(jj * block_col +
-                                                    (sub_window[3] +
-                                                    sub_window[4])/2)
-                                                for sub_window in
-                                                window_coord]
+                        window_center_col_list = [
+                            int(jj * block_col + 
+                                (sub_window[3] + sub_window[4]) / 2)
+                                for sub_window in window_coord]
+
                         # window coordinates
                         absolute_window_coord = [
                             [ii * block_row + sub_window[1],
@@ -2147,10 +2147,11 @@ def run(cfg):
                              jj * block_col + sub_window[4]]
                                 for sub_window in window_coord]
 
-                        coord_row_list[pol_index] = coord_row_list[pol_index] + \
-                            window_center_row_list
-                        coord_col_list[pol_index] = coord_col_list[pol_index] + \
-                            window_center_col_list
+                        coord_row_list[pol_index] = \
+                            coord_row_list[pol_index] + window_center_row_list
+                        coord_col_list[pol_index] = \
+                            coord_col_list[pol_index] + window_center_col_list
+
                         threshold_tau_set[pol_index].extend(threshold_tau_subset[0])
                         mode_tau_set[pol_index].extend(mode_tau_subset[0])
                         window_coord_list[pol_index].extend(

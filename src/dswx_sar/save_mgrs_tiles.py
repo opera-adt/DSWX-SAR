@@ -637,7 +637,8 @@ def run(cfg):
         os.path.join(outputdir, 'full_water_binary_BWTR_set.tif')
     full_conf_water_set_path = \
         os.path.join(outputdir, f'full_water_binary_CONF_set.tif')
-
+    full_diag_water_set_path = \
+        os.path.join(outputdir, f'full_water_binary_DIAG_set.tif')
     # 4) inundated_vegetation
     if processing_cfg.inundated_vegetation.enabled:
         inundated_vegetation = dswx_sar_util.read_geotiff(
@@ -670,9 +671,7 @@ def run(cfg):
             projection=water_meta['projection'],
             description='Water classification (WTR)',
             scratch_dir=outputdir,
-            landcover_mask=landcover_mask,
-            bright_water_fill=bright_water_mask,
-            dark_land_mask=dark_land_mask,
+            logger=logger,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             inundated_vegetation=inundated_vegetation == 2,
@@ -681,29 +680,50 @@ def run(cfg):
         # Open water/layover shadow mask/hand mask/
         # inundated vegetation will be saved in WTR product
         dswx_sar_util.save_dswx_product(
-            water_map == 1,
+            np.logical_or(water_map == 1, inundated_vegetation == 2),
             full_bwtr_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Binary Water classification (BWTR)',
             scratch_dir=outputdir,
-            inundated_vegetation=inundated_vegetation == 2,
+            logger=logger,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             no_data=no_data_raster)
 
-        fuzzy_value = dswx_sar_util.read_geotiff(paths['fuzzy_value'])
-        conf_value = np.round(fuzzy_value * 100)
-
+        # Open water/landcover mask/bright water/dark land
+        # layover shadow mask/hand mask/inundated vegetation
+        # will be saved in WTR product
         dswx_sar_util.save_dswx_product(
-            conf_value,
+            water_map == 1,
             full_conf_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Confidence values (CONF)',
             scratch_dir=outputdir,
-            is_conf=True,
+            logger=logger,
+            landcover_mask=landcover_mask,
+            bright_water_fill=bright_water_mask,
+            dark_land_mask=dark_land_mask,
+            layover_shadow_mask=layover_shadow_mask > 0,
+            hand_mask=hand_mask,
+            inundated_vegetation=inundated_vegetation == 2,
+            no_data=no_data_raster,
+            )
+
+        fuzzy_value = dswx_sar_util.read_geotiff(paths['fuzzy_value'])
+        fuzzy_value = np.round(fuzzy_value * 100)
+
+        dswx_sar_util.save_dswx_product(
+            fuzzy_value,
+            full_diag_water_set_path,
+            geotransform=water_meta['geotransform'],
+            projection=water_meta['projection'],
+            description='Diagnostic layer (DIAG)',
+            scratch_dir=outputdir,
+            is_diag=True,
             datatype='uint8',
+            logger=logger,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             no_data=no_data_raster)
@@ -791,19 +811,22 @@ def run(cfg):
                 logger.info(f'      {dswx_name_format_prefix}')
 
                 # Output File names
-                output_mgrs_bwtr = f'{dswx_name_format_prefix}_B01_BWTR.tif'
-                output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_WTR.tif'
+                output_mgrs_wtr = f'{dswx_name_format_prefix}_B01_WTR.tif'
+                output_mgrs_bwtr = f'{dswx_name_format_prefix}_B02_BWTR.tif'
                 output_mgrs_conf = f'{dswx_name_format_prefix}_B03_CONF.tif'
+                output_mgrs_diag = f'{dswx_name_format_prefix}_B04_DIAG.tif'
 
                 # Crop full size of BWTR, WTR, CONF file
                 # and save them into MGRS tile grid
                 full_input_file_paths = [full_bwtr_water_set_path,
-                                        full_wtr_water_set_path,
-                                        full_conf_water_set_path]
+                                         full_wtr_water_set_path,
+                                         full_conf_water_set_path,
+                                         full_diag_water_set_path]
 
                 full_output_file_paths = [output_mgrs_bwtr,
-                                        output_mgrs_wtr,
-                                        output_mgrs_conf]
+                                          output_mgrs_wtr,
+                                          output_mgrs_conf,
+                                          output_mgrs_diag]
 
                 for full_input_file_path, full_output_file_path in zip(
                     full_input_file_paths, full_output_file_paths

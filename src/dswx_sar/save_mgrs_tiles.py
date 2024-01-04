@@ -604,9 +604,9 @@ def run(cfg):
     paths = {}
     for key, prefix in prefix_dict.items():
         file_path = f'{prefix}_{pol_str}.tif'
-        paths[key] = os.path.join(outputdir, file_path)
+        paths[key] = os.path.join(scratch_dir, file_path)
         if merge_layer_flag:
-            list_layers = [os.path.join(outputdir, f'{prefix}_{pol_cand_str}.tif')
+            list_layers = [os.path.join(scratch_dir, f'{prefix}_{pol_cand_str}.tif')
                            for pol_cand_str in merge_pol_list]
             if key == 'no_data_area':
                 extra_args = {'nodata_value': 1}
@@ -615,7 +615,7 @@ def run(cfg):
             else:
                 extra_args = {'nodata_value': 0}
             merge_pol_layers(list_layers,
-                             os.path.join(outputdir, file_path),
+                             os.path.join(scratch_dir, file_path),
                              **extra_args)
 
     # metadata for final product
@@ -643,7 +643,7 @@ def run(cfg):
 
     # 3) hand excluded
     hand = dswx_sar_util.read_geotiff(
-        os.path.join(outputdir, 'interpolated_hand.tif'))
+        os.path.join(scratch_dir, 'interpolated_hand.tif'))
     hand_mask = hand > hand_mask
 
     full_wtr_water_set_path = \

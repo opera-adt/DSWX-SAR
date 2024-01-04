@@ -1360,9 +1360,10 @@ def create_browse_image(water_geotiff_filename,
 
     # Form color table
     browse_ctable = get_interpreted_dswx_s1_ctable()
-    water_geotiff_basename = os.path.basename(water_geotiff_filename)
-    browse_image_geotiff_filename = os.path.join(scratch_dir, 
-                                                 water_geotiff_basename)
+    water_geotiff_basename = \
+        os.path.splitext(os.path.basename(water_geotiff_filename))[0]
+    browse_image_geotiff_filename = os.path.join(
+        scratch_dir, f'{water_geotiff_basename}_browse.tif')
 
     _save_array(
         input_array=browse_arr,

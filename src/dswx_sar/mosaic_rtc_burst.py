@@ -1,6 +1,7 @@
 '''
 A module to mosaic Sentinel-1 geobursts from RTC workflow
 '''
+import copy
 import glob
 import logging
 import mimetypes

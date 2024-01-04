@@ -79,4 +79,37 @@ runconfig:
             output_imagery_compression: DEFLATE
             output_imagery_nbits: 32
 
+        browse_image_group:
+            # Save a full-res Cloud-Optimized GEOTIFF DSWx-S1 browse image and
+            # a modified-resolution PNG of the browse image for DSWx-S1
+            save_browse: True
+
+            # Setting `browse_image_height` and `browse_image_width` equal
+            # will maintain this original DSWx-S1 aspect ratio
+            # of 3660 pixels x 3660 pixels for the PNG browse image.
+            # If these fields are left empty, 1024 x 1024 will be used.
+            # Height in pixels for the PNG browse image
+            browse_image_height: 1024
+
+            # Width in pixels for the PNG browse image
+            browse_image_width: 1024
+
+            # Flag to collapse water classes if set to True. Default is True.
+            flag_collapse_wtr_classes: True
+
+            # Flag to exclude inundated vegetation from processing if set to True. 
+            exclude_inundated_vegetation:  False
+
+            # Flag to set non-water pixels to NoData value if set to True. 
+            set_not_water_to_nodata: False
+
+            # Flag to set HAND mask pixels to NoData value if set to True. 
+            set_hand_mask_to_nodata: False
+
+            # Flag to set layover and shadow pixels to NoData value if set to True. 
+            set_layover_shadow_to_nodata: False
+            
+            # Flag to set ocean-masked pixels to NoData value if set to True. 
+            set_ocean_masked_to_nodata: False
+
         log_file: None

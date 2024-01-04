@@ -101,8 +101,6 @@ class AncillaryRelocation:
 
         self.rtc_file_name = rtc_file_name
 
-        self.ycoord_rtc, self.xcoord_rtc = \
-            self._read_x_y_array_geotiff(rtc_file_name)
         reftif = gdal.Open(rtc_file_name)
         proj = osr.SpatialReference(wkt=reftif.GetProjection())
         self.projection = reftif.GetProjection()
@@ -141,81 +139,10 @@ class AncillaryRelocation:
                                         relocated_file_str),
             margin_in_pixels=0,
             temp_files_list = None)
-        # self._interpolate_gdal(str(self.rtc_file_name),
-        #                       ancillary_file_name,
-        #                       os.path.join(self.scratch_dir,
-        #                                    relocated_file_str),
-        #                       method,
-        #                       no_data=no_data)
+
         dswx_sar_util._save_as_cog(
             os.path.join(self.scratch_dir, relocated_file_str),
                          self.scratch_dir)
-
-    def _interpolate_gdal(self, ref_file,
-                          input_tif_str,
-                          output_tif_str,
-                          method,
-                          no_data):
-
-        """Interpolate the input image to have same projection and resolution
-        as the reference file.
-
-        Parameters
-        ----------
-        ref_file : str
-            file name of RTC input HDF5
-        input_tif_str : str
-            path for the input Geotiff File
-        output_tif_str : str
-            Path for output Geotiff file
-        method : str
-            interpolation method
-        """
-        print(f"   >> gdalwarp {input_tif_str} -> {output_tif_str}")
-
-        # get reference coordinate and projection
-        reftif = gdal.Open(ref_file, gdal.GA_ReadOnly)
-        lat0, lon0 = self._read_x_y_array_geotiff(ref_file)
-        xsize = reftif.RasterXSize
-        ysize = reftif.RasterYSize
-        geotransform = reftif.GetGeoTransform()
-        proj = osr.SpatialReference(wkt=reftif.GetProjection())
-        epsg_output = proj.GetAttrValue('AUTHORITY',1)
-        xspacing = geotransform[1]
-        yspacing = geotransform[5]
-
-        reftif = None
-
-        if (len(lat0) != ysize) and (len(lon0) != xsize):
-
-            N, S, W, E = [np.max(lat0) + yspacing / 2,
-                          np.min(lat0) - yspacing / 2,
-                          np.min(lon0) - xspacing / 2,
-                          np.max(lon0) + xspacing / 2]
-
-            print('    Note: latitude shape is not same as image shape')
-
-        else:
-            N, S, W, E = [np.max(lat0),
-                          np.min(lat0),
-                          np.min(lon0),
-                          np.max(lon0)]
-
-        print('   bounding box', N, S , W, E)
-
-        # Crop (gdalwarp)image based on geo infomation of reference image
-        if yspacing < 0:
-            yspacing = -1 * yspacing
-
-        opt = gdal.WarpOptions(dstSRS=f'EPSG:{epsg_output}',
-                               xRes=xspacing,
-                               yRes=yspacing,
-                               outputBounds=[W, S, E, N],
-                               resampleAlg=method,
-                               format='GTIFF',
-                               dstNodata=no_data)
-
-        gdal.Warp(output_tif_str, input_tif_str, options=opt)
 
 
     def _get_tile_srs_bbox(self, 
@@ -276,8 +203,7 @@ class AncillaryRelocation:
             tile_max_x_utm, tile_min_y_utm, elevation)
         tile_x_array[3], tile_y_array[3], z = transformation.TransformPoint(
             tile_min_x_utm, tile_min_y_utm, elevation)
-        print('tile_coord x', tile_x_array)
-        print('tile_coord y', tile_y_array)
+
         tile_min_y = np.min(tile_y_array)
         tile_max_y = np.max(tile_y_array)
         tile_min_x = np.min(tile_x_array)
@@ -499,34 +425,6 @@ class AncillaryRelocation:
 
         return relocated_array
 
-    def _read_x_y_array_geotiff(self, intput_tif_str):
-        """Read X and Y coordinates from given Geotiff image
-
-        Parameters
-        ----------
-
-        input_tif_str : str
-            path for the input Geotiff File
-        """
-        ds = gdal.Open(intput_tif_str, gdal.GA_ReadOnly)
-
-        #get the point to transform, pixel (0,0) in this case
-        width = ds.RasterXSize
-        height = ds.RasterYSize
-        gt = ds.GetGeoTransform()
-        minx = gt[0]
-        miny = gt[3] + height * gt[5]
-        maxx = gt[0] + width * gt[1]
-        maxy = gt[3]
-
-        #get the coordinates in lat long
-        ycoord = np.linspace(maxy, miny, height)
-        xcoord = np.linspace(minx, maxx, width)
-
-        ds = None
-        del ds  # close the dataset (Python object and pointers)
-
-        return ycoord, xcoord
 
     def _antimeridian_crossing_requires_special_handling(
             self, file_srs, file_min_x, tile_min_x, tile_max_x):

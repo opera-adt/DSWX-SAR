@@ -1,6 +1,7 @@
 '''
 A module to mosaic Sentinel-1 geobursts from RTC workflow
 '''
+import copy
 import glob
 import logging
 import mimetypes
@@ -733,7 +734,7 @@ def run(cfg):
 
     mosaic_mode = mosaic_cfg.mosaic_mode
     product_prefix = processing_cfg.mosaic.mosaic_prefix
-    pol_list = cfg.groups.processing.polarizations
+    pol_list = copy.deepcopy(processing_cfg.polarizations)
     first_pol = pol_list[0]
 
     imagery_extension = 'tif'

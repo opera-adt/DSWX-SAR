@@ -1,4 +1,5 @@
 import ast
+import copy
 import datetime
 import glob
 import logging
@@ -235,7 +236,7 @@ def find_intersecting_burst_with_bbox(ref_bbox,
             ref_polygon.overlaps(rtc_polygon):
                 overlapped_rtc_dir_list.append(input_dir)
         else:
-            print('fail to find the overlapped rtc')
+            logger.warning('fail to find the overlapped rtc')
             overlapped_rtc_dir_list = None
 
     return overlapped_rtc_dir_list
@@ -325,7 +326,8 @@ def crop_and_save_mgrs_tile(
 
 def get_intersecting_mgrs_tiles_list_from_db(
         image_tif,
-        mgrs_collection_file):
+        mgrs_collection_file,
+        track_number=None):
     """Find and return a list of MGRS tiles
     that intersect a reference GeoTIFF file
     By searching in database
@@ -336,6 +338,9 @@ def get_intersecting_mgrs_tiles_list_from_db(
         Path to the input GeoTIFF file.
     mgrs_collection_file : str
         Path to the MGRS tile collection.
+    track_number : int, optional
+        Track number (or relative orbit number) to specify 
+        MGRS tile collection
 
     Returns
     ----------
@@ -360,21 +365,47 @@ def get_intersecting_mgrs_tiles_list_from_db(
                                                 right,
                                                 top)
 
-    # Create a Polygon from the bounds
-    raster_polygon = Polygon(
-        [(left, bottom),
-         (left, top),
-         (right, top),
-         (right, bottom)])
-
+    antimeridian_crossing_flag = False
+    if left > 0  and right < 0:
+        antimeridian_crossing_flag = True
+        logger.info('The mosaic image crosses the antimeridian.')
     # Create a GeoDataFrame from the raster polygon
-    raster_gdf = gpd.GeoDataFrame([1],
-                                  geometry=[raster_polygon],
-                                  crs=4326)
+    if antimeridian_crossing_flag:
+        # Create a Polygon from the bounds
+        raster_polygon_left = Polygon(
+            [(left, bottom),
+            (left, top),
+            (180, top),
+            (180, bottom)])
+        raster_polygon_right = Polygon(
+            [(-180, bottom),
+            (-180, top),
+            (right, top),
+            (right, bottom)])
+        raster_gdf = gpd.GeoDataFrame([1, 2],
+                                      geometry=[raster_polygon_left,
+                                                raster_polygon_right],
+                                      crs=4326)
+    else:
+        # Create a Polygon from the bounds
+        raster_polygon = Polygon(
+            [(left, bottom),
+            (left, top),
+            (right, top),
+            (right, bottom)])
+        raster_gdf = gpd.GeoDataFrame([1],
+                                      geometry=[raster_polygon],
+                                      crs=4326)
 
     # Load the vector data
     vector_gdf = gpd.read_file(mgrs_collection_file)
-    vector_gdf = vector_gdf.to_crs("EPSG:4326")
+    
+    # If track number is given, then search MGRS tile collection with track number
+    if track_number is not None:
+        vector_gdf = vector_gdf[
+            vector_gdf['relative_orbit_number'] == track_number].to_crs("EPSG:4326")
+    else:
+        vector_gdf = vector_gdf.to_crs("EPSG:4326")
 
     # Calculate the intersection
     intersection = gpd.overlay(raster_gdf,
@@ -499,7 +530,7 @@ def run(cfg):
 
     t_all = time.time()
     product_path_group_cfg = cfg.groups.product_path_group
-    outputdir = product_path_group_cfg.scratch_path
+    scratch_dir = product_path_group_cfg.scratch_path
     sas_outputdir = product_path_group_cfg.sas_output_path
     product_version = product_path_group_cfg.product_version
 
@@ -511,7 +542,7 @@ def run(cfg):
 
     # Processing parameters
     processing_cfg = cfg.groups.processing
-    pol_list = processing_cfg.polarizations
+    pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
     if pol_options is not None:
         pol_list += pol_options
@@ -523,10 +554,24 @@ def run(cfg):
     dswx_workflow = processing_cfg.dswx_workflow
     hand_mask = processing_cfg.hand.mask_value
 
+    # Static ancillary database
     static_ancillary_file_group_cfg = cfg.groups.static_ancillary_file_group
     mgrs_db_path = static_ancillary_file_group_cfg.mgrs_database_file
     mgrs_collection_db_path = \
         static_ancillary_file_group_cfg.mgrs_collection_database_file
+
+    # Browse image options
+    browser_image_cfg = cfg.groups.browse_image_group
+    browse_image_flag = browser_image_cfg.save_browse
+    browse_image_height = browser_image_cfg.browse_image_height
+    browse_image_width = browser_image_cfg.browse_image_width
+
+    flag_collapse_wtr_classes=browser_image_cfg.flag_collapse_wtr_classes
+    exclude_inundated_vegetation=browser_image_cfg.exclude_inundated_vegetation
+    set_not_water_to_nodata=browser_image_cfg.set_not_water_to_nodata
+    set_hand_mask_to_nodata=browser_image_cfg.set_hand_mask_to_nodata
+    set_layover_shadow_to_nodata=browser_image_cfg.set_layover_shadow_to_nodata
+    set_ocean_masked_to_nodata=browser_image_cfg.set_ocean_masked_to_nodata
 
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
@@ -554,6 +599,7 @@ def run(cfg):
             tags = src.tags(0)
             date_str = tags['ZERO_DOPPLER_START_TIME']
             platform = tags['PLATFORM']
+            track_number = int(tags['TRACK_NUMBER'])
             resolution = src.transform[0]
             date_str_list.append(date_str)
 
@@ -589,9 +635,9 @@ def run(cfg):
     paths = {}
     for key, prefix in prefix_dict.items():
         file_path = f'{prefix}_{pol_str}.tif'
-        paths[key] = os.path.join(outputdir, file_path)
+        paths[key] = os.path.join(scratch_dir, file_path)
         if merge_layer_flag:
-            list_layers = [os.path.join(outputdir, f'{prefix}_{pol_cand_str}.tif')
+            list_layers = [os.path.join(scratch_dir, f'{prefix}_{pol_cand_str}.tif')
                            for pol_cand_str in merge_pol_list]
             if key == 'no_data_area':
                 extra_args = {'nodata_value': 1}
@@ -600,7 +646,7 @@ def run(cfg):
             else:
                 extra_args = {'nodata_value': 0}
             merge_pol_layers(list_layers,
-                             os.path.join(outputdir, file_path),
+                             os.path.join(scratch_dir, file_path),
                              **extra_args)
 
     # metadata for final product
@@ -616,7 +662,7 @@ def run(cfg):
 
     # 2) layover/shadow
     layover_shadow_mask_path = \
-        os.path.join(outputdir, 'mosaic_layovershadow_mask.tif')
+        os.path.join(scratch_dir, 'mosaic_layovershadow_mask.tif')
 
     if os.path.exists(layover_shadow_mask_path):
         layover_shadow_mask = \
@@ -628,15 +674,17 @@ def run(cfg):
 
     # 3) hand excluded
     hand = dswx_sar_util.read_geotiff(
-        os.path.join(outputdir, 'interpolated_hand.tif'))
+        os.path.join(scratch_dir, 'interpolated_hand.tif'))
     hand_mask = hand > hand_mask
 
     full_wtr_water_set_path = \
-        os.path.join(outputdir, 'full_water_binary_WTR_set.tif')
+        os.path.join(scratch_dir, 'full_water_binary_WTR_set.tif')
     full_bwtr_water_set_path = \
-        os.path.join(outputdir, 'full_water_binary_BWTR_set.tif')
+        os.path.join(scratch_dir, 'full_water_binary_BWTR_set.tif')
     full_conf_water_set_path = \
-        os.path.join(outputdir, f'full_water_binary_CONF_set.tif')
+        os.path.join(scratch_dir, f'full_water_binary_CONF_set.tif')
+    full_diag_water_set_path = \
+        os.path.join(scratch_dir, f'full_water_binary_DIAG_set.tif')
 
     # 4) inundated_vegetation
     if processing_cfg.inundated_vegetation.enabled:
@@ -657,11 +705,13 @@ def run(cfg):
             dswx_sar_util.read_geotiff(paths['region_growing'])
         landcover_map =\
             dswx_sar_util.read_geotiff(paths['landcover_mask'])
+
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
         bright_water_mask = (landcover_map == 0) & (water_map == 1)
-        # Open water/landcover mask/bright water/dark land
-        # layover shadow mask/hand mask/inundated vegetation
+
+        # Open water/inundated vegetation
+        # layover shadow mask/hand mask/no_data
         # will be saved in WTR product
         dswx_sar_util.save_dswx_product(
             water_map == 1,
@@ -669,7 +719,41 @@ def run(cfg):
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Water classification (WTR)',
-            scratch_dir=outputdir,
+            scratch_dir=scratch_dir,
+            logger=logger,
+            layover_shadow_mask=layover_shadow_mask > 0,
+            hand_mask=hand_mask,
+            inundated_vegetation=inundated_vegetation == 2,
+            no_data=no_data_raster,
+            )
+
+        # water/ No-water
+        # layover shadow mask/hand mask/no_data
+        # will be saved in BWTR product
+        # Water includes open water and inundated vegetation.
+        dswx_sar_util.save_dswx_product(
+            np.logical_or(water_map == 1, inundated_vegetation == 2),
+            full_bwtr_water_set_path,
+            geotransform=water_meta['geotransform'],
+            projection=water_meta['projection'],
+            description='Binary Water classification (BWTR)',
+            scratch_dir=scratch_dir,
+            logger=logger,
+            layover_shadow_mask=layover_shadow_mask > 0,
+            hand_mask=hand_mask,
+            no_data=no_data_raster)
+
+        # Open water/landcover mask/bright water/dark land
+        # layover shadow mask/hand mask/inundated vegetation
+        # will be saved in CONF product
+        dswx_sar_util.save_dswx_product(
+            water_map == 1,
+            full_conf_water_set_path,
+            geotransform=water_meta['geotransform'],
+            projection=water_meta['projection'],
+            description='Confidence values (CONF)',
+            scratch_dir=scratch_dir,
+            logger=logger,
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
@@ -678,32 +762,22 @@ def run(cfg):
             inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
             )
-        # Open water/layover shadow mask/hand mask/
-        # inundated vegetation will be saved in WTR product
-        dswx_sar_util.save_dswx_product(
-            water_map == 1,
-            full_bwtr_water_set_path,
-            geotransform=water_meta['geotransform'],
-            projection=water_meta['projection'],
-            description='Binary Water classification (BWTR)',
-            scratch_dir=outputdir,
-            inundated_vegetation=inundated_vegetation == 2,
-            layover_shadow_mask=layover_shadow_mask > 0,
-            hand_mask=hand_mask,
-            no_data=no_data_raster)
 
+        # Values ranging from 0 to 100 are used to represent the likelihood
+        # or possibility of the presence of water. A higher value within
+        # this range signifies a higher likelihood of water being present. 
         fuzzy_value = dswx_sar_util.read_geotiff(paths['fuzzy_value'])
-        conf_value = np.round(fuzzy_value * 100)
-
+        fuzzy_value = np.round(fuzzy_value * 100)
         dswx_sar_util.save_dswx_product(
-            conf_value,
-            full_conf_water_set_path,
+            fuzzy_value,
+            full_diag_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
-            description='Confidence values (CONF)',
-            scratch_dir=outputdir,
-            is_conf=True,
+            description='Diagnostic layer (DIAG)',
+            is_diag=True,
+            scratch_dir=scratch_dir,
             datatype='uint8',
+            logger=logger,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             no_data=no_data_raster)
@@ -717,7 +791,7 @@ def run(cfg):
                 geotransform=water_meta['geotransform'],
                 projection=water_meta['projection'],
                 description='Water classification (WTR)',
-                scratch_dir=outputdir,
+                scratch_dir=scratch_dir,
                 layover_shadow_mask=layover_shadow_mask > 0,
                 hand_mask=hand_mask,
                 no_data=no_data_raster)
@@ -728,7 +802,8 @@ def run(cfg):
     if database_bool:
         mgrs_tile_list, most_overlapped = get_intersecting_mgrs_tiles_list_from_db(
             mgrs_collection_file=mgrs_collection_db_path,
-            image_tif=paths['final_water'])
+            image_tif=paths['final_water'],
+            track_number=track_number)
         maximum_burst = most_overlapped['number_of_bursts']
         expected_burst_list = most_overlapped['bursts']
 
@@ -791,27 +866,31 @@ def run(cfg):
                 logger.info(f'      {dswx_name_format_prefix}')
 
                 # Output File names
-                output_mgrs_bwtr = f'{dswx_name_format_prefix}_B01_BWTR.tif'
-                output_mgrs_wtr = f'{dswx_name_format_prefix}_B02_WTR.tif'
+                output_mgrs_wtr = f'{dswx_name_format_prefix}_B01_WTR.tif'
+                output_mgrs_bwtr = f'{dswx_name_format_prefix}_B02_BWTR.tif'
                 output_mgrs_conf = f'{dswx_name_format_prefix}_B03_CONF.tif'
+                output_mgrs_diag = f'{dswx_name_format_prefix}_B04_DIAG.tif'
+                output_mgrs_browse = f'{dswx_name_format_prefix}_BROWSE.png'
 
                 # Crop full size of BWTR, WTR, CONF file
                 # and save them into MGRS tile grid
                 full_input_file_paths = [full_bwtr_water_set_path,
-                                        full_wtr_water_set_path,
-                                        full_conf_water_set_path]
+                                         full_wtr_water_set_path,
+                                         full_conf_water_set_path,
+                                         full_diag_water_set_path]
 
-                full_output_file_paths = [output_mgrs_bwtr,
-                                        output_mgrs_wtr,
-                                        output_mgrs_conf]
+                output_file_paths = [output_mgrs_bwtr,
+                                     output_mgrs_wtr,
+                                     output_mgrs_conf,
+                                     output_mgrs_diag]
 
-                for full_input_file_path, full_output_file_path in zip(
-                    full_input_file_paths, full_output_file_paths
+                for full_input_file_path, output_file_path in zip(
+                    full_input_file_paths, output_file_paths
                 ):
                     crop_and_save_mgrs_tile(
                         source_tif_path=full_input_file_path,
                         output_dir_path=sas_outputdir,
-                        output_tif_name=full_output_file_path,
+                        output_tif_name=output_file_path,
                         output_bbox=mgrs_bbox,
                         output_epsg=epsg_output,
                         output_format=output_imagery_format,
@@ -819,6 +898,24 @@ def run(cfg):
                         cog_compression=output_imagery_compression,
                         cog_nbits=output_imagery_nbits,
                         interpolation_method='nearest')
+
+                if browse_image_flag:
+                    dswx_sar_util.create_browse_image(
+                        water_geotiff_filename=os.path.join(
+                            sas_outputdir, output_mgrs_wtr),
+                        output_dir_path=sas_outputdir,
+                        browser_filename=output_mgrs_browse,
+                        browse_image_height=browse_image_height,
+                        browse_image_width=browse_image_width,
+                        scratch_dir=scratch_dir,
+                        flag_collapse_wtr_classes=flag_collapse_wtr_classes,
+                        exclude_inundated_vegetation=exclude_inundated_vegetation,
+                        set_not_water_to_nodata=set_not_water_to_nodata,
+                        set_hand_mask_to_nodata=set_hand_mask_to_nodata,
+                        set_layover_shadow_to_nodata=set_layover_shadow_to_nodata,
+                        set_ocean_masked_to_nodata=set_ocean_masked_to_nodata)
+
+
 
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran save_mgrs_tiles in "

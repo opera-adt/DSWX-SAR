@@ -134,11 +134,12 @@ class AncillaryRelocation:
             self.projection,
             self.ysize, self.xsize,
             scratch_dir = self.scratch_dir,
-            resample_algorithm='nearest',
+            resample_algorithm=method,
             relocated_file=os.path.join(self.scratch_dir,
                                         relocated_file_str),
             margin_in_pixels=0,
-            temp_files_list = None)
+            temp_files_list=None,
+            no_data=no_data)
 
         dswx_sar_util._save_as_cog(
             os.path.join(self.scratch_dir, relocated_file_str),
@@ -167,6 +168,7 @@ class AncillaryRelocation:
                 Polygon spatial reference system (SRS). If the polygon
                 SRS is geographic, its Axis Mapping Strategy will
                 be updated to osr.OAMS_TRADITIONAL_GIS_ORDER
+
         Returns
         -------
         tile_polygon: ogr.Geometry
@@ -188,21 +190,21 @@ class AncillaryRelocation:
                 polygon_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
             except AttributeError:
                 logger.warning('WARNING Could not set the ancillary input SRS axis'
-                            ' mapping strategy (SetAxisMappingStrategy())'
-                            ' to osr.OAMS_TRADITIONAL_GIS_ORDER')
+                               ' mapping strategy (SetAxisMappingStrategy())'
+                               ' to osr.OAMS_TRADITIONAL_GIS_ORDER')
         transformation = osr.CoordinateTransformation(tile_srs, polygon_srs)
 
         elevation = 0
         tile_x_array = np.zeros((4))
         tile_y_array = np.zeros((4))
-        tile_x_array[0], tile_y_array[0], z = transformation.TransformPoint(
-            tile_min_x_utm, tile_max_y_utm, elevation)
-        tile_x_array[1], tile_y_array[1], z = transformation.TransformPoint(
-            tile_max_x_utm, tile_max_y_utm, elevation)
-        tile_x_array[2], tile_y_array[2], z = transformation.TransformPoint(
-            tile_max_x_utm, tile_min_y_utm, elevation)
-        tile_x_array[3], tile_y_array[3], z = transformation.TransformPoint(
-            tile_min_x_utm, tile_min_y_utm, elevation)
+        # init list of x and y tiles to match expected order to tile corners
+        x_arrs = [tile_min_x_utm, tile_max_x_utm, tile_max_x_utm, tile_min_x_utm]
+        y_arrs = [tile_max_y_utm, tile_max_y_utm, tile_min_y_utm, tile_min_y_utm]
+        
+        # transform corners
+        for i, (x_arr, y_arr) in enumerate(zip(x_arrs, y_arrs)):        
+            tile_x_array[i], tile_y_array[i], _ = transformation.TransformPoint(
+                x_arr, y_arr, elevation) 
 
         tile_min_y = np.min(tile_y_array)
         tile_max_y = np.max(tile_y_array)
@@ -216,12 +218,15 @@ class AncillaryRelocation:
             tile_max_x = np.min(tile_x_array[tile_x_array>150])
             tile_min_x, tile_max_x = tile_max_x, tile_min_x + 360
 
+        # init list of x and y points in expected ring order
+        x_pts = [tile_min_x, tile_max_x, tile_max_x, tile_min_x, tile_min_x]
+        y_pts = [tile_max_y, tile_max_y, tile_min_y, tile_min_y, tile_max_y]
+        
+        # init and populate ring
         tile_ring = ogr.Geometry(ogr.wkbLinearRing)
-        tile_ring.AddPoint(tile_min_x, tile_max_y)
-        tile_ring.AddPoint(tile_max_x, tile_max_y)
-        tile_ring.AddPoint(tile_max_x, tile_min_y)
-        tile_ring.AddPoint(tile_min_x, tile_min_y)
-        tile_ring.AddPoint(tile_min_x, tile_max_y)
+        for x_pt, y_pt in zip(x_pts, y_pts):
+            tile_ring.AddPoint(x_pt, y_pt)
+
         tile_polygon = ogr.Geometry(ogr.wkbPolygon)
         tile_polygon.AddGeometry(tile_ring)
         tile_polygon.AssignSpatialReference(polygon_srs)
@@ -235,7 +240,8 @@ class AncillaryRelocation:
             scratch_dir = '.',
             resample_algorithm='nearest',
             relocated_file=None, margin_in_pixels=0,
-            temp_files_list = None):
+            temp_files_list = None,
+            no_data=np.nan):
         """Relocate/reproject a file (e.g., landcover or DEM) based on geolocation
         defined by a geotransform, output dimensions (length and width)
         and projection
@@ -344,8 +350,10 @@ class AncillaryRelocation:
                     outputBounds=[tile_min_x_utm, tile_min_y_utm,
                                     tile_max_x_utm, tile_max_y_utm],
                     multithread=True,
-                    xRes=dx, yRes=abs(dy), resampleAlg=resample_algorithm,
-                    errorThreshold=0)
+                    xRes=dx, yRes=abs(dy),
+                    resampleAlg=resample_algorithm,
+                    errorThreshold=0,
+                    dstNodata=no_data)
 
             gdal_ds = gdal.Open(relocated_file, gdal.GA_ReadOnly)
             relocated_array = gdal_ds.ReadAsArray()
@@ -354,7 +362,6 @@ class AncillaryRelocation:
             return relocated_array
 
         logger.info(f'    tile crosses the antimeridian')
-
 
         file_max_x = file_min_x + file_width * file_dx
         file_min_y = file_max_y + file_length * file_dy

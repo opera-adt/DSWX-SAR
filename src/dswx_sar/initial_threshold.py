@@ -273,7 +273,7 @@ class TileSelection:
                            intensity,
                            water_mask,
                            win_size=200,
-                           selection_method=['combined'],
+                           selection_methods=['combined'],
                            mininum_tile=20,
                            minimum_pixel_number=40):
         '''Select the tile candidates containing water and non-water
@@ -291,7 +291,7 @@ class TileSelection:
         win_size : integer
             size of window to search the water body that should be smaller
             than size of intensity
-        selection_method : list
+        selection_methods : list
             window type {twele, chini, bimodality, combined}
             'combined' method runs all methods
 
@@ -425,8 +425,7 @@ class TileSelection:
                                 # Initially set flag as True
                                 tile_selected_flag = True
 
-                                if any(item in ['twele', 'combined']
-                                       for item in selection_method):
+                                if {'twele', 'combined'}.intersection(set(selection_methods)):
                                     tile_selected_flag, _, _ = \
                                         self.select_tile_twele(
                                             intensity_sub_gray,
@@ -438,12 +437,11 @@ class TileSelection:
                                 else:
                                     selected_tile_twele.append(False)
 
-                                if any(item in ['chini', 'combined']
-                                       for item in selection_method):
+                                if {'chini', 'combined'}.intersection(set(selection_methods)):
                                     # Once 'combined' method is selected,
                                     # the chini test is carried when the
                                     # 'twele' method passed.
-                                    if (selection_method in ['combined']) & \
+                                    if (selection_methods in ['combined']) & \
                                         (not tile_selected_flag):
 
                                         selected_tile_chini.append(False)
@@ -460,10 +458,9 @@ class TileSelection:
                                 else:
                                     selected_tile_chini.append(False)
 
-                                if any(item in ['bimodality', 'combined']
-                                       for item in selection_method):
+                                if {'bimodality', 'combined'}.intersection(set(selection_methods)):
 
-                                    if (selection_method == 'combined') and \
+                                    if (selection_methods == 'combined') and \
                                         not tile_selected_flag:
 
                                         selected_tile_bimodality.append(False)
@@ -493,7 +490,7 @@ class TileSelection:
                                  y_start, y_end])
                             ind_subtile += 1
 
-                    if 'combined' in selection_method:
+                    if 'combined' in selection_methods:
                         selected_tile_merged = np.logical_and(
                             selected_tile_twele,
                             selected_tile_chini)
@@ -505,16 +502,16 @@ class TileSelection:
                         # Initialize the result array with False values
                         detected_box_array = np.ones_like(selected_tile_twele,
                                                           dtype=bool)
-                        # Check and aggregate the results based on the selection_method
-                        if 'twele' in selection_method:
+                        # Check and aggregate the results based on the selection_methods
+                        if 'twele' in selection_methods:
                             detected_box_array = np.logical_and(
                                 detected_box_array,
                                 selected_tile_twele)
-                        if 'chini' in selection_method:
+                        if 'chini' in selection_methods:
                             detected_box_array = np.logical_and(
                                 detected_box_array,
                                 selected_tile_chini)
-                        if 'bimodality' in selection_method:
+                        if 'bimodality' in selection_methods:
                             detected_box_array = np.logical_and(
                                 detected_box_array,
                                 selected_tile_bimodality)
@@ -530,7 +527,7 @@ class TileSelection:
             else:
                 logger.info('No water body found')
 
-            if 'combined' in selection_method:
+            if 'combined' in selection_methods:
                 selected_tile = np.logical_and(
                     selected_tile_twele,
                     selected_tile_chini)
@@ -1624,7 +1621,7 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                            intensity=intensity[polind, :, :],
                            water_mask=wbdsub,
                            win_size=winsize,
-                           selection_method=tile_selection_method)
+                           selection_methods=tile_selection_method)
 
         if pol in ['VV', 'VH', 'HH', 'HV', 'span']:
             min_intensity_histogram, max_intensity_histogram, step_histogram = -35, 10, 0.1

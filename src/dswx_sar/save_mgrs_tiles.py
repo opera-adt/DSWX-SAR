@@ -236,7 +236,7 @@ def find_intersecting_burst_with_bbox(ref_bbox,
             ref_polygon.overlaps(rtc_polygon):
                 overlapped_rtc_dir_list.append(input_dir)
         else:
-            print('fail to find the overlapped rtc')
+            logger.warning('fail to find the overlapped rtc')
             overlapped_rtc_dir_list = None
 
     return overlapped_rtc_dir_list
@@ -326,7 +326,8 @@ def crop_and_save_mgrs_tile(
 
 def get_intersecting_mgrs_tiles_list_from_db(
         image_tif,
-        mgrs_collection_file):
+        mgrs_collection_file,
+        track_number=None):
     """Find and return a list of MGRS tiles
     that intersect a reference GeoTIFF file
     By searching in database
@@ -337,6 +338,9 @@ def get_intersecting_mgrs_tiles_list_from_db(
         Path to the input GeoTIFF file.
     mgrs_collection_file : str
         Path to the MGRS tile collection.
+    track_number : int, optional
+        Track number (or relative orbit number) to specify 
+        MGRS tile collection
 
     Returns
     ----------
@@ -361,21 +365,47 @@ def get_intersecting_mgrs_tiles_list_from_db(
                                                 right,
                                                 top)
 
-    # Create a Polygon from the bounds
-    raster_polygon = Polygon(
-        [(left, bottom),
-         (left, top),
-         (right, top),
-         (right, bottom)])
-
+    antimeridian_crossing_flag = False
+    if left > 0  and right < 0:
+        antimeridian_crossing_flag = True
+        logger.info('The mosaic image crosses the antimeridian.')
     # Create a GeoDataFrame from the raster polygon
-    raster_gdf = gpd.GeoDataFrame([1],
-                                  geometry=[raster_polygon],
-                                  crs=4326)
+    if antimeridian_crossing_flag:
+        # Create a Polygon from the bounds
+        raster_polygon_left = Polygon(
+            [(left, bottom),
+            (left, top),
+            (180, top),
+            (180, bottom)])
+        raster_polygon_right = Polygon(
+            [(-180, bottom),
+            (-180, top),
+            (right, top),
+            (right, bottom)])
+        raster_gdf = gpd.GeoDataFrame([1, 2],
+                                      geometry=[raster_polygon_left,
+                                                raster_polygon_right],
+                                      crs=4326)
+    else:
+        # Create a Polygon from the bounds
+        raster_polygon = Polygon(
+            [(left, bottom),
+            (left, top),
+            (right, top),
+            (right, bottom)])
+        raster_gdf = gpd.GeoDataFrame([1],
+                                      geometry=[raster_polygon],
+                                      crs=4326)
 
     # Load the vector data
     vector_gdf = gpd.read_file(mgrs_collection_file)
-    vector_gdf = vector_gdf.to_crs("EPSG:4326")
+    
+    # If track number is given, then search MGRS tile collection with track number
+    if track_number is not None:
+        vector_gdf = vector_gdf[
+            vector_gdf['relative_orbit_number'] == track_number].to_crs("EPSG:4326")
+    else:
+        vector_gdf = vector_gdf.to_crs("EPSG:4326")
 
     # Calculate the intersection
     intersection = gpd.overlay(raster_gdf,
@@ -569,6 +599,7 @@ def run(cfg):
             tags = src.tags(0)
             date_str = tags['ZERO_DOPPLER_START_TIME']
             platform = tags['PLATFORM']
+            track_number = int(tags['TRACK_NUMBER'])
             resolution = src.transform[0]
             date_str_list.append(date_str)
 
@@ -771,7 +802,8 @@ def run(cfg):
     if database_bool:
         mgrs_tile_list, most_overlapped = get_intersecting_mgrs_tiles_list_from_db(
             mgrs_collection_file=mgrs_collection_db_path,
-            image_tif=paths['final_water'])
+            image_tif=paths['final_water'],
+            track_number=track_number)
         maximum_burst = most_overlapped['number_of_bursts']
         expected_burst_list = most_overlapped['bursts']
 

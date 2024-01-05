@@ -54,13 +54,13 @@ These classes are collapsed into no-water class
 '''
 
 collapse_wtr_classes_dict = {
-    band_assign_value_dict['no_water'] : band_assign_value_dict['no_water'],
+    band_assign_value_dict['nonwater'] : band_assign_value_dict['nonwater'],
     band_assign_value_dict['water']: band_assign_value_dict['water'],
     band_assign_value_dict['bright_water_fill']: band_assign_value_dict['water'],
     band_assign_value_dict['dark_land_mask']: \
-        band_assign_value_dict['no_water'],
+        band_assign_value_dict['nonwater'],
     band_assign_value_dict['landcover_mask']: \
-        band_assign_value_dict['no_water'],
+        band_assign_value_dict['nonwater'],
     band_assign_value_dict['hand_mask']: \
         band_assign_value_dict['hand_mask'],
     band_assign_value_dict['layover_shadow_mask']: \
@@ -105,7 +105,7 @@ def get_interpreted_dswx_s1_ctable():
     dswx_ctable.SetColorEntry(band_assign_value_dict['layover_shadow_mask'], 
                               (128, 128, 128))  # Gray - Layover/shadow mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['inundated_vegetation'],
-                              (0, 255, 0))  # Gray - Inundated vegetation
+                              (0, 255, 0))  # Green - Inundated vegetation
     dswx_ctable.SetColorEntry(band_assign_value_dict['no_data'],
                               (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
 
@@ -1120,7 +1120,7 @@ def _compute_browse_array(
 
     if set_not_water_to_nodata:
         browse_arr[
-            browse_arr == band_assign_value_dict['no_water']] = \
+            browse_arr == band_assign_value_dict['nonwater']] = \
             band_assign_value_dict['no_data']
 
     if set_hand_mask_to_nodata:

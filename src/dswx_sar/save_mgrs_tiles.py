@@ -805,8 +805,8 @@ def run(cfg):
             image_tif=paths['final_water'],
             track_number=track_number)
         maximum_burst = most_overlapped['number_of_bursts']
-        expected_burst_list = most_overlapped['bursts']
-
+        # convert string to list
+        expected_burst_list = ast.literal_eval(most_overlapped['bursts'])
         logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
         actual_burst_id = collect_burst_id(input_list,
                                            DSWX_S1_POL_DICT['CO_POL'])

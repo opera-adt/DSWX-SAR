@@ -809,7 +809,7 @@ def run(cfg):
 
         logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
         actual_burst_id = collect_burst_id(input_list,
-                                           processing_cfg.polarizations[0])
+                                           DSWX_S1_POL_DICT['CO_POL'])
         number_burst = len(actual_burst_id)
         mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_BURSTS'] = \
             maximum_burst
@@ -914,8 +914,6 @@ def run(cfg):
                         set_hand_mask_to_nodata=set_hand_mask_to_nodata,
                         set_layover_shadow_to_nodata=set_layover_shadow_to_nodata,
                         set_ocean_masked_to_nodata=set_ocean_masked_to_nodata)
-
-
 
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran save_mgrs_tiles in "

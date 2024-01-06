@@ -6,9 +6,10 @@ import os
 import numpy as np
 import rasterio
 
-from dswx_sar.version import VERSION as SOFTWARE_VERSION
+from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT
 from dswx_sar.dswx_sar_util import (band_assign_value_dict,
                                     read_geotiff)
+from dswx_sar.version import VERSION as SOFTWARE_VERSION
 
 # Constants
 UNKNOWN = 'UNKNOWN'
@@ -334,7 +335,7 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
     return dswx_metadata_dict
 
 
-def gather_rtc_files(rtc_dirs, pol):
+def gather_rtc_files(rtc_dirs, pols):
     """
     Given directories containing RTC files,
     gather all TIF files of the polarization `pol`.
@@ -342,8 +343,8 @@ def gather_rtc_files(rtc_dirs, pol):
     ----------
     rtc_dirs : list
         List of directories containing RTC files.
-    pol : str
-        The polarization for which to collect burst IDs
+    pol : list
+        The polarizations for which to collect burst IDs
         (e.g., 'HH', 'VV', 'HV', 'VH').
 
     Returns
@@ -353,14 +354,13 @@ def gather_rtc_files(rtc_dirs, pol):
         for the specified polarization.
     """
     tif_files = []
-    for rtc_input_dir in rtc_dirs:
-        # Assuming that the RTC naming convention include the polarizations.
-        rtc_tif_file = glob.glob(
-            os.path.join(rtc_input_dir, f'*{pol.upper()}*.tif'))
-        if rtc_tif_file:
-            tif_files.append(rtc_tif_file[0])
-    if tif_files:
-        return tif_files
+    for pol in pols:  # Loop through each polarization
+        for rtc_input_dir in rtc_dirs:
+            # Find all matching files for the current polarization
+            rtc_tif_files = glob.glob(os.path.join(rtc_input_dir, f'*{pol.upper()}*.tif'))
+            tif_files.extend(rtc_tif_files)  # Extend the list with the found files
+
+    return tif_files
 
 def collect_burst_id(rtc_dirs, pol):
     """
@@ -418,12 +418,10 @@ def create_dswx_sar_metadata(cfg,
     dswx_metadata_dict = _get_general_dswx_metadata_dict(
         cfg,
         product_version=product_version)
-
     # Add metadata related to ancillary data
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
-    pol_list = cfg.groups.processing.polarizations
 
-    h5path_list = gather_rtc_files(rtc_dirs, pol_list[0])
+    h5path_list = gather_rtc_files(rtc_dirs, DSWX_S1_POL_DICT['CO_POL'])
     _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict)
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)

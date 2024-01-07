@@ -155,6 +155,7 @@ runconfig:
 
         refine_with_bimodality:
             minimum_pixel: 4
+            lines_per_block: 500
             number_cpu: 1
             thresholds:
                 ashman: 1.5

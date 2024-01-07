@@ -153,6 +153,7 @@ runconfig:
 
         refine_with_bimodality:
             number_cpu: num(required=False)
+            lines_per_block: num(min=1, required=False)
             minimum_pixel: num(min=0, required=False)
             thresholds:
                 ashman: num(min=0, required=False)

@@ -813,6 +813,8 @@ def remove_false_water_bimodality_parallel(water_mask_path,
     debug_mode: bool
         If True, additional output metrics and
         images are saved for debugging purposes.
+    lines_per_block: int
+        lines of the block processing 
 
     Returns:
     --------
@@ -975,10 +977,10 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                             scratch_dir=outputdir)
 
                         metric_detail_name = [f'binary_ahman_{pol}.tif',
-                                            f'binary_bhc_{pol}.tif',
-                                            f'binary_asurface_ratio_{pol}.tif',
-                                            f'binary_bm_coeff_{pol}.tif',
-                                            f'binary_bc_coeff_{pol}.tif']
+                                              f'binary_bhc_{pol}.tif',
+                                              f'binary_asurface_ratio_{pol}.tif',
+                                              f'binary_bm_coeff_{pol}.tif',
+                                              f'binary_bc_coeff_{pol}.tif']
 
                         metric_output = np.insert(metric_output, 0, np.zeros([1, 5]), axis=0)
                         for metric_ind, metric_name in enumerate(metric_detail_name):
@@ -1067,8 +1069,8 @@ def fill_gap_water_bimodality_parallel(
 
     Parameters
     ----------
-    water_mask : numpy.ndarray
-        The binary water mask as a 2D NumPy array.
+    bright_water_path : str
+        Path indicating the binary water mask as a 2D NumPy array.
     pol_list : list
         List of polarization bands.
     threshold : list

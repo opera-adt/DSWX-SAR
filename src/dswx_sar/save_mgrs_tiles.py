@@ -11,11 +11,13 @@ import geopandas as gpd
 import mgrs
 import numpy as np
 from osgeo import gdal, osr
-from pyproj import CRS
+from pyproj import CRS, Proj, Transformer
 import rasterio
 from rasterio.warp import transform_bounds
 from rasterio.merge import merge
+from shapely import wkt
 from shapely.geometry import Polygon
+from shapely.ops import transform
 
 from dswx_sar import (dswx_sar_util,
                       generate_log)
@@ -212,32 +214,29 @@ def find_intersecting_burst_with_bbox(ref_bbox,
                                   for pol in DSWX_S1_POL_DICT['CO_POL'])]
         if copol_file_list:
             with rasterio.open(copol_file_list[0]) as src:
-                epsg_code = int(src.crs.data['init'].split(':')[1])
-
-                # Get bounds of the raster data
-                left, bottom, right, top = src.bounds
+                tags = src.tags(0)
+                rtc_polygon_str = tags['BOUNDING_POLYGON']
+                epsg_code = int(tags['BOUNDING_POLYGON_EPSG_CODE'])
+                rtc_polygon = wkt.loads(rtc_polygon_str)
 
                 # Reproject to EPSG 4326 if the current EPSG is not 4326
                 if epsg_code != ref_epsg:
-                    left, bottom, right, top = \
-                        transform_bounds(src.crs,
-                                         {'init': f'EPSG:{ref_epsg}'},
-                                         left,
-                                         bottom,
-                                         right,
-                                         top)
-                rtc_polygon = Polygon([(left, bottom),
-                                       (left, top),
-                                       (right, top),
-                                       (right, bottom)])
+                    # # Create a transformer
+                    transformer = Transformer.from_crs(f'EPSG:{epsg_code}',
+                                                       f'EPSG:{ref_epsg}', always_xy=True)
+
+                    # Transform the polygon
+                    rtc_polygon = transform(transformer.transform, rtc_polygon)
+            
 
             # Check if bursts intersect the reference polygon
             if ref_polygon.intersects(rtc_polygon) or \
-            ref_polygon.overlaps(rtc_polygon):
+                ref_polygon.overlaps(rtc_polygon):
                 overlapped_rtc_dir_list.append(input_dir)
-        else:
-            logger.warning('fail to find the overlapped rtc')
-            overlapped_rtc_dir_list = None
+
+    if not overlapped_rtc_dir_list:
+        logger.warning('fail to find the overlapped rtc')
+        overlapped_rtc_dir_list = None
 
     return overlapped_rtc_dir_list
 
@@ -339,7 +338,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
     mgrs_collection_file : str
         Path to the MGRS tile collection.
     track_number : int, optional
-        Track number (or relative orbit number) to specify 
+        Track number (or relative orbit number) to specify
         MGRS tile collection
 
     Returns
@@ -399,7 +398,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
     # Load the vector data
     vector_gdf = gpd.read_file(mgrs_collection_file)
-    
+
     # If track number is given, then search MGRS tile collection with track number
     if track_number is not None:
         vector_gdf = vector_gdf[
@@ -765,7 +764,7 @@ def run(cfg):
 
         # Values ranging from 0 to 100 are used to represent the likelihood
         # or possibility of the presence of water. A higher value within
-        # this range signifies a higher likelihood of water being present. 
+        # this range signifies a higher likelihood of water being present.
         fuzzy_value = dswx_sar_util.read_geotiff(paths['fuzzy_value'])
         fuzzy_value = np.round(fuzzy_value * 100)
         dswx_sar_util.save_dswx_product(
@@ -805,11 +804,11 @@ def run(cfg):
             image_tif=paths['final_water'],
             track_number=track_number)
         maximum_burst = most_overlapped['number_of_bursts']
-        expected_burst_list = most_overlapped['bursts']
-
+        # convert string to list
+        expected_burst_list = ast.literal_eval(most_overlapped['bursts'])
         logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
         actual_burst_id = collect_burst_id(input_list,
-                                           processing_cfg.polarizations[0])
+                                           DSWX_S1_POL_DICT['CO_POL'])
         number_burst = len(actual_burst_id)
         mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_BURSTS'] = \
             maximum_burst
@@ -914,8 +913,6 @@ def run(cfg):
                         set_hand_mask_to_nodata=set_hand_mask_to_nodata,
                         set_layover_shadow_to_nodata=set_layover_shadow_to_nodata,
                         set_ocean_masked_to_nodata=set_ocean_masked_to_nodata)
-
-
 
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran save_mgrs_tiles in "

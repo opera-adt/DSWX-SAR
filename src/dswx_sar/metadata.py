@@ -338,13 +338,13 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
 def gather_rtc_files(rtc_dirs, pols):
     """
     Given directories containing RTC files,
-    gather all TIF files of the polarization `pol`.
+    gather all TIF files of the polarization `pols`.
     Parameters
     ----------
     rtc_dirs : list
         List of directories containing RTC files.
-    pol : list
-        The polarizations for which to collect burst IDs
+    pols : list
+        The polarizations for which to find burst
         (e.g., 'HH', 'VV', 'HV', 'VH').
 
     Returns

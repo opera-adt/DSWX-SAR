@@ -632,14 +632,11 @@ def process_dark_land_component(args):
             mask_buffer = ndimage.binary_dilation(watermask==1,
                                                   iterations=margin,
                                                   mask=out_boundary)
-
-            signle_band = np.reshape(bands[pol_ind, :, :],
-                                     [bands.shape[1],
-                                      bands.shape[2]])
+            single_band = bands[pol_ind, ...]
 
             # compute median value for polygons
-            intensity_center = np.nanmedian(signle_band[watermask==1])
-            intensity_adjacent_area = signle_band[(watermask==0) &
+            intensity_center = np.nanmedian(single_band[watermask==1])
+            intensity_adjacent_area = single_band[(watermask==0) &
                                                   (mask_buffer==1)]
 
             intensity_adjacent_low = np.nanpercentile(intensity_adjacent_area,
@@ -651,7 +648,7 @@ def process_dark_land_component(args):
             if intensity_center > intensity_adjacent_low:
                 bimodality_array_i = False
             else:
-                intensity_array = signle_band[mask_buffer]
+                intensity_array = single_band[mask_buffer]
                 int_mask = (np.isnan(intensity_array)) | \
                            (intensity_array == 0)
                 intensity_array = intensity_array[np.invert(int_mask)]
@@ -814,7 +811,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
         If True, additional output metrics and
         images are saved for debugging purposes.
     lines_per_block: int
-        lines of the block processing 
+        lines of the block processing
 
     Returns:
     --------
@@ -841,10 +838,10 @@ def remove_false_water_bimodality_parallel(water_mask_path,
             lines_per_block,
             data_shape,
             pad_shape)
-        removed_flase_water_path = os.path.join(
+        removed_false_water_path = os.path.join(
             outputdir,
             f'{remove_false_path_prefix}_{pol_str}_{block_iter}.tif')
-        remove_false_water_path_set.append(removed_flase_water_path)
+        remove_false_water_path_set.append(removed_false_water_path)
 
         for block_ind, block_param in enumerate(block_params):
 
@@ -858,9 +855,8 @@ def remove_false_water_bimodality_parallel(water_mask_path,
             # computes the connected components labeled image of boolean image
             # and also produces a statistics output for each label
             nb_components_water, output_water, stats_water, _ = \
-                cv2.connectedComponentsWithStats(np.array(water_mask,
-                                                        dtype=np.uint8),
-                                                connectivity=8)
+                cv2.connectedComponentsWithStats(water_mask.astype(np.uint8),
+                                                 connectivity=8)
             nb_components_water = nb_components_water - 1
             logger.info(f'detected component number : {nb_components_water}')
 
@@ -885,11 +881,6 @@ def remove_false_water_bimodality_parallel(water_mask_path,
             bounding_boxes = stats_water[1:, :4]
             index_set = []
             component_data = {}
-
-            # If the polarization is not in the list ['VV', 'VH', 'HH', 'HV'],
-            # Return input as it is without further modification.
-            bimodality_total = water_mask.copy()
-            del water_mask
 
             for ind in range(0, nb_components_water):
                 bbox_x, bbox_y, bbox_w, bbox_h = bounding_boxes[ind, :]
@@ -995,13 +986,17 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                                 cog_flag=True,
                                 scratch_dir=outputdir)
 
-            bimodality_total = np.squeeze(np.nansum(bimodality_set, axis=0))
-
-            # 0 value in output_water indicates the non-water
-            bimodality_total[output_water==0] = False
+            if {'HH', 'HV', 'VV', 'VH'}.intersection(set(pol_list)):
+                bimodality_total = np.squeeze(np.nansum(bimodality_set, axis=0))
+                # 0 value in output_water indicates the non-water
+                bimodality_total[output_water==0] = False
+            else:
+                # If the polarization is not in the list ['VV', 'VH', 'HH', 'HV'],
+                # Return input as it is without further modification.
+                bimodality_total = water_mask
 
             dswx_sar_util.write_raster_block(
-                removed_flase_water_path,
+                removed_false_water_path,
                 bimodality_total,
                 block_param,
                 geotransform=meta_info['geotransform'],
@@ -1010,9 +1005,10 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                 cog_flag=True,
                 scratch_dir=outputdir)
 
+            # 'check_remove_false_water' has 1 value for unprocessed components
+            # due to its touching the boundaries and has 0 value for processed components.
             check_remove_false_water_path = os.path.join(
                 outputdir, f'check_remove_false_water_{"_".join(pol_list)}.tif')
-
             dswx_sar_util.write_raster_block(
                 check_remove_false_water_path,
                 check_image,
@@ -1043,8 +1039,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
             scratch_dir=outputdir)
     else:
         merged_removed_false_water_path = remove_false_water_path_set[0]
-    import gc
-    gc.collect()
+
     bimodality_total = dswx_sar_util.read_geotiff(merged_removed_false_water_path)
 
     return bimodality_total
@@ -1129,9 +1124,8 @@ def fill_gap_water_bimodality_parallel(
             # computes the connected components labeled image of boolean image
             # and also produces a statistics output for each label
             nb_components_water, output_water, stats_water, _ = \
-                cv2.connectedComponentsWithStats(np.array(water_mask,
-                                                dtype=np.uint8),
-                                                connectivity=8)
+                cv2.connectedComponentsWithStats(water_mask.astype(np.uint8),
+                                                 connectivity=8)
 
             del out_boundary, water_mask
 

@@ -41,16 +41,16 @@ band_assign_value_dict = {
 }
 
 '''
-Internally, DSWx-S1 has 2 water classes; 
+Internally, DSWx-S1 has 2 water classes;
     1. low-backscattering water
     2. high-backscattering water
-There classes are collapesed into water class when 
-WTR layers converts to BWTR. 
+There classes are collapesed into water class when
+WTR layers converts to BWTR.
 
-Low-backscattering land (dark land) is captured from  
+Low-backscattering land (dark land) is captured from
     1. masking_with_ancillary
     2. refine_with_bimodality
-These classes are collapsed into no-water class 
+These classes are collapsed into no-water class
 '''
 
 collapse_wtr_classes_dict = {
@@ -64,7 +64,7 @@ collapse_wtr_classes_dict = {
     band_assign_value_dict['hand_mask']: \
         band_assign_value_dict['hand_mask'],
     band_assign_value_dict['layover_shadow_mask']: \
-        band_assign_value_dict['layover_shadow_mask'],    
+        band_assign_value_dict['layover_shadow_mask'],
     band_assign_value_dict['inundated_vegetation']: band_assign_value_dict['inundated_vegetation'],
     band_assign_value_dict['no_data']: band_assign_value_dict['no_data'],
     band_assign_value_dict['ocean_mask']: band_assign_value_dict['ocean_mask'],
@@ -96,13 +96,13 @@ def get_interpreted_dswx_s1_ctable():
                               (0, 0, 255))  # Blue - Water (high confidence)
     dswx_ctable.SetColorEntry(band_assign_value_dict['bright_water_fill'],
                               (120, 120,  240 ))  # baby blue - bright water
-    dswx_ctable.SetColorEntry(band_assign_value_dict['landcover_mask'],
-                              (240, 20,  20 ))  # Red - dark land
     dswx_ctable.SetColorEntry(band_assign_value_dict['dark_land_mask'],
+                              (240, 20,  20 ))  # Red - dark land
+    dswx_ctable.SetColorEntry(band_assign_value_dict['landcover_mask'],
                               (200, 200, 50))  # Yellow - Landcover mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['hand_mask'],
                               (200, 200, 200))  # light gray - Hand mask
-    dswx_ctable.SetColorEntry(band_assign_value_dict['layover_shadow_mask'], 
+    dswx_ctable.SetColorEntry(band_assign_value_dict['layover_shadow_mask'],
                               (128, 128, 128))  # Gray - Layover/shadow mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['inundated_vegetation'],
                               (0, 255, 0))  # Green - Inundated vegetation
@@ -450,7 +450,7 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
         epsg_output,
         x_snap=pixel_x_spacing,
         y_snap=pixel_y_sapcing)
-    
+
     x_coords, y_coords = zip(*corner_output)
     x_min_output, x_max_output = min(x_coords), max(x_coords)
     y_min_output, y_max_output = min(y_coords), max(y_coords)
@@ -635,7 +635,7 @@ def get_raster_block(raster_path, block_param):
 def write_raster_block(out_raster, data,
                        block_param, geotransform, projection,
                        datatype='byte',
-                       cog_flag=False, 
+                       cog_flag=False,
                        scratch_dir='.'):
     """
     Write processed data block to the specified raster file.
@@ -836,8 +836,8 @@ class BlockParam:
     data_length: int
 
 
-def merge_binary_layers(layer_list, value_list, merged_layer_path, 
-                        lines_per_block, mode='or', cog_flag=True, 
+def merge_binary_layers(layer_list, value_list, merged_layer_path,
+                        lines_per_block, mode='or', cog_flag=True,
                         scratch_dir='.'):
     """
     Merges multiple raster layers into a single binary layer based on specified
@@ -1081,7 +1081,7 @@ def _compute_browse_array(
         DSWx-S1 product water classes
     exclude_inundated_vegetation : bool
         True to exclude Inundated vegetation
-        in output layer and instead display them as Not Water. 
+        in output layer and instead display them as Not Water.
         False to display these pixels as PSW. Default is False.
     set_not_water_to_nodata : bool
         How to code the Not Water pixels. Defaults to False. Options are:
@@ -1099,7 +1099,7 @@ def _compute_browse_array(
         How to code the ocean-masked pixels. Defaults to True. Options are:
             True : ocean-masked pixels will be marked with UINT8_FILL_VALUE
             False : ocean-masked will remain WTR_OCEAN_MASKED
-    
+
     Returns
     -------
     browse_arr : numpy.ndarray
@@ -1240,15 +1240,15 @@ def geotiff2png(src_geotiff_filename,
     Parameters
     ----------
     src_geotiff_filename : str
-        Name (with path) of the source geotiff file to be 
+        Name (with path) of the source geotiff file to be
         converted. This file must already exist.
     dest_png_filename : str
         Name (with path) for the output .png file
     output_height : int, optional.
-        Height in Pixels for the output png. If not provided, 
+        Height in Pixels for the output png. If not provided,
         will default to the height of the source geotiff.
     output_width : int, optional.
-        Width in Pixels for the output png. If not provided, 
+        Width in Pixels for the output png. If not provided,
         will default to the width of the source geotiff.
     logger : Logger, optional
         Logger for the project
@@ -1265,7 +1265,7 @@ def geotiff2png(src_geotiff_filename,
     if output_width is None:
         output_width = gdal_ds.GetRasterBand(1).XSize
     # select the resampling algorithm to use based on dtype
-    
+
     gdal_dtype = gdal_ds.GetRasterBand(1).DataType
     dtype_name = gdal.GetDataTypeName(gdal_dtype).lower()
     is_integer = 'byte' in dtype_name  or 'int' in dtype_name
@@ -1281,8 +1281,8 @@ def geotiff2png(src_geotiff_filename,
     gdal.SetConfigOption('GDAL_PAM_ENABLED', 'NO')
 
     # Translate the existing geotiff to the .png format
-    gdal.Translate(dest_png_filename, 
-                   src_geotiff_filename, 
+    gdal.Translate(dest_png_filename,
+                   src_geotiff_filename,
                    format='PNG',
                    height=output_height,
                    width=output_width,
@@ -1295,7 +1295,7 @@ def geotiff2png(src_geotiff_filename,
     logger.info(f'Browse Image PNG created: {dest_png_filename}')
 
 
-def create_browse_image(water_geotiff_filename, 
+def create_browse_image(water_geotiff_filename,
                         output_dir_path,
                         browser_filename,
                         browse_image_height,
@@ -1328,9 +1328,9 @@ def create_browse_image(water_geotiff_filename,
         Filename for the output browse image PNG.
     browse_image_height : int
         Desired height of the output browse image.
-    browse_image_width : int 
+    browse_image_width : int
         Desired width of the output browse image.
-    scratch_dir : str 
+    scratch_dir : str
         Directory path for temporary storage during processing.
     flag_collapse_wtr_classes : bool, optional
         If True, collapses water classes. Default is True.

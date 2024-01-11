@@ -81,7 +81,7 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
             dswx_metadata_dict['RTC_QA_RFI_NUMBER_OF_BURSTS'] = np.sum(bool_list)
 
         else:
-            dswx_contents = set(values)
+            dswx_contents = sorted(set(values))
             dswx_metadata_dict[dswx_field] = \
                 values[0] if len(dswx_contents) == 1 else ', '.join(dswx_contents)
 

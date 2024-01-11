@@ -551,7 +551,7 @@ def run(cfg):
     co_pol = processing_cfg.copol
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
-    hand_mask = processing_cfg.hand.mask_value
+    hand_mask_value = processing_cfg.hand.mask_value
 
     # Static ancillary database
     static_ancillary_file_group_cfg = cfg.groups.static_ancillary_file_group
@@ -674,7 +674,7 @@ def run(cfg):
     # 3) hand excluded
     hand = dswx_sar_util.read_geotiff(
         os.path.join(scratch_dir, 'interpolated_hand.tif'))
-    hand_mask = hand > hand_mask
+    hand_mask = hand > hand_mask_value
 
     full_wtr_water_set_path = \
         os.path.join(scratch_dir, 'full_water_binary_WTR_set.tif')

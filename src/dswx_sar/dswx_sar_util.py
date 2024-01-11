@@ -98,7 +98,7 @@ def get_interpreted_dswx_s1_ctable():
                               (120, 120,  240 ))  # baby blue - bright water
     dswx_ctable.SetColorEntry(band_assign_value_dict['landcover_mask'],
                               (240, 20,  20 ))  # Red - dark land
-    dswx_ctable.SetColorEntry(band_assign_value_dict['hand_mask'],
+    dswx_ctable.SetColorEntry(band_assign_value_dict['dark_land_mask'],
                               (200, 200, 50))  # Yellow - Landcover mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['hand_mask'],
                               (200, 200, 200))  # light gray - Hand mask

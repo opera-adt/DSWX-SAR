@@ -317,7 +317,6 @@ class AncillaryRelocation:
 
         file_width = gdal_ds.GetRasterBand(1).XSize
         file_length = gdal_ds.GetRasterBand(1).YSize
-        no_data = gdal_ds.GetRasterBand(1).GetNoDataValue()
 
         del gdal_ds
         file_srs = osr.SpatialReference()

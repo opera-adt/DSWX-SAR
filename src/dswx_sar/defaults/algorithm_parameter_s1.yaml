@@ -55,7 +55,8 @@ runconfig:
             # tile selecting strategy to identify the boundary between water and nonwater
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
-            selection_method: 'combined'
+            selection_method: 
+             - 'combined'
 
             # Thresholds to select tiles showing the boundary between water and nonwater
             # using bimodality strategy.

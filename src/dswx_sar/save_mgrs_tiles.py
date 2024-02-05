@@ -703,7 +703,6 @@ def run(cfg):
         inundated_vegetation = None
         logger.warning('Inudated vegetation file was disabled.')
 
-
     # 5) create ocean mask
     if ocean_mask_enabled:
         logger.info('Ocean mask enabled')

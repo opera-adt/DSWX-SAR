@@ -46,6 +46,51 @@ def slice_gen(total_size: int, batch_size: int, combine_rem: bool=True) -> Itera
             stop_idx = start_idx + batch_size
             yield slice(start_idx, stop_idx)
 
+def read_meta_data(input_file):
+    dswx_meta_mapping = {
+        'RTC_ORBIT_PASS_DIRECTION': '/science/LSAR/identification/orbitPassDirection',
+        'RTC_LOOK_DIRECTION': '/science/LSAR/identification/lookDirection',
+        'RTC_INPUT_L1_SLC_GRANULES': '/science/LSAR/GCOV/metadata/processingInformation/inputs/l1SlcGranules',
+        'RTC_PRODUCT_VERSION': '/science/LSAR/identification/productVersion',
+        'RTC_SENSING_START_TIME': '/science/LSAR/identification/zeroDopplerStartTime',
+        'RTC_SENSING_END_TIME': '/science/LSAR/identification/zeroDopplerEndTime',
+        'RTC_FRAME_NUMBER': '/science/LSAR/identification/frameNumber',
+        'RTC_TRACK_NUMBER': '/science/LSAR/identification/trackNumber',
+        'RTC_ABSOLUTE_ORBIT_NUMBER': '/science/LSAR/identification/absoluteOrbitNumber',
+        'RTC_APPLIED': '/science/LSAR/GCOV/metadata/processingInformation/parameters/radiometricTerrainCorrectionApplied',
+        'RTC_QA_RFI_INFO_AVAILABLE': '/science/LSAR/GCOV/metadata/processingInformation/parameters/rfiCorrectionApplied',
+    }
+
+    with h5py.File(input_file, 'r') as src_h5:
+        orbit_pass_dir = src_h5[dswx_meta_mapping['RTC_ORBIT_PASS_DIRECTION']][()].decode()
+        look_dir = src_h5[dswx_meta_mapping['RTC_LOOK_DIRECTION']][()].decode()
+        prod_ver = src_h5[dswx_meta_mapping['RTC_PRODUCT_VERSION']][()].decode()
+        zero_dopp_start = src_h5[dswx_meta_mapping['RTC_SENSING_START_TIME']][()].decode()
+        zero_dopp_end = src_h5[dswx_meta_mapping['RTC_SENSING_END_TIME']][()].decode()
+        frame_number = src_h5[dswx_meta_mapping['RTC_FRAME_NUMBER']][()]
+        track_number = src_h5[dswx_meta_mapping['RTC_TRACK_NUMBER']][()]
+        abs_orbit_number = src_h5[dswx_meta_mapping['RTC_ABSOLUTE_ORBIT_NUMBER']][()]
+        input_slc_granules = src_h5[dswx_meta_mapping['RTC_INPUT_L1_SLC_GRANULES']][(0)].decode()
+        rtc_applied = src_h5[dswx_meta_mapping['RTC_APPLIED']][()].decode()
+        rfi_applied = src_h5[dswx_meta_mapping['RTC_QA_RFI_INFO_AVAILABLE']][()].decode()
+
+    dswx_metadata_dict = {
+        'ORBIT_PASS_DIRECTION': orbit_pass_dir,
+        'LOOK_DIRECTION': look_dir,
+        'INPUT_L1_SLC_GRANULES': prod_ver,
+        'PRODUCT_VERSION': prod_ver,
+        'ZERO_DOPPLER_START_TIME': zero_dopp_start,
+        'ZERO_DOPPLER_END_TIME': zero_dopp_end,
+        'FRAME_NUMBER': track_number,
+        'TRACK_NUMBER': track_number,
+        'ABSOLUTE_ORBIT_NUMBER': abs_orbit_number,
+        'RTC_APPLIED': rtc_applied,
+        'QA_RFI_INFO_AVAILABLE': rfi_applied,
+    }
+
+    src_h5.close
+
+    return dswx_metadata_dict
 
 def read_write_gcov(
     input_file, 
@@ -54,7 +99,8 @@ def read_write_gcov(
     ds_name, 
     row_blk_size, 
     col_blk_size,
-    geodata
+    geodata,
+    dswx_metadata_dict,
 ):
     """Read an level-2 RTC prodcut in HDF5 format and writ it out in 
     GeoTiff format in data blocks defined by row_blk_size and col_blk_size.
@@ -147,7 +193,9 @@ def read_write_gcov(
                         row_slice_size
                    )
                 )
-         
+             
+        dst.update_tags(**dswx_metadata_dict)
+
     del h5_ds
 
     # Close the data set
@@ -195,6 +243,8 @@ def read_rtc_geo(
         'epsg': epsg
     }
 
+    src_h5.close
+
     return geo_dict
 
 
@@ -205,6 +255,7 @@ def process_nisar_gcov(
     ds_name, 
     row_blk_size,
     col_blk_size,
+    dswx_metadata_dict,
     ):
 
     """This wrapper reads the input HDF5 RTC product and writes it out
@@ -250,7 +301,8 @@ def process_nisar_gcov(
         ds_name, 
         row_blk_size, 
         col_blk_size,
-        geodata
+        geodata,
+        dswx_metadata_dict,
     )
 
 
@@ -261,6 +313,8 @@ if __name__ == "__main__":
     row_blk_size = 1000
     col_blk_size = 1100
 
+    # Read RTC input metadata
+    dswx_metadata_dict = read_meta_data(input_file)
 
     # Process HHHH data
     ds_name = 'HHHH'
@@ -272,6 +326,7 @@ if __name__ == "__main__":
         ds_name, 
         row_blk_size, 
         col_blk_size,
+        dswx_metadata_dict,
     )
 
     # Process HVHV data
@@ -284,6 +339,7 @@ if __name__ == "__main__":
         ds_name, 
         row_blk_size, 
         col_blk_size,
+        dswx_metadata_dict,
     )
 
     ds_name = 'layoverShadowMask'
@@ -295,5 +351,5 @@ if __name__ == "__main__":
         ds_name, 
         row_blk_size, 
         col_blk_size,
+        dswx_metadata_dict,
     )
-

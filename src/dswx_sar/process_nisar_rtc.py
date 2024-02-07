@@ -229,12 +229,10 @@ def read_rtc_geo(
     with h5py.File(input_file, 'r') as src_h5:
         xmin = src_h5[f'{group}/{geodata['xcoord']}'][:][0]
         ymin = src_h5[f'{group}/{geodata['ycoord']}'][:][0]
-        xres = np.array(src_h5[f'{group}/{geodata['xposting']}'])
-        yres = np.array(src_h5[f'{group}/{geodata['yposting']}'])
-        epsg = np.array(src_h5[f'{group}{geodata['proj']}'])
+        xres = src_h5[f'{group}/{geodata['xposting']}'][()]
+        yres = src_h5[f'{group}/{geodata['yposting']}'][()]
+        epsg = src_h5[f'{group}{geodata['proj']}'][()]
  
-    epsg = epsg.item()
-    
     geo_dict = {
         'xmin': xmin,
         'ymin': ymin,

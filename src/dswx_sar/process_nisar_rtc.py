@@ -2,7 +2,6 @@ import numpy as np
 from osgeo import gdal
 import h5py
 import rasterio
-from rasterio.transform import from_origin
 from rasterio.transform import Affine
 from rasterio.windows import Window
 import os
@@ -142,14 +141,6 @@ def read_write_gcov(
     num_cols = h5_ds.RasterXSize
     num_rows = h5_ds.RasterYSize
   
-    # Geotransformation
-    transform = from_origin(
-        geo_dict['xmin'],
-        geo_dict['ymin'],
-        geo_dict['xres'],
-        geo_dict['yres'],
-    ) 
-       
     # Geotransformation
     transform = Affine.translation(
         geo_dict['xmin'] - geo_dict['xres']/2, geo_dict['ymin'] - geo_dict['yres']/2) * \

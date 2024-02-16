@@ -1755,9 +1755,9 @@ def process_block(ii, jj, n_rows_block, n_cols_block, m_rows_block, m_cols_block
                      for test_mode in mode_tau_block]
     else:
         threshold_list = [np.nan_to_num(ind_list, nan=-50).tolist()
-                        for ind_list in threshold_tau_block]
+                          for ind_list in threshold_tau_block]
         mode_list = [np.nan_to_num(ind_list, nan=-50).tolist()
-                    for ind_list in mode_tau_block]
+                     for ind_list in mode_tau_block]
 
     return ii, jj, threshold_list, mode_list, candidate_tile_coords
 
@@ -2072,8 +2072,8 @@ def run(cfg):
                 width, filt_im_str,
                 water_mask_tif_str, cfg,
                 thres_max, average_threshold_flag)
-                for ii in range(0, n_rows_block)
-                for jj in range(0, n_cols_block)
+            for ii in range(0, n_rows_block)
+            for jj in range(0, n_cols_block)
             )
 
         # If average_threshold_flag is True, all thresholds within
@@ -2083,8 +2083,8 @@ def run(cfg):
         if average_threshold_flag:
 
             threshold_tau_set = np.zeros([n_rows_block,
-                                        n_cols_block,
-                                        band_number])
+                                          n_cols_block,
+                                          band_number])
             mode_tau_set = np.zeros([n_rows_block,
                                     n_cols_block,
                                     band_number])

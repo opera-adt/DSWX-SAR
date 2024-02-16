@@ -687,26 +687,32 @@ def write_raster_block(out_raster, data,
         if not ds_data:
             raise IOError(f"Failed to open raster for update: {out_raster}")
 
-    if ndim == 2:
-        ds_data.GetRasterBand(1).WriteArray(
-                data[data_start_without_pad:data_end_without_pad,
-                    :],
+    if ndim == 3:
+        for im_ind in range(0, number_band):
+
+            ds_data.GetRasterBand(im_ind+1).WriteArray(
+                data[im_ind,
+                     data_start_without_pad:data_end_without_pad,
+                     :],
                 xoff=0,
                 yoff=block_param.write_start_line)
     else:
-        for im_ind in range(0, number_band):
-            ds_data.GetRasterBand(im_ind+1).WriteArray(
-                np.squeeze(data[im_ind,
-                                data_start_without_pad:data_end_without_pad,
-                                :]),
+        if data.ndim == 2:
+            data_towrite = data[data_start_without_pad:data_end_without_pad, :]
+            ds_data.GetRasterBand(1).WriteArray(
+                data_towrite,
                 xoff=0,
                 yoff=block_param.write_start_line)
-
+        else:
+            ds_data.GetRasterBand(1).WriteArray(
+                np.reshape(data, [1, len(data)]),
+                xoff=0,
+                yoff=block_param.write_start_line)
     del ds_data
 
     # Write COG is cog_flag is True and last block.
-    if (block_param.write_start_line + block_param.block_length == \
-        block_param.data_length) and cog_flag:
+    if (block_param.write_start_line + block_param.block_length ==\
+       block_param.data_length) and cog_flag:
         _save_as_cog(out_raster, scratch_dir)
 
 

@@ -34,13 +34,13 @@ def get_label_landcover_esa_10():
 
     label['Tree Cover'] = 10
     label['Shrubs'] = 20
-    label['Grassland'] =30
+    label['Grassland'] = 30
     label['Crop'] = 40
     label['Urban'] = 50
     label['Bare sparse vegetation'] = 60
     label['Snow and Ice'] = 70
     label['Permanent water bodies'] = 80
-    label['Herbaceous wetland'] =90
+    label['Herbaceous wetland'] = 90
     label['Mangrove'] = 95
     label['Moss and lichen'] = 100
     label['No_data'] = 0
@@ -61,7 +61,6 @@ class FillMaskLandCover:
         if not os.path.isfile(self.landcover_file_path):
             raise OSError(f"{self.landcover_file_path} is not found")
 
-
     def open_landcover(self):
         '''Open landcover map
 
@@ -72,7 +71,6 @@ class FillMaskLandCover:
         '''
         landcover_map = dswx_sar_util.read_geotiff(self.landcover_file_path)
         return landcover_map
-
 
     def get_mask(self, mask_label, block_param=None):
         '''Obtain areas corresponding to the givin labels from landcover map
@@ -87,7 +85,7 @@ class FillMaskLandCover:
         landcover_binary : numpy.ndarray
             binary layers
         '''
-        if block_param == None:
+        if block_param is None:
             landcover = self.open_landcover()
         else:
             landcover = dswx_sar_util.get_raster_block(
@@ -102,7 +100,6 @@ class FillMaskLandCover:
             landcover_binary[temp] = True
 
         return landcover_binary
-
 
 def extract_bbox_with_buffer(
         binary: np.ndarray,
@@ -190,27 +187,20 @@ def check_water_land_mixture(args):
     water_mask : numpy.ndarray
         Processed water mask.
     """
-    i, size, minimum_pixel, bounds, int_linear_str, water_label_str, \
-        water_mask_str, pol_ind = args
+    i, size, minimum_pixel, bounds, int_linear_block, water_label_block, \
+        water_mask_block, pol_ind = args
 
-    x_off = bounds[0]
-    y_off = bounds[2]
-    width = bounds[1] - bounds[0]
-    height = bounds[3] - bounds[2]
-    window = Window(x_off, y_off, width, height)
-
-    # read subset of water map and intensity from given bounding box
-    with rasterio.open(int_linear_str) as src:
-        int_linear = src.read(window=window)
-        int_linear = np.squeeze(int_linear[pol_ind, :,:])
-
-    with rasterio.open(water_label_str) as src:
-        water_label = src.read(window=window)
-        water_label = np.squeeze(water_label)
-
-    with rasterio.open(water_mask_str) as src:
-        water_mask = src.read(window=window)
-        water_mask = np.squeeze(water_mask)
+    if int_linear_block.ndim == 2:
+        int_linear_block = np.reshape(
+            int_linear_block,
+            [1, int_linear_block.shape[0], int_linear_block.shape[1]])
+    int_linear = int_linear_block[pol_ind,
+                                  bounds[2]:bounds[3],
+                                  bounds[0]:bounds[1]]
+    water_label = water_label_block[bounds[2]:bounds[3],
+                                    bounds[0]:bounds[1]]
+    water_mask = water_mask_block[bounds[2]:bounds[3],
+                                  bounds[0]:bounds[1]].copy()
 
     change_flag = False
     # label for water object computed from cv2 start from 1.
@@ -219,7 +209,7 @@ def check_water_land_mixture(args):
 
     if (size > minimum_pixel) and (intensity_array.size > 0):
 
-        invalid_mask = (np.isnan(intensity_array) | (intensity_array==0))
+        invalid_mask = (np.isnan(intensity_array) | (intensity_array == 0))
 
         # check if the area has bimodality
         metric_obj = refine_with_bimodality.BimodalityMetrics(intensity_array)
@@ -256,17 +246,21 @@ def check_water_land_mixture(args):
                 n_dark_water_pixels = np.count_nonzero(dark_water)
                 # compute additional iteration number using size.
                 # it does not need to be precise.
-                add_iter = int((np.sqrt(2) - 1.2) * np.sqrt(n_dark_water_pixels))
+                add_iter = int((np.sqrt(2) - 1.2) *
+                               np.sqrt(n_dark_water_pixels))
                 dark_mask_buffer = ndimage.binary_dilation(
                     dark_water,
                     iterations=add_iter,
                     mask=out_boundary_sub)
                 dark_water_linear = int_linear[dark_mask_buffer]
-                hist_min = np.nanpercentile(10 * np.log10(dark_water_linear), 1)
-                hist_max = np.nanpercentile(10 * np.log10(dark_water_linear), 99)
+                hist_min = np.nanpercentile(
+                    10 * np.log10(dark_water_linear), 1)
+                hist_max = np.nanpercentile(
+                    10 * np.log10(dark_water_linear), 99)
 
-                # Check if the candidates of 'dark water' has distinct backscattering
-                # compared to the adjacent pixels using bimodality
+                # Check if the candidates of 'dark water' has distinct
+                # backscattering compared to the adjacent pixels
+                # using bimodality
                 metric_obj_local = refine_with_bimodality.BimodalityMetrics(
                     dark_water_linear,
                     hist_min=hist_min,
@@ -278,7 +272,7 @@ def check_water_land_mixture(args):
                     bm_flag=True,
                     surface_ratio_flag=True,
                     bc_flag=False):
-
+                    water_mask.setflags(write=1)
                     water_mask[dark_water] = 0
                     change_flag = True
 
@@ -292,25 +286,33 @@ def check_water_land_mixture(args):
                         (target_water)
 
                 n_bright_water_pixels = np.count_nonzero(bright_water_pixels)
-                add_iter = int((np.sqrt(2) - 1.2) * np.sqrt(n_bright_water_pixels))
+                add_iter = int((np.sqrt(2) - 1.2) *
+                               np.sqrt(n_bright_water_pixels))
                 bright_mask_buffer = ndimage.binary_dilation(
                     bright_water_pixels,
                     iterations=add_iter,
                     mask=out_boundary_sub)
-                bright_water_linear = int_linear[bright_mask_buffer]
+
+                bright_water_linear = int_linear[bright_mask_buffer].copy()
                 bright_water_linear[bright_water_linear == 0] = np.nan
-                hist_min = np.nanpercentile(10 * np.log10(bright_water_linear), 2)
-                hist_max = np.nanpercentile(10 * np.log10(bright_water_linear), 98)
+
+                hist_min = np.nanpercentile(
+                    10 * np.log10(bright_water_linear), 2)
+                hist_max = np.nanpercentile(
+                    10 * np.log10(bright_water_linear), 98)
                 metric_obj_local = refine_with_bimodality.BimodalityMetrics(
                     bright_water_linear,
                     hist_min=hist_min,
                     hist_max=hist_max)
 
-                if not metric_obj_local.compute_metric(ashman_flag=True,
+                if not metric_obj_local.compute_metric(
+                    ashman_flag=True,
                     bhc_flag=True,
                     bm_flag=True,
                     surface_ratio_flag=True,
                     bc_flag=False):
+
+                    water_mask.setflags(write=1)
                     water_mask[bright_water_pixels] = 0
                     change_flag = True
 
@@ -323,7 +325,8 @@ def split_extended_water_parallel(
         pol_ind: int,
         outputdir: str,
         input_dict: dict,
-        number_workers : int):
+        number_workers: int,
+        input_lines_per_block: int):
     """
     Splits extended water areas into smaller subsets based on bounding boxes
     with buffer, processing in parallel for efficiency.
@@ -349,51 +352,151 @@ def split_extended_water_parallel(
         Saves the updated water mask with extended areas split into smaller
         subsets in the specified output path.
     """
-    water_mask = dswx_sar_util.read_geotiff(water_mask_path)
     meta_info = dswx_sar_util.get_meta_from_tif(water_mask_path)
 
-    # Extract bounding boxes with buffer
-    coord_list, sizes, label_image = extract_bbox_with_buffer(
-        binary=water_mask, buffer=10)
+    lines_per_block_set = [input_lines_per_block,
+                           input_lines_per_block*3,
+                           input_lines_per_block*20,
+                           meta_info['length']]
+    pad_shape = (0, 0)
 
-    # Save the label image
-    water_label_filename = 'water_label_landcover.tif'
-    water_label_str = os.path.join(outputdir, water_label_filename)
-    dswx_sar_util.save_raster_gdal(
-        data=label_image,
-        output_file=water_label_str,
-        geotransform=meta_info['geotransform'],
-        projection=meta_info['projection'],
-        scratch_dir=outputdir)
-    # check if the individual water body candidates has bimodality
-    # bright water vs dark water
-    # water vs land
-    # Prepare arguments for parallel processing
+    temp_prefix = 'split_extended_water_parallel_temp'
+    temp_path_set = []
     minimum_pixel = 5000
-    args_list = [(i, sizes[i], minimum_pixel, coord_list[i],
-                  input_dict['intensity'],
-                  water_label_str,
-                  input_dict['water_mask'],
-                  pol_ind) for i in range(len(sizes))]
 
-    # check if the objects have heterogeneous characteristics (bimodality)
-    # If so, split the objects using multi-otsu thresholds and check bimodality.
-    results = Parallel(n_jobs=number_workers)(delayed(check_water_land_mixture)(args)
-                                  for args in args_list)
+    for block_iter, lines_per_block in enumerate(lines_per_block_set):
+        block_params = dswx_sar_util.block_param_generator(
+            lines_per_block,
+            [meta_info['length'], meta_info['width']],
+            pad_shape)
+        if len(lines_per_block_set) > 1:
+            removed_false_water_path = os.path.join(
+                outputdir,
+                f'{temp_prefix}_{block_iter}.tif')
+        else:
+            removed_false_water_path = output_path
 
-    # If water need to be refined (change_flat=True), then update the water mask.
-    for i, change_flag, water_mask_subset in results:
-        if change_flag:
-            water_mask[coord_list[i][2] : coord_list[i][3],
-                       coord_list[i][0] : coord_list[i][1]] = water_mask_subset
+        temp_path_set.append(removed_false_water_path)
 
-    dswx_sar_util.save_dswx_product(
-        np.array(water_mask, dtype=np.uint8),
-        output_path,
-        geotransform=meta_info['geotransform'],
-        projection=meta_info['projection'],
-        scratch_dir=outputdir
-        )
+        for block_ind, block_param in enumerate(block_params):
+            logger.info(
+                f'split_extended_water_parallel block #{block_ind} '
+                f'from {block_param.read_start_line} to '
+                f'{block_param.read_start_line + block_param.read_length}')
+            water_mask = dswx_sar_util.get_raster_block(
+                water_mask_path, block_param)
+            intensity_block = dswx_sar_util.get_raster_block(
+                input_dict['intensity'], block_param)
+
+            # Extract bounding boxes with buffer
+            coord_list, sizes, label_image = extract_bbox_with_buffer(
+                binary=water_mask, buffer=10)
+
+            filtered_sizes = []
+            filtered_coord_list = []
+            filtered_index = []
+            check_output = np.ones([len(sizes)], dtype='byte')
+            old_val = np.arange(1, len(sizes) + 1) - .1
+            index_array_to_image = np.array(
+                np.searchsorted(old_val, label_image),
+                dtype='uint32')
+
+            for ind in range(0, len(sizes)):
+                (bbox_x_start,
+                 bbox_x_end,
+                 bbox_y_start,
+                 bbox_y_end) = coord_list[ind]
+
+                size = sizes[ind]
+
+                # Check if the component touches the boundary
+                if bbox_y_start != 0 and \
+                    bbox_x_end != block_param.block_length and \
+                    size >= minimum_pixel:
+
+                    filtered_index.append(ind)
+                    filtered_coord_list.append([bbox_x_start, bbox_x_end,
+                                                bbox_y_start, bbox_y_end])
+                    filtered_sizes.append(size)
+
+            # check if the individual water body candidates has bimodality
+            # bright water vs dark water
+            # water vs land
+            # Prepare arguments for parallel processing
+            args_list = [(filtered_index[i], filtered_sizes[i],
+                          minimum_pixel, filtered_coord_list[i],
+                          intensity_block,
+                          label_image,
+                          water_mask,
+                          pol_ind) for i in range(len(filtered_sizes))]
+
+            # Check if the objects have heterogeneous characteristics (bimodality)
+            # If so, split the objects using multi-otsu thresholds
+            # and check bimodality.
+            results = Parallel(n_jobs=number_workers)(
+                delayed(check_water_land_mixture)(args)
+                for args in args_list)
+
+            # If water need to be refined (change_flat=True),
+            # then update the water mask.
+            for i, change_flag, water_mask_subset in results:
+                if change_flag:
+                    water_mask[coord_list[i][2]: coord_list[i][3],
+                               coord_list[i][0]: coord_list[i][1]] = \
+                                water_mask_subset
+                check_output[i] = 0
+
+            del results
+            dswx_sar_util.write_raster_block(
+                removed_false_water_path,
+                water_mask,
+                block_param,
+                geotransform=meta_info['geotransform'],
+                projection=meta_info['projection'],
+                datatype='byte',
+                cog_flag=True,
+                scratch_dir=outputdir)
+
+            if block_iter < len(lines_per_block_set)-1:
+                check_output = np.insert(check_output, 0, 0, axis=0)
+                check_image = np.array(
+                    check_output[index_array_to_image], dtype='byte')
+
+                # 'check_remove_false_water' has 1 value for unprocessed components
+                # due to its touching the boundaries and has 0 value for processed components.
+                check_remove_false_water_path = os.path.join(
+                    outputdir, f'check_water_land_mixture_{block_iter}.tif')
+                dswx_sar_util.write_raster_block(
+                    check_remove_false_water_path,
+                    check_image,
+                    block_param,
+                    geotransform=meta_info['geotransform'],
+                    projection=meta_info['projection'],
+                    datatype='byte',
+                    cog_flag=True,
+                    scratch_dir=outputdir)
+                del check_image
+
+            if block_param.block_length + block_param.read_start_line >= meta_info['length']:
+                water_mask_path = check_remove_false_water_path
+
+    if len(temp_path_set) >= 2:
+        # Merge multiple results processed with different block sizes
+        merged_removed_false_water_path = output_path
+
+        dswx_sar_util.merge_binary_layers(
+            layer_list=temp_path_set,
+            value_list=[1] * len(lines_per_block_set),
+            merged_layer_path=merged_removed_false_water_path,
+            lines_per_block=input_lines_per_block,
+            mode='or',
+            cog_flag=True,
+            scratch_dir=outputdir)
+    else:
+        merged_removed_false_water_path = temp_path_set[0]
+
+    logger.info(f'split_extended_water_parallel output: '
+                f'{merged_removed_false_water_path}')
 
 
 def compute_spatial_coverage_from_ancillary_parallel(
@@ -405,8 +508,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
         water_max_value: float,
         spatial_coverage_threshold: float = 0.5,
         number_workers: int = -1,
-        lines_per_block: int = 400,
-    ):
+        lines_per_block: int = 400):
     """
     Computes spatial coverage of water areas using ancillary data,
     processing in parallel for efficiency.
@@ -496,8 +598,9 @@ def compute_spatial_coverage_from_ancillary_parallel(
 
     # Output consists of index and 2D image consisting of True/Flase.
     # True represents the land and False represents not-land.
-    results = Parallel(n_jobs=number_workers)(delayed(compute_spatial_coverage)(args)
-                                  for args in args_list)
+    results = Parallel(n_jobs=number_workers)(
+        delayed(compute_spatial_coverage)(args)
+        for args in args_list)
 
     test_output = np.zeros(len(sizes))
     for i, test_output_i in results:
@@ -508,7 +611,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
     kin = np.searchsorted(old_val, label_image)
     test_output = np.insert(test_output, 0, 0, axis=0)
     mask_water_image = test_output[kin]
-    
+
     dswx_sar_util.save_dswx_product(
         mask_water_image,
         output_file_path,
@@ -571,22 +674,22 @@ def extend_land_cover(landcover_path,
 
     Parameters:
     -----------
-    landcover_path (str): 
+    landcover_path (str):
         Path to the land cover data file.
-    reference_landcover_binary (numpy.ndarray): 
+    reference_landcover_binary (numpy.ndarray):
         Binary array representing the initial land cover.
-    target_landcover (int): 
+    target_landcover (int):
         Label of the land cover type to be extended.
-    exclude_area_rg (numpy.ndarray): 
+    exclude_area_rg (numpy.ndarray):
         Array representing areas to be excluded from processing.
-    metainfo (dict): 
+    metainfo (dict):
         Metadata including geotransform and projection information.
-    scratch_dir (str): 
+    scratch_dir (str):
         Directory for saving intermediate and output files.
 
     Returns:
     --------
-    numpy.ndarray: 
+    numpy.ndarray:
         Updated binary land cover array with the extended target land cover.
     """
     mask_obj = FillMaskLandCover(landcover_path)
@@ -685,7 +788,7 @@ def hand_filter_along_boundary(
         metainfo,
         scratch_dir):
     """
-    Filters geographic data along boundaries based on HAND model and 
+    Filters geographic data along boundaries based on HAND model and
     standard deviation thresholds.
 
     Parameters:
@@ -716,10 +819,13 @@ def hand_filter_along_boundary(
     coord_lists, sizes, output_water = \
         extract_bbox_with_buffer(target_area, 10)
     nb_components_water = len(sizes)
-    height_array = np.zeros(nb_components_water)
+
     hand_filtered_binary = np.zeros(target_area.shape, dtype='byte')
     hand_std_image = np.zeros(target_area.shape, dtype='float32')
-    
+
+    if debug_mode:
+        height_array = np.zeros(nb_components_water)
+
     for ind, coord_list in enumerate(coord_lists):
         sub_x_start, sub_x_end, sub_y_start, sub_y_end = coord_list
         sub_win_x = int(sub_x_end - sub_x_start)
@@ -737,11 +843,13 @@ def hand_filter_along_boundary(
         hand_line_data, hand_image_data = \
             extract_values_using_boundary(water_boundary, sub_hand)
         hand_std = np.nanstd(hand_line_data)
-        height_array[ind] = np.nanstd(hand_line_data)
+
+        if debug_mode:
+            height_array[ind] = np.nanstd(hand_line_data)
 
         hand_std_image[sub_y_start:sub_y_end,
                        sub_x_start:sub_x_end] += hand_image_data
-    
+
         if hand_std > height_std_threshold:
             final_binary = np.zeros(sub_hand.shape, dtype='byte')
             area_median = np.median(hand_line_data)
@@ -761,18 +869,22 @@ def hand_filter_along_boundary(
                 bad_hand_count = np.sum(hand_image_mask)
                 initial_area = new_binary
                 iter_count += 1
-            final_binary[new_binary==1] = 1
+            final_binary[new_binary == 1] = 1
             hand_filtered_binary[sub_y_start:sub_y_end,
-                    sub_x_start:sub_x_end] += final_binary
+                                 sub_x_start:sub_x_end] += final_binary
         else:
             hand_filtered_binary[sub_y_start:sub_y_end,
-                    sub_x_start:sub_x_end] += initial_area
+                                 sub_x_start:sub_x_end] += initial_area
 
     output_water = np.array(output_water)
     old_val = np.arange(1, nb_components_water + 1) - .1
     index_array_to_image = np.searchsorted(old_val, output_water)
-    height_array =  np.insert(height_array, 0, 0, axis=0)
-    height_std_raster = height_array[index_array_to_image]
+
+    if debug_mode:
+        height_array =  np.insert(height_array, 0, 0, axis=0)
+        height_std_raster = np.array(height_array[index_array_to_image],
+                                     dtype='float32')
+
     target_area[hand_filtered_binary == 0] = 0
 
     dswx_sar_util.save_dswx_product(
@@ -785,7 +897,7 @@ def hand_filter_along_boundary(
 
     if debug_mode:
         hand_std_path = os.path.join(
-            scratch_dir, f"landcover_hand_std.tif")
+            scratch_dir, "landcover_hand_std.tif")
         dswx_sar_util.save_raster_gdal(
             np.array(height_std_raster, dtype='float32'),
             hand_std_path,
@@ -794,7 +906,7 @@ def hand_filter_along_boundary(
             scratch_dir=scratch_dir,
             datatype='float32')
         hand_std_path = os.path.join(
-            scratch_dir, f"landcover_hand_std_image.tif")
+            scratch_dir, "landcover_hand_std_image.tif")
         dswx_sar_util.save_raster_gdal(
             np.array(hand_std_image, dtype='float32'),
             hand_std_path,
@@ -803,7 +915,7 @@ def hand_filter_along_boundary(
             scratch_dir=scratch_dir,
             datatype='float32')
         hand_binary_path = os.path.join(
-            scratch_dir, f"landcover_hand_bindary.tif")
+            scratch_dir, "landcover_hand_bindary.tif")
         dswx_sar_util.save_dswx_product(
             hand_filtered_binary,
             hand_binary_path,
@@ -875,7 +987,8 @@ def get_darkland_from_intensity_ancillary(
 
         # Reshaping the intensity block if necessary
         if intensity_block.ndim < 3:
-            intensity_block = np.reshape(intensity_block, (1,) + intensity_block.shape)
+            intensity_block = np.reshape(
+                intensity_block, (1,) + intensity_block.shape)
 
         low_backscatter_cand = np.ones(intensity_block.shape[1:], dtype=bool)
 
@@ -911,7 +1024,7 @@ def run(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
 
@@ -958,12 +1071,13 @@ def run(cfg):
     mask_obj = FillMaskLandCover(landcover_path)
     mask_excluded_landcover = mask_obj.get_mask(
         mask_label=landcover_masking_list)
-    
+    del mask_obj
+
     # If `extended_landcover_flag`` is enabled, additional landcovers
-    # spatially connected with `mask_excluded_landcover` are added. 
+    # spatially connected with `mask_excluded_landcover` are added.
     if extended_landcover_flag:
         logger.info('Extending landcover enabled.')
-        rg_excluded_area = (interp_wbd>dry_water_area_threshold)
+        rg_excluded_area = (interp_wbd > dry_water_area_threshold)
 
         mask_excluded_landcover = extend_land_cover(
             landcover_path=landcover_path,
@@ -1014,37 +1128,43 @@ def run(cfg):
     # If so, the code calculates a threshold and checks the bimodality
     # for each split area.
     input_map = np.where(water_map == 1, 1, 0)
+    del water_map
+
     dswx_sar_util.save_dswx_product(
         input_map,
         os.path.join(outputdir, 'input_image_test.tif'),
         geotransform=water_meta['geotransform'],
         projection=water_meta['projection'],
         scratch_dir=outputdir)
+    del input_map
 
     input_file_dict = {'intensity': filt_im_str,
                        'landcover': landcover_path,
                        'reference_water': interp_wbd_str,
                        'water_mask': water_map_tif_str}
 
-    split_mask_water_path = os.path.join(outputdir, 'split_mask_water_masking.tif')
+    split_mask_water_path = \
+        os.path.join(outputdir, 'split_mask_water_masking.tif')
     split_extended_water_parallel(
         water_mask_path=os.path.join(outputdir, 'input_image_test.tif'),
         output_path=split_mask_water_path,
         pol_ind=co_pol_ind,
         outputdir=outputdir,
         input_dict=input_file_dict,
-        number_workers=number_workers)
-    
-    # 4) re-define false water candidate estimated from 'split_extended_water_parallel'
+        number_workers=number_workers,
+        input_lines_per_block=lines_per_block)
+
+    # 4) re-define false water candidate estimated from
+    # 'split_extended_water_parallel'
     # by considering the spatial coverage with the ancillary files
     false_water_candidate_path = os.path.join(
-        outputdir,'intermediate_false_water_candidate.tif')
+        outputdir, 'intermediate_false_water_candidate.tif')
     dswx_sar_util.merge_binary_layers(
         layer_list=[split_mask_water_path,
-                    water_map_tif_str], 
-        value_list=[0, 1], 
-        merged_layer_path=false_water_candidate_path, 
-        lines_per_block=lines_per_block, 
+                    water_map_tif_str],
+        value_list=[0, 1],
+        merged_layer_path=false_water_candidate_path,
+        lines_per_block=lines_per_block,
         mode='and',
         cog_flag=True,
         scratch_dir=outputdir)
@@ -1060,8 +1180,7 @@ def run(cfg):
             outputdir=outputdir,
             water_max_value=ref_water_max,
             number_workers=number_workers,
-            lines_per_block=lines_per_block,
-        )
+            lines_per_block=lines_per_block)
 
     if hand_variation_mask:
         darkland_removed_path = \
@@ -1075,10 +1194,10 @@ def run(cfg):
     dswx_sar_util.merge_binary_layers(
         layer_list=[adjacent_false_positive_bindary_path,
                     darkland_cand_path,
-                    water_map_tif_str], 
-        value_list=[0, 0, 1], 
-        merged_layer_path=darkland_removed_path, 
-        lines_per_block=lines_per_block, 
+                    water_map_tif_str],
+        value_list=[0, 0, 1],
+        merged_layer_path=darkland_removed_path,
+        lines_per_block=lines_per_block,
         mode='and',
         cog_flag=True,
         scratch_dir=outputdir)
@@ -1142,6 +1261,7 @@ def main():
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
         run(cfg)
+
 
 if __name__ == '__main__':
     main()

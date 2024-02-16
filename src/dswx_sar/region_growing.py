@@ -1,4 +1,5 @@
 import copy
+import gc
 import mimetypes
 import logging
 import os
@@ -54,7 +55,6 @@ def region_growing(likelihood_image,
         The 'descending' starts from high value and find
         the pixel higher than relaxed threshold.
 
-
     Returns
     ----------
     binary_image : numpy.ndarray
@@ -74,7 +74,6 @@ def region_growing(likelihood_image,
                       " should be smaller than relaxed threshold" \
                       f"{relaxed_threshold}."
             raise ValueError(err_str)
-
 
     # Create initial binary image using seed value
     if mode == 'descending':
@@ -103,7 +102,7 @@ def region_growing(likelihood_image,
             buffer_binary = np.logical_xor(
                 ndimage.binary_dilation(binary_image,
                                         mask=target_area),
-                                        binary_image)
+                binary_image)
         else:
             buffer_binary = np.logical_xor(
                 ndimage.binary_dilation(binary_image),
@@ -120,7 +119,8 @@ def region_growing(likelihood_image,
         number_added = np.sum(new_binary)
         itercount += 1
         if verbose:
-            logger.info(f"full region growing iteration {itercount}: {number_added:.3f} pixels added")
+            logger.info(f"full region growing iteration {itercount}: "
+                        f"{number_added:.3f} pixels added")
 
     return binary_image
 
@@ -196,7 +196,10 @@ def process_region_growing_block(block_param,
 
     # replace fuzzy values with 1 for the pixels included by region growing
     data_block[region_grow_sub == 1] = 1
-
+    del region_grow_sub
+    if exclude_block is not None:
+        del exclude_block
+    gc.collect()
     return block_param, data_block
 
 
@@ -238,13 +241,23 @@ def run_parallel_region_growing(input_tif_path,
     data_width = meta_dict['width']
     data_shape = [data_length, data_width]
 
+    num_available_cpu = os.cpu_count()
     # Process fast region-growing with blocks
     # In each iteration, the block size will increase to cover
     # more areas to accelerate processing in challenging
     # areas after the initial iteration
-    lines_per_block_list = [lines_per_block,
-                            2*lines_per_block,
-                            3*lines_per_block]
+    # Dynamically compute lines_per_block_list
+    lines_per_block_list = [lines_per_block]
+    multiplier = 2
+    while True:
+        next_lines_per_block = lines_per_block * multiplier
+        if next_lines_per_block >= data_length or multiplier == 6:
+            # Stop if the next block size exceeds or is equal
+            # to the length of the image
+            break
+        lines_per_block_list.append(next_lines_per_block)
+        multiplier += 1
+
     num_loop = len(lines_per_block_list)
 
     for loopind, lines_per_block_loop in enumerate(lines_per_block_list):
@@ -259,17 +272,21 @@ def run_parallel_region_growing(input_tif_path,
             data_shape,
             pad_shape)
 
+        num_block = int(np.ceil(data_length / lines_per_block_loop))
+        use_cpu = min(num_available_cpu, num_block)
+
         # run region-growing for blocks in parallel
-        result = Parallel(n_jobs=-1)(delayed(process_region_growing_block)(
-            block_param,
-            loopind,
-            base_dir,
-            fuzzy_base_name,
-            input_tif_path,
-            exclude_area_path,
-            initial_threshold,
-            relaxed_threshold,
-            maxiter)
+        result = Parallel(n_jobs=use_cpu)(
+            delayed(process_region_growing_block)(
+                block_param,
+                loopind,
+                base_dir,
+                fuzzy_base_name,
+                input_tif_path,
+                exclude_area_path,
+                initial_threshold,
+                relaxed_threshold,
+                maxiter)
             for block_param in block_params)
 
         for block_param, region_grow_block in result:
@@ -297,6 +314,8 @@ def run_parallel_region_growing(input_tif_path,
                     datatype='float32',
                     cog_flag=True,
                     scratch_dir=base_dir)
+        del result, region_grow_block
+        gc.collect()  # Invoke garbage collector
 
 
 def run(cfg):
@@ -311,7 +330,7 @@ def run(cfg):
     outputdir = cfg.groups.product_path_group.scratch_path
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
 
@@ -326,13 +345,13 @@ def run(cfg):
     logger.info(f'Region Growing Seed: {region_growing_seed}')
     logger.info(f'Region Growing relaxed threshold: {region_growing_relaxed_threshold}')
 
-    fuzzy_tif_path = os.path.join(outputdir,
-                                  f'fuzzy_image_{pol_str}.tif')
+    fuzzy_tif_path = os.path.join(
+        outputdir, f'fuzzy_image_{pol_str}.tif')
     feature_meta = dswx_sar_util.get_meta_from_tif(fuzzy_tif_path)
-    feature_tif_path = os.path.join(outputdir,
-                                  f"region_growing_output_binary_{pol_str}.tif")
-    temp_rg_tif_path = os.path.join(outputdir,
-                                    f'temp_region_growing_{pol_str}.tif')
+    feature_tif_path = os.path.join(
+        outputdir, f"region_growing_output_binary_{pol_str}.tif")
+    temp_rg_tif_path = os.path.join(
+        outputdir, f'temp_region_growing_{pol_str}.tif')
 
     # First, run region-growing algorithm for blocks
     # to avoid to repeatly run with large image.
@@ -350,6 +369,7 @@ def run(cfg):
     # replace the fuzzy values with 1 for the pixels
     # where the region-growing already applied
     fuzzy_map[temp_rg == 1] = 1
+    del temp_rg
 
     # Run region-growing again for entire image
     region_grow_map = region_growing(
@@ -405,6 +425,7 @@ def main():
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
         run(cfg)
+
 
 if __name__ == '__main__':
     main()

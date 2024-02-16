@@ -27,6 +27,14 @@ runconfig:
         hand:
             mask_value: 200
 
+        ocean_mask:
+            # Flag to apply ocean mask
+            mask_enabled: False
+            # Margin to apply ocean mask in km
+            mask_margin_km: 5
+            # Flag if the polygon is water
+            mask_polygon_water: True
+
         mosaic:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
@@ -55,7 +63,7 @@ runconfig:
             # tile selecting strategy to identify the boundary between water and nonwater
             # ['twele', 'chini', 'bimodality', 'combined']
             # 'combined' option applies all selection strategy
-            selection_method: 'combined'
+            selection_method: ['chini', 'bimodality']
 
             # Thresholds to select tiles showing the boundary between water and nonwater
             # using bimodality strategy.

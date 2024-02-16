@@ -25,6 +25,14 @@ runconfig:
         hand:
             mask_value: num(required=False)
 
+        ocean_mask:
+            # Flag to apply ocean mask
+            mask_enabled: bool(required=False)
+            # Margin to apply ocean mask in km
+            mask_margin_km: int(required=False)
+            # Flag if the polygon is water
+            mask_polygon_water: bool(required=False)
+
         mosaic:
             mosaic_prefix: str(required=False)
             mosaic_cog_enable: bool(required=False)

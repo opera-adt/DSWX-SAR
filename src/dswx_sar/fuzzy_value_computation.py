@@ -22,6 +22,7 @@ PIXEL_RESOLUTION_X = 30  # Replace with appropriate value
 PIXEL_RESOLUTION_Y = 30  # Replace with appropriate value
 RAD_TO_DEG = 180 / np.pi
 
+
 def compute_slope_dem(dem):
     '''Calculate slope angle from DEM
 
@@ -104,7 +105,7 @@ def smf(values, minv, maxv):
         rescaled value from s-shape membership function
     '''
     center_value = (minv + maxv) / 2
-    output= np.zeros(np.shape(values), dtype='float32')
+    output = np.zeros(np.shape(values), dtype='float32')
 
     # When using numpy arrays for min and max values in
     # a membership function, identical elements in these
@@ -114,7 +115,7 @@ def smf(values, minv, maxv):
         diff = maxv - minv
         number_strange = np.nansum(diff <= 0)
         if number_strange > 0:
-            logger.info(f'{number_strange} pixels have minimum values' \
+            logger.info(f'{number_strange} pixels have minimum values'
                         'larger than maximum values')
             minv[diff <= 0] = maxv[diff <= 0] - \
                 dswx_sar_util.Constants.negligible_value
@@ -130,6 +131,7 @@ def smf(values, minv, maxv):
     output[values >= maxv] = 1
 
     return output
+
 
 def zmf(values, minv, maxv):
     ''' Generate Z-shape function for the given values
@@ -158,7 +160,7 @@ def zmf(values, minv, maxv):
         diff = maxv - minv
         number_strange = np.nansum(diff <= 0)
         if number_strange > 0:
-            logger.info(f'{number_strange} pixels have minimum values ' \
+            logger.info(f'{number_strange} pixels have minimum values '
                         'larger than maximum values')
             minv[diff <= 0] = maxv[diff <= 0] - \
                 dswx_sar_util.Constants.negligible_value
@@ -194,18 +196,18 @@ def calculate_water_area(binary_raster):
         of connected components
     '''
     nb_components, output, stats, _ \
-           = cv2.connectedComponentsWithStats(
-               np.array(binary_raster, dtype=np.uint8),
-               connectivity=8)
+        = cv2.connectedComponentsWithStats(
+            np.array(binary_raster, dtype=np.uint8),
+            connectivity=8)
     # Identify the labels of the areas not to provide the number of the pixels
-    excluded_area_ind = np.unique(output[binary_raster==0])
+    excluded_area_ind = np.unique(output[binary_raster == 0])
     sizes = stats[:, -1]
     sizes = np.delete(sizes, excluded_area_ind)
     nb_components = nb_components - 1
 
     old_val = np.arange(1, nb_components + 1) - 0.1
     kin = np.searchsorted(old_val, output)
-    sizes =  np.insert(sizes, 0, 0, axis=0)
+    sizes = np.insert(sizes, 0, 0, axis=0)
     size_raster = sizes[kin]
 
     return size_raster
@@ -298,9 +300,10 @@ def compute_fuzzy_value(intensity,
     low_backscatter_cand = np.ones([rows, cols], dtype=bool)
     dark_water_cand = np.ones([rows, cols], dtype=bool)
 
-    for int_id, pol  in enumerate(pol_list):
+    for int_id, pol in enumerate(pol_list):
 
-        thresh_valley_str = os.path.join(outputdir, f"intensity_threshold_filled_{pol}.tif")
+        thresh_valley_str = os.path.join(
+            outputdir, f"intensity_threshold_filled_{pol}.tif")
         thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol}.tif")
 
         valley_threshold_raster = dswx_sar_util.get_raster_block(
@@ -317,8 +320,8 @@ def compute_fuzzy_value(intensity,
                    valley_threshold_raster)
         intensity_z_set.append(temp)
 
-        intensity_mask_peak= intensity_band < peak_threshold_raster
-        initial_map[intensity_mask_peak==0] = 0
+        intensity_mask_peak = intensity_band < peak_threshold_raster
+        initial_map[intensity_mask_peak == 0] = 0
 
         if pol in ['VH', 'HV']:
             pol_threshold = fuzzy_option['dark_area_land']
@@ -337,18 +340,18 @@ def compute_fuzzy_value(intensity,
 
     # Darkland candidate from landcover
     landcover_flat_area_cand = \
-            (landcover == landcover_label['Bare sparse vegetation']) | \
-            (landcover == landcover_label['Shrubs'])| \
-            (landcover == landcover_label['Grassland'])| \
-            (landcover == landcover_label['Herbaceous wetland'])
+        (landcover == landcover_label['Bare sparse vegetation']) | \
+        (landcover == landcover_label['Shrubs']) | \
+        (landcover == landcover_label['Grassland']) | \
+        (landcover == landcover_label['Herbaceous wetland'])
 
     landcover_flat_area = (landcover_flat_area_cand) & \
                           (slope < 5) & \
                           (low_backscatter_cand)
     high_frequent_water = \
-            (reference_water > fuzzy_option['high_frequent_water_min']) & \
-            (reference_water < fuzzy_option['high_frequent_water_max']) & \
-            (low_backscatter_cand)
+        (reference_water > fuzzy_option['high_frequent_water_min']) & \
+        (reference_water < fuzzy_option['high_frequent_water_max']) & \
+        (low_backscatter_cand)
     dark_water = (dark_water_cand) & \
                  (reference_water >= fuzzy_option['high_frequent_water_max'])
 
@@ -372,7 +375,7 @@ def compute_fuzzy_value(intensity,
         else:
             change_ind = co_pol_ind
 
-        # Cross-polarization intensity is replaced with co- (or span-) polarizations
+        # Cross-polarization intensity is replaced with co- (or span-) pol
         # where water varation is high and areas are dark/flat.
         intensity_z_set[cross_pol_ind][high_frequent_water] = \
             intensity_z_set[change_ind][high_frequent_water]
@@ -385,7 +388,7 @@ def compute_fuzzy_value(intensity,
             intensity_z_set[cross_pol_ind][dark_water]
 
     copol_only = (high_frequent_water == 1) | \
-                 (landcover_flat_area==1)
+                 (landcover_flat_area == 1)
 
     # Compute sum of intensities.
     nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
@@ -404,8 +407,8 @@ def compute_fuzzy_value(intensity,
     wbsmask = (initial_map == 1) & (handem)
     watermap = calculate_water_area(wbsmask)
     area_s = smf(watermap,
-                fuzzy_option['area_min'],
-                fuzzy_option['area_max'])
+                 fuzzy_option['area_min'],
+                 fuzzy_option['area_max'])
 
     # Reference water map membership
     reference_water_s = smf(reference_water,
@@ -417,17 +420,18 @@ def compute_fuzzy_value(intensity,
     # input parameters, including intensity, hand, slope, and reference water.
     # The Twele algorithm, on the other hand, computes these values using
     # intensity, hand, slope, and areas.
-    # It's important to note that half of the fuzzy values (0.5) are derived from
-    # the intensity values, while the remaining half (0.5) comes from ancillary data.
-    # To achieve this, the intensity membership is divided by the number of bands
-    # and then multiplied by 0.5. The maximum value for intensity membership is
-    # capped at 0.5. Similarly, the membership of the ancillary data contributes
-    # 0.5 to the final result.
+    # It's important to note that half of the fuzzy values (0.5) are derived
+    # from the intensity values, while the remaining half (0.5) comes from
+    # ancillary data. To achieve this, the intensity membership is divided
+    # by the number of bands and then multiplied by 0.5. The maximum value
+    # for intensity membership is capped at 0.5. Similarly, the membership
+    # of the ancillary data contributes 0.5 to the final result.
     method_dict = {
-        'opera_dswx_s1': lambda: (nansum_intensity_z_set / (band_number) * 0.5 + \
-                   (hand_z + slope_z + reference_water_s)  / 3 * 0.5),
-        'twele': lambda: (nansum_intensity_z_set / (band_number + 1) * 0.5 + \
-                   (hand_z + slope_z + area_s)  / 3 * 0.5)
+        'opera_dswx_s1': lambda: (nansum_intensity_z_set / (band_number) * 0.5
+                                  + (hand_z + slope_z + reference_water_s)
+                                  / 3 * 0.5),
+        'twele': lambda: (nansum_intensity_z_set / (band_number + 1) * 0.5 +
+                          (hand_z + slope_z + area_s) / 3 * 0.5)
     }
     avgvalue = method_dict[workflow]()
 
@@ -446,10 +450,10 @@ def run(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
-    
+
     pol_all_str = '_'.join(pol_list)
 
     # reference water cfg
@@ -471,10 +475,11 @@ def run(cfg):
                    'reference_water_max': fuzzy_cfg.reference_water.member_max,
                    'dark_area_land': fuzzy_cfg.dark_area.cross_land,
                    'dark_area_water': fuzzy_cfg.dark_area.cross_water,
-                   'high_frequent_water_min': fuzzy_cfg.high_frequent_water.water_min_value,
-                   'high_frequent_water_max': fuzzy_cfg.high_frequent_water.water_max_value
-    }
-
+                   'high_frequent_water_min':
+                   fuzzy_cfg.high_frequent_water.water_min_value,
+                   'high_frequent_water_max':
+                   fuzzy_cfg.high_frequent_water.water_max_value
+                   }
 
     workflow = processing_cfg.dswx_workflow
 
@@ -556,7 +561,8 @@ def run(cfg):
             slope_gdal_str, block_param)
 
         # compute fuzzy value
-        fuzzy_avgvalue, intensity_z, hand_z, slope_z, area_s, ref_water, copol_only = \
+        (fuzzy_avgvalue, intensity_z, hand_z,
+         slope_z, area_s, ref_water, copol_only) = \
             compute_fuzzy_value(
                 intensity=10*np.log10(intensity),
                 slope=slope,
@@ -571,7 +577,7 @@ def run(cfg):
                 block_param=block_param)
 
         fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
-        fuzzy_avgvalue[no_data_raster==1] = -1
+        fuzzy_avgvalue[no_data_raster == 1] = -1
 
         dswx_sar_util.write_raster_block(
             out_raster=fuzzy_output_str,
@@ -593,7 +599,8 @@ def run(cfg):
                 ('copol_only', copol_only)]
 
             for raster_name, raster in rasters_to_save:
-                output_file_name = os.path.join(outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
+                output_file_name = os.path.join(
+                    outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
                 dswx_sar_util.write_raster_block(
                     out_raster=output_file_name,
                     data=raster,
@@ -606,9 +613,9 @@ def run(cfg):
 
             for polind, pol in enumerate(pol_list):
                 dswx_sar_util.write_raster_block(
-                    out_raster=\
-                        os.path.join(outputdir, f"fuzzy_intensity_{pol}.tif"),
-                    data=np.reshape(intensity_z[polind,:,:], 
+                    out_raster=os.path.join(
+                        outputdir, f"fuzzy_intensity_{pol}.tif"),
+                    data=np.reshape(intensity_z[polind, :, :],
                                     [intensity_z.shape[1],
                                      intensity_z.shape[2]]),
                     block_param=block_param,
@@ -679,6 +686,7 @@ def main():
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
         run(cfg)
+
 
 if __name__ == '__main__':
     main()

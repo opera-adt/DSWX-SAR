@@ -158,7 +158,7 @@ def zmf(values, minv, maxv):
     # to avoid zero-division warnings.
     if isinstance(minv, np.ndarray):
         diff = maxv - minv
-        number_strange = np.nansum(diff <= 0)
+        number_strange = np.nansum(diff < 0)
         if number_strange > 0:
             logger.info(f'{number_strange} pixels have minimum values '
                         'larger than maximum values')
@@ -177,6 +177,7 @@ def zmf(values, minv, maxv):
 
     output[values >= maxv] = 0
     output[values <= minv] = 1
+    output[np.isnan(values)] = np.nan
 
     return output
 
@@ -391,7 +392,8 @@ def compute_fuzzy_value(intensity,
                  (landcover_flat_area == 1)
 
     # Compute sum of intensities.
-    nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
+    # nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
+    nanmean_intensity_z_set = np.nanmean(intensity_z_set, axis=0)
 
     # Compute HAND membership
     hand[np.isnan(hand)] = 0
@@ -427,10 +429,10 @@ def compute_fuzzy_value(intensity,
     # for intensity membership is capped at 0.5. Similarly, the membership
     # of the ancillary data contributes 0.5 to the final result.
     method_dict = {
-        'opera_dswx_s1': lambda: (nansum_intensity_z_set / (band_number) * 0.5
+        'opera_dswx_s1': lambda: (nanmean_intensity_z_set * 0.5
                                   + (hand_z + slope_z + reference_water_s)
                                   / 3 * 0.5),
-        'twele': lambda: (nansum_intensity_z_set / (band_number + 1) * 0.5 +
+        'twele': lambda: (nanmean_intensity_z_set * 0.5 +
                           (hand_z + slope_z + area_s) / 3 * 0.5)
     }
     avgvalue = method_dict[workflow]()

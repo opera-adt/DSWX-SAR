@@ -391,8 +391,7 @@ def compute_fuzzy_value(intensity,
     copol_only = (high_frequent_water == 1) | \
                  (landcover_flat_area == 1)
 
-    # Compute sum of intensities.
-    # nansum_intensity_z_set = np.squeeze(np.nansum(intensity_z_set, axis=0))
+    # Compute mean of intensities.
     nanmean_intensity_z_set = np.nanmean(intensity_z_set, axis=0)
 
     # Compute HAND membership

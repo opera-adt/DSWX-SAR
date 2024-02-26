@@ -865,12 +865,14 @@ def determine_threshold(
         # if estimated threshold is higher than bounds,
         # re-estimate threshold assuming tri-mode distribution
         if threshold > bounds[1] and mutli_threshold:
-            thresholds = threshold_multiotsu(intensity_sub)
+            try:
+                thresholds = threshold_multiotsu(intensity_sub)
 
-            if thresholds[0] < threshold:
-                threshold = thresholds[0]
-                idx_threshold = np.searchsorted(intensity_bins, threshold)
-
+                if thresholds[0] < threshold:
+                    threshold = thresholds[0]
+                    idx_threshold = np.searchsorted(intensity_bins, threshold)
+            except ValueError:
+                logger.info('Unable to find multi threshold')
         # Search the local peaks from histogram for initial values for fitting
         # peak for lower distribution
         lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_threshold+1], distance=5)

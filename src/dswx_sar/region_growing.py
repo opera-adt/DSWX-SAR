@@ -248,13 +248,10 @@ def run_parallel_region_growing(input_tif_path,
     # areas after the initial iteration
     # Dynamically compute lines_per_block_list
     lines_per_block_list = [lines_per_block]
+    next_lines_per_block = lines_per_block
     multiplier = 2
-    while True:
+    while next_lines_per_block < data_length and multiplier < 6:
         next_lines_per_block = lines_per_block * multiplier
-        if next_lines_per_block >= data_length or multiplier == 6:
-            # Stop if the next block size exceeds or is equal
-            # to the length of the image
-            break
         lines_per_block_list.append(next_lines_per_block)
         multiplier += 1
 

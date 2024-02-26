@@ -162,7 +162,9 @@ runconfig:
                 surface_ratio: num(min=0, required=False)
 
         inundated_vegetation:
-            enabled: bool(required=False)
+            # 'auto' determine the inundated vegetation availability
+            # based on available cross-polarizations
+            enabled: enum(True, False, 'auto')
             dual_pol_ratio_max: num(min=0, max=30, required=False)
             dual_pol_ratio_min: num(min=0, max=30, required=False)
             dual_pol_ratio_threshold: num(min=0, max=30, required=False)

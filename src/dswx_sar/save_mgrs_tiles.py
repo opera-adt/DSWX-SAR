@@ -549,6 +549,8 @@ def run(cfg):
     pol_str = '_'.join(pol_list)
     pol_mode = processing_cfg.polarization_mode
     co_pol = processing_cfg.copol
+    cross_pol = processing_cfg.crosspol
+
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
     hand_mask_value = processing_cfg.hand.mask_value
@@ -565,12 +567,14 @@ def run(cfg):
     browse_image_height = browser_image_cfg.browse_image_height
     browse_image_width = browser_image_cfg.browse_image_width
 
-    flag_collapse_wtr_classes=browser_image_cfg.flag_collapse_wtr_classes
-    exclude_inundated_vegetation=browser_image_cfg.exclude_inundated_vegetation
-    set_not_water_to_nodata=browser_image_cfg.set_not_water_to_nodata
-    set_hand_mask_to_nodata=browser_image_cfg.set_hand_mask_to_nodata
-    set_layover_shadow_to_nodata=browser_image_cfg.set_layover_shadow_to_nodata
-    set_ocean_masked_to_nodata=browser_image_cfg.set_ocean_masked_to_nodata
+    flag_collapse_wtr_classes = browser_image_cfg.flag_collapse_wtr_classes
+    exclude_inundated_vegetation = \
+        browser_image_cfg.exclude_inundated_vegetation
+    set_not_water_to_nodata = browser_image_cfg.set_not_water_to_nodata
+    set_hand_mask_to_nodata = browser_image_cfg.set_hand_mask_to_nodata
+    set_layover_shadow_to_nodata = \
+        browser_image_cfg.set_layover_shadow_to_nodata
+    set_ocean_masked_to_nodata = browser_image_cfg.set_ocean_masked_to_nodata
 
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
@@ -612,31 +616,71 @@ def run(cfg):
     platform_str = platform[0] + platform.split('-')[-1]
     resolution_str = str(int(resolution))
 
+    if processing_cfg.inundated_vegetation.enabled == 'auto':
+        if cross_pol and co_pol:
+            total_inundated_vege_flag = True
+        else:
+            total_inundated_vege_flag = False
+    else:
+        total_inundated_vege_flag = \
+            processing_cfg.inundated_vegetation.enabled
+
+    inundated_vege_mosaic_flag = False
     # Set merge_layer_flag and merge_pol_list based on pol_mode
-    merge_layer_flag = pol_mode in ['MIX_DUAL_POL', 'MIX_SINGLE_POL']
-    pol_type = 'DV_POL' if pol_mode == 'MIX_DUAL_POL' else 'SV_POL'
-    merge_pol_list = ['_'.join(DSWX_S1_POL_DICT[pol_type]),
-                      '_'.join(DSWX_S1_POL_DICT[pol_type.replace('V', 'H')])]
-    if pol_options is not None:
-        merge_pol_list = [item + '_' + pol_option_str  for item in merge_pol_list]
+    merge_layer_flag = pol_mode.startswith('MIX')
+    if merge_layer_flag:
+        if pol_mode == 'MIX_DUAL_POL':
+            pol_type1 = 'DV_POL'
+            pol_type2 = 'DH_POL'
+        elif pol_mode in 'MIX_DUAL_H_SINGLE_V_POL':
+            pol_type1 = 'DH_POL'
+            pol_type2 = 'SV_POL'
+        elif pol_mode in 'MIX_DUAL_V_SINGLE_H_POL':
+            pol_type1 = 'DV_POL'
+            pol_type2 = 'SH_POL'
+        elif pol_mode in 'MIX_SINGLE_POL':
+            pol_type1 = 'SV_POL'
+            pol_type2 = 'SH_POL'
+        else:
+            logger.info('There is no need to mosaic different polarizations.')
+        pol_set1 = DSWX_S1_POL_DICT[pol_type1]
+        pol_set2 = DSWX_S1_POL_DICT[pol_type2]
+        merge_pol_list = ['_'.join(pol_set1),
+                          '_'.join(pol_set2)]
+    else:
+        pol_set1 = pol_list
+        pol_set2 = []
+    # If polarimetric methods such as ratio, span are used,
+    # it is added to the name.
+    if pol_options is not None and merge_layer_flag:
+        merge_pol_list = [item + '_' + pol_option_str
+                          for item in merge_pol_list]
 
     # Depending on the workflow, the final product are different.
     prefix_dict = {
-    'final_water': 'bimodality_output_binary'
-        if dswx_workflow == 'opera_dswx_s1' else 'region_growing_output_binary',
-    'landcover_mask': 'refine_landcover_binary',
-    'no_data_area': 'no_data_area',
-    'inundated_veg': 'temp_inundated_vegetation',
-    'region_growing': 'region_growing_output_binary',
-    'fuzzy_value': 'fuzzy_image'
-    }
+        'final_water': 'bimodality_output_binary'
+        if dswx_workflow == 'opera_dswx_s1'
+        else 'region_growing_output_binary',
+        'landcover_mask': 'refine_landcover_binary',
+        'no_data_area': 'no_data_area',
+        'region_growing': 'region_growing_output_binary',
+        'fuzzy_value': 'fuzzy_image'
+        }
+
+    if total_inundated_vege_flag:
+        if len(pol_set1) == 2 and len(pol_set2) == 2:
+            inundated_vege_mosaic_flag = True
+
+    if total_inundated_vege_flag:
+        prefix_dict['inundated_veg'] = 'temp_inundated_vegetation'
 
     paths = {}
     for key, prefix in prefix_dict.items():
         file_path = f'{prefix}_{pol_str}.tif'
         paths[key] = os.path.join(scratch_dir, file_path)
         if merge_layer_flag:
-            list_layers = [os.path.join(scratch_dir, f'{prefix}_{pol_cand_str}.tif')
+            list_layers = [os.path.join(scratch_dir,
+                                        f'{prefix}_{pol_cand_str}.tif')
                            for pol_cand_str in merge_pol_list]
             if key == 'no_data_area':
                 extra_args = {'nodata_value': 1}
@@ -644,9 +688,14 @@ def run(cfg):
                 extra_args = {'nodata_value': -1}
             else:
                 extra_args = {'nodata_value': 0}
-            merge_pol_layers(list_layers,
-                             os.path.join(scratch_dir, file_path),
-                             **extra_args)
+            if not inundated_vege_mosaic_flag and key == 'inundated_veg':
+                dual_pol_vege_string = '_'.join(pol_set1)
+                paths[key] = os.path.join(
+                    scratch_dir, f'{prefix}_{dual_pol_vege_string}.tif')
+            else:
+                merge_pol_layers(list_layers,
+                                 os.path.join(scratch_dir, file_path),
+                                 **extra_args)
 
     # metadata for final product
     # e.g. geotransform, projection, length, width, utmzon, epsg
@@ -686,7 +735,7 @@ def run(cfg):
         os.path.join(scratch_dir, f'full_water_binary_DIAG_set.tif')
 
     # 4) inundated_vegetation
-    if processing_cfg.inundated_vegetation.enabled:
+    if total_inundated_vege_flag:
         inundated_vegetation = dswx_sar_util.read_geotiff(
             paths['inundated_veg'])
         inundated_vegetation_mask = (inundated_vegetation == 2) & \

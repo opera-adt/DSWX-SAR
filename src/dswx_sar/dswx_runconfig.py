@@ -20,15 +20,18 @@ WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 # Potential polarization scenarios for DSWx-S1
 # NOTE: DO NOT CHANGE THE ORDER of the items in the dictionary below.
 DSWX_S1_POL_DICT = {
-    'CO_POL' : ['HH', 'VV'],
-    'CROSS_POL' : ['HV', 'VH'],
-    'MIX_DUAL_POL' : ['HH', 'HV', 'VV', 'VH'],
-    'MIX_SINGLE_POL' : ['HH', 'VV'],
-    'DV_POL' : ['VV', 'VH'],
-    'SV_POL' : ['VV'],
-    'DH_POL' : ['HH', 'HV'],
-    'SH_POL' : ['HH'],
+    'CO_POL': ['HH', 'VV'],
+    'CROSS_POL': ['HV', 'VH'],
+    'MIX_DUAL_POL': ['HH', 'HV', 'VV', 'VH'],
+    'MIX_DUAL_H_SINGLE_V_POL': ['HH', 'HV', 'VV'],
+    'MIX_DUAL_V_SINGLE_H_POL': ['VV', 'VH', 'HH'],
+    'MIX_SINGLE_POL': ['HH', 'VV'],
+    'DV_POL': ['VV', 'VH'],
+    'SV_POL': ['VV'],
+    'DH_POL': ['HH', 'HV'],
+    'SH_POL': ['HH'],
     }
+
 
 def _get_parser():
     parser = argparse.ArgumentParser(description='',
@@ -50,6 +53,7 @@ def _get_parser():
                         help='Log file')
 
     return parser
+
 
 def _deep_update(original, update):
     """Update default runconfig dict with user-supplied dict.
@@ -76,6 +80,7 @@ def _deep_update(original, update):
 
     # return updated original
     return original
+
 
 def load_validate_yaml(yaml_path: str, workflow_name: str) -> dict:
     """Initialize RunConfig class with options from given yaml file.
@@ -163,6 +168,7 @@ def check_write_dir(dst_path: str):
         logger.error(err_str)
         raise PermissionError(err_str)
 
+
 def check_file_path(file_path: str) -> None:
     """Check if file_path exist else raise an error.
     Parameters
@@ -178,6 +184,7 @@ def check_file_path(file_path: str) -> None:
             err_str = f'{file_path} not found'
             logger.error(err_str)
             raise FileNotFoundError(err_str)
+
 
 def _find_polarization_from_data_dirs(input_dir_list):
     """
@@ -216,7 +223,7 @@ def _find_polarization_from_data_dirs(input_dir_list):
     if not extracted_strings:
         err_str = 'Failed to find polarizations from RTC files.'
         raise ValueError(err_str)
-        
+
     # return only unique polarizations
     return list(set(extracted_strings))
 
@@ -245,7 +252,7 @@ def check_polarizations(pol_list, input_dir_list):
     sorted_pol_list : list
         List of all polarizations sorted, prioritizing co-polarizations.
     """
-    if 'dual-pol' in pol_list:
+    if ('dual-pol' in pol_list) or ('auto' in pol_list):
         proc_pol_list = ['VV', 'VH', 'HH', 'HV']
     elif 'co-pol' in pol_list:
         proc_pol_list = ['VV', 'HH']
@@ -280,9 +287,9 @@ def check_polarizations(pol_list, input_dir_list):
         else:
             cross_pol_list.append(pol)
 
-    # Even though the first subset is found, the code should keep searching. 
+    # Even though the first subset is found, the code should keep searching.
     # For example, the ['VV', 'VH'] is a subset of `MIX_DUAL_POL` and `DV_POL`.
-    # The expected output is `DV_POL`. 
+    # The expected output is `DV_POL`.
     # So, the items in `DSWX_S1_POL_DICT` are sorted in an ordered manner.
     pol_mode = None
     for pol_mode_name, pols_in_mode in DSWX_S1_POL_DICT.items():
@@ -422,13 +429,15 @@ class RunConfig:
         debug_mode = processing_group.debug_mode
 
         if args.debug_mode and not debug_mode:
-            logger.warning(f'command line visualization "{args.debug_mode}"'
+            logger.warning(
+                f'command line visualization "{args.debug_mode}"'
                 f' has precedence over runconfig visualization "{debug_mode}"')
             sns.processing.debug_mode = args.debug_mode
 
         log_file = sns.log_file
         if args.log_file is not None:
-            logger.warning(f'command line log file "{args.log_file}"'
+            logger.warning(
+                f'command line log file "{args.log_file}"'
                 f' has precedence over runconfig log file "{log_file}"')
             sns.log_file = args.log_file
 

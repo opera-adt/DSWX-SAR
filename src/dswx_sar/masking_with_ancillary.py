@@ -25,6 +25,7 @@ from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
 
 logger = logging.getLogger('dswx_s1')
 
+
 def get_label_landcover_esa_10():
     '''Get integer number information what they represent
     ESA 10 m
@@ -101,6 +102,7 @@ class FillMaskLandCover:
 
         return landcover_binary
 
+
 def extract_bbox_with_buffer(
         binary: np.ndarray,
         buffer: int,
@@ -173,9 +175,11 @@ def check_water_land_mixture(args):
         * size (int): Size of the water component.
         * minimum_pixel (int): Minimum pixel threshold for processing.
         * bounds (list): List containing bounding box coordinates.
-        * int_linear_str (str): Path to the linear intensity raster file.
-        * water_label_str (str): Path to the water label raster file.
-        * water_mask_str (str): Path to the water mask raster file.
+        * int_linear_block (str):
+            Numpy array of the linear intensity raster file.
+        * water_label_block (str):
+            Numpy array of the water label raster file.
+        * water_mask_block (str): Numpy array of the water mask raster file.
         * pol_ind (int): Polarization index.
 
     Returns:
@@ -226,7 +230,8 @@ def check_water_land_mixture(args):
             out_boundary_sub[target_water] = 1
 
             # intensity value only for potential water areas
-            int_db_sub = 10 * np.log10(intensity_array[np.invert(invalid_mask)])
+            int_db_sub = 10 * np.log10(
+                intensity_array[np.invert(invalid_mask)])
             # intensity value for water and adjacent areas within bbox.
             int_db = 10 * np.log10(int_linear)
 
@@ -240,7 +245,7 @@ def check_water_land_mixture(args):
                     dark_water = (int_db < threshold) & (target_water)
                 else:
                     dark_water = (int_db < threshold) & \
-                                 (int_db >= threshold_local_otsu[t_ind - 1]) & \
+                                 (int_db >= threshold_local_otsu[t_ind - 1]) &\
                                  (target_water)
 
                 n_dark_water_pixels = np.count_nonzero(dark_water)
@@ -267,11 +272,11 @@ def check_water_land_mixture(args):
                     hist_max=hist_max)
 
                 if not metric_obj_local.compute_metric(
-                    ashman_flag=True,
-                    bhc_flag=True,
-                    bm_flag=True,
-                    surface_ratio_flag=True,
-                    bc_flag=False):
+                        ashman_flag=True,
+                        bhc_flag=True,
+                        bm_flag=True,
+                        surface_ratio_flag=True,
+                        bc_flag=False):
                     water_mask.setflags(write=1)
                     water_mask[dark_water] = 0
                     change_flag = True
@@ -306,11 +311,11 @@ def check_water_land_mixture(args):
                     hist_max=hist_max)
 
                 if not metric_obj_local.compute_metric(
-                    ashman_flag=True,
-                    bhc_flag=True,
-                    bm_flag=True,
-                    surface_ratio_flag=True,
-                    bc_flag=False):
+                        ashman_flag=True,
+                        bhc_flag=True,
+                        bm_flag=True,
+                        surface_ratio_flag=True,
+                        bc_flag=False):
 
                     water_mask.setflags(write=1)
                     water_mask[bright_water_pixels] = 0
@@ -345,6 +350,8 @@ def split_extended_water_parallel(
         Dictionary containing input data including intensity and water mask.
     number_workers : int
         Number of parallel workers for processing.
+    input_lines_per_block: int
+        Lines per block processing
 
     Returns
     -------
@@ -353,10 +360,14 @@ def split_extended_water_parallel(
         subsets in the specified output path.
     """
     meta_info = dswx_sar_util.get_meta_from_tif(water_mask_path)
-
+    # exceed the size of the block. To prevent discontinuity and incorrect
+    # decisions, the block size increases within the for loop.
+    # Initially, the procedure is run for the entire area using a small block
+    # size (input_lines_per_block), and then the size is increased by a
+    # multiple of 3 and 20.
     lines_per_block_set = [input_lines_per_block,
-                           input_lines_per_block*3,
-                           input_lines_per_block*20,
+                           input_lines_per_block * 3,
+                           input_lines_per_block * 20,
                            meta_info['length']]
     pad_shape = (0, 0)
 
@@ -401,7 +412,7 @@ def split_extended_water_parallel(
                 np.searchsorted(old_val, label_image),
                 dtype='uint32')
 
-            for ind in range(0, len(sizes)):
+            for ind in range(len(sizes)):
                 (bbox_x_start,
                  bbox_x_end,
                  bbox_y_start,
@@ -411,8 +422,8 @@ def split_extended_water_parallel(
 
                 # Check if the component touches the boundary
                 if bbox_y_start != 0 and \
-                    bbox_x_end != block_param.block_length and \
-                    size >= minimum_pixel:
+                   bbox_x_end != block_param.block_length and \
+                   size >= minimum_pixel:
 
                     filtered_index.append(ind)
                     filtered_coord_list.append([bbox_x_start, bbox_x_end,
@@ -430,7 +441,7 @@ def split_extended_water_parallel(
                           water_mask,
                           pol_ind) for i in range(len(filtered_sizes))]
 
-            # Check if the objects have heterogeneous characteristics (bimodality)
+            # Check if the objects have heterogeneous characteristics
             # If so, split the objects using multi-otsu thresholds
             # and check bimodality.
             results = Parallel(n_jobs=number_workers)(
@@ -457,13 +468,14 @@ def split_extended_water_parallel(
                 cog_flag=True,
                 scratch_dir=outputdir)
 
-            if block_iter < len(lines_per_block_set)-1:
+            if block_iter < len(lines_per_block_set) - 1:
                 check_output = np.insert(check_output, 0, 0, axis=0)
                 check_image = np.array(
                     check_output[index_array_to_image], dtype='byte')
 
-                # 'check_remove_false_water' has 1 value for unprocessed components
-                # due to its touching the boundaries and has 0 value for processed components.
+                # 'check_remove_false_water' has 1 value for unprocessed
+                # components when binary area touches the boundaries.
+                # processed components have 0 values.
                 check_remove_false_water_path = os.path.join(
                     outputdir, f'check_water_land_mixture_{block_iter}.tif')
                 dswx_sar_util.write_raster_block(
@@ -477,7 +489,8 @@ def split_extended_water_parallel(
                     scratch_dir=outputdir)
                 del check_image
 
-            if block_param.block_length + block_param.read_start_line >= meta_info['length']:
+            if block_param.block_length + block_param.read_start_line >= \
+               meta_info['length']:
                 water_mask_path = check_remove_false_water_path
 
     if len(temp_path_set) >= 2:
@@ -637,7 +650,8 @@ def compute_spatial_coverage(args):
 
     Returns:
     --------
-        tuple: Tuple containing the index (i) and the test output (test_output_i).
+        tuple: Tuple containing the index (i) and the test output
+               (test_output_i).
     """
     i, size, threshold, bounds, water_label_str, ref_land_tif_str = args
 
@@ -705,7 +719,7 @@ def extend_land_cover(landcover_path,
     new_landcover[mask_excluded_candidate] = 0.75
 
     excluded_rg_path = os.path.join(
-        scratch_dir, f"landcover_excluded_rg.tif")
+        scratch_dir, "landcover_excluded_rg.tif")
     dswx_sar_util.save_dswx_product(
         exclude_area_rg,
         excluded_rg_path,
@@ -715,7 +729,7 @@ def extend_land_cover(landcover_path,
         )
 
     darkland_tif_str = os.path.join(
-        scratch_dir, f"landcover_target.tif")
+        scratch_dir, "landcover_target.tif")
     dswx_sar_util.save_dswx_product(
         reference_landcover_binary,
         darkland_tif_str,
@@ -725,7 +739,7 @@ def extend_land_cover(landcover_path,
         )
 
     darkland_cand_tif_str = os.path.join(
-        scratch_dir, f"landcover_target_candidate.tif")
+        scratch_dir, "landcover_target_candidate.tif")
     dswx_sar_util.save_raster_gdal(
         np.array(new_landcover, dtype='float32'),
         darkland_cand_tif_str,
@@ -735,7 +749,7 @@ def extend_land_cover(landcover_path,
         datatype='float32')
 
     temp_rg_tif_path = os.path.join(
-        scratch_dir, f'landcover_temp_transition.tif')
+        scratch_dir, 'landcover_temp_transition.tif')
 
     region_growing.run_parallel_region_growing(
         darkland_cand_tif_str,
@@ -881,7 +895,7 @@ def hand_filter_along_boundary(
     index_array_to_image = np.searchsorted(old_val, output_water)
 
     if debug_mode:
-        height_array =  np.insert(height_array, 0, 0, axis=0)
+        height_array = np.insert(height_array, 0, 0, axis=0)
         height_std_raster = np.array(height_array[index_array_to_image],
                                      dtype='float32')
 
@@ -993,9 +1007,12 @@ def get_darkland_from_intensity_ancillary(
         low_backscatter_cand = np.ones(intensity_block.shape[1:], dtype=bool)
 
         for pol_ind, pol in enumerate(pol_list):
-            pol_threshold = co_pol_threshold if pol in ['VV', 'HH'] else cross_pol_threshold
-            low_backscatter = 10 * np.log10(intensity_block[pol_ind, :, :]) < pol_threshold
-            low_backscatter_cand = np.logical_and(low_backscatter, low_backscatter_cand)
+            pol_threshold = co_pol_threshold \
+                if pol in ['VV', 'HH'] else cross_pol_threshold
+            low_backscatter = \
+                10 * np.log10(intensity_block[pol_ind, :, :]) < pol_threshold
+            low_backscatter_cand = np.logical_and(low_backscatter,
+                                                  low_backscatter_cand)
 
         mask_excluded = np.logical_and(
             mask_excluded_landcover == 1,
@@ -1033,7 +1050,6 @@ def run(cfg):
 
     water_cfg = processing_cfg.reference_water
     ref_water_max = water_cfg.max_value
-    ref_no_data = water_cfg.no_data_value
 
     # options for masking with ancillary data
     masking_ancillary_cfg = processing_cfg.masking_ancillary
@@ -1044,7 +1060,8 @@ def run(cfg):
     hand_variation_mask = masking_ancillary_cfg.hand_variation_mask
     hand_variation_threshold = masking_ancillary_cfg.hand_variation_threshold
     landcover_masking_list = masking_ancillary_cfg.land_cover_darkland_list
-    landcover_masking_extension_list = masking_ancillary_cfg.land_cover_darkland_extension_list
+    landcover_masking_extension_list = \
+        masking_ancillary_cfg.land_cover_darkland_extension_list
     lines_per_block = masking_ancillary_cfg.line_per_block
 
     # Binary water map extracted from region growing
@@ -1121,8 +1138,8 @@ def run(cfg):
         dry_water_area_threshold=dry_water_area_threshold)
 
     # 3) The water candidates extracted in the previous step (region growing)
-    # can have dark land and water in one singe polygon where dark land and water
-    # are spatially connected. Here 'split_extended_water' checks
+    # can have dark land and water in one singe polygon where dark land and
+    # water are spatially connected. Here 'split_extended_water' checks
     # if the backscatter splits into smaller pieces that are distinguishable.
     # So 'split_extended_water' checks for bimodality for each polygon.
     # If so, the code calculates a threshold and checks the bimodality
@@ -1225,7 +1242,8 @@ def run(cfg):
             )
 
     t_all_elapsed = time.time() - t_all
-    logger.info(f"successfully ran landcover masking in {t_all_elapsed:.3f} seconds")
+    logger.info("successfully ran landcover masking in "
+                f"{t_all_elapsed:.3f} seconds")
 
 
 def main():

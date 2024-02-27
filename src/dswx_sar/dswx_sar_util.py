@@ -7,7 +7,7 @@ import rasterio
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal, osr, ogr
 from pyproj import Transformer
 
 gdal.DontUseExceptions()
@@ -106,6 +106,9 @@ def get_interpreted_dswx_s1_ctable():
     # baby blue - bright water
     dswx_ctable.SetColorEntry(band_assign_value_dict['bright_water_fill'],
                               (120, 120, 240))
+    #  blue - ocean_mask
+    dswx_ctable.SetColorEntry(band_assign_value_dict['ocean_mask'],
+                              (50, 50,  240 ))
     # Red - dark land
     dswx_ctable.SetColorEntry(band_assign_value_dict['dark_land_mask'],
                               (240, 20, 20))
@@ -571,6 +574,204 @@ def get_meta_from_tif(tif_file_name):
     tif_gdal = None
 
     return meta_dict
+
+
+def _get_tile_srs_bbox(tile_min_y_utm, tile_max_y_utm,
+                       tile_min_x_utm, tile_max_x_utm,
+                       tile_srs, polygon_srs):
+    """Get tile bounding box for a given spatial reference system (SRS)
+
+       Parameters
+       ----------
+       tile_min_y_utm: float
+              Tile minimum Y-coordinate (UTM)
+       tile_max_y_utm: float
+              Tile maximum Y-coordinate (UTM)
+       tile_min_x_utm: float
+              Tile minimum X-coordinate (UTM)
+       tile_max_x_utm: float
+              Tile maximum X-coordinate (UTM)
+       tile_srs: osr.SpatialReference
+              Tile original spatial reference system (SRS)
+       polygon_srs: osr.SpatialReference
+              Polygon spatial reference system (SRS). If the polygon
+              SRS is geographic, its Axis Mapping Strategy will
+              be updated to osr.OAMS_TRADITIONAL_GIS_ORDER
+       Returns
+       -------
+       tile_polygon: ogr.Geometry
+              Rectangle representing polygon SRS bounding box
+       tile_min_y: float
+              Tile minimum Y-coordinate (polygon SRS)
+       tile_max_y: float
+              Tile maximum Y-coordinate (polygon SRS)
+       tile_min_x: float
+              Tile minimum X-coordinate (polygon SRS)
+       tile_max_x: float
+              Tile maximum X-coordinate (polygon SRS)
+    """
+
+    # forces returned values from TransformPoint() to be (x, y, z)
+    # rather than (y, x, z) for geographic SRS
+    if polygon_srs.IsGeographic():
+        try:
+            polygon_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        except AttributeError:
+            logger.warning('WARNING Could not set the ancillary input SRS axis'
+                           ' mapping strategy (SetAxisMappingStrategy())'
+                           ' to osr.OAMS_TRADITIONAL_GIS_ORDER')
+    transformation = osr.CoordinateTransformation(tile_srs, polygon_srs)
+
+    elevation = 0
+    tile_x_array = np.zeros((4))
+    tile_y_array = np.zeros((4))
+    tile_x_array[0], tile_y_array[0], z = transformation.TransformPoint(
+        tile_min_x_utm, tile_max_y_utm, elevation)
+    tile_x_array[1], tile_y_array[1], z = transformation.TransformPoint(
+        tile_max_x_utm, tile_max_y_utm, elevation)
+    tile_x_array[2], tile_y_array[2], z = transformation.TransformPoint(
+        tile_max_x_utm, tile_min_y_utm, elevation)
+    tile_x_array[3], tile_y_array[3], z = transformation.TransformPoint(
+        tile_min_x_utm, tile_min_y_utm, elevation)
+    tile_min_y = np.min(tile_y_array)
+    tile_max_y = np.max(tile_y_array)
+    tile_min_x = np.min(tile_x_array)
+    tile_max_x = np.max(tile_x_array)
+
+    # handles antimeridian: tile_max_x around +180 and tile_min_x around -180
+    # add 360 to tile_min_x, so it becomes a little greater than +180
+    if tile_max_x > tile_min_x + 340:
+        tile_min_x, tile_max_x = tile_max_x, tile_min_x + 360
+
+    tile_ring = ogr.Geometry(ogr.wkbLinearRing)
+    tile_ring.AddPoint(tile_min_x, tile_max_y)
+    tile_ring.AddPoint(tile_max_x, tile_max_y)
+    tile_ring.AddPoint(tile_max_x, tile_min_y)
+    tile_ring.AddPoint(tile_min_x, tile_min_y)
+    tile_ring.AddPoint(tile_min_x, tile_max_y)
+    tile_polygon = ogr.Geometry(ogr.wkbPolygon)
+    tile_polygon.AddGeometry(tile_ring)
+    tile_polygon.AssignSpatialReference(polygon_srs)
+    return tile_polygon, tile_min_y, tile_max_y, tile_min_x, tile_max_x
+
+
+def _create_ocean_mask(shapefile, margin_km, scratch_dir,
+                       geotransform, projection, length, width,
+                       polygon_water,
+                       temp_files_list = None,):
+    """Compute ocean mask from NOAA GSHHS shapefile. 
+
+       Parameters
+       ----------
+       shapefile: str
+              NOAA GSHHS shapefile (e.g., 'GSHHS_f_L1.shp')
+       margin_km: int
+              Margin (buffer) towards the ocean to be added to the shore lines
+              in km
+       scratch_dir: str
+              Directory for temporary files
+       geotransform: numpy.ndarray
+              Geotransform describing the DSWx-HLS product geolocation
+       projection: str
+              DSWx-HLS product's projection
+       length: int
+              DSWx-HLS product's length (number of lines)
+       width: int
+              DSWx-HLS product's width (number of columns)
+       temp_files_list: list (optional)
+              Mutable list of temporary files. If provided,
+              paths to the temporary files generated will be
+              appended to this list.
+
+       Returns
+       -------
+       ocean_mask : numpy.ndarray
+              Ocean mask (0: land, 1: ocean)
+    """
+    logger.info('creating the ocean mask')
+
+    tile_min_x_utm, tile_dx_utm, _, tile_max_y_utm, _, tile_dy_utm = \
+        geotransform
+    tile_max_x_utm = tile_min_x_utm + width * tile_dx_utm
+    tile_min_y_utm = tile_max_y_utm + length * tile_dy_utm
+
+    tile_srs = osr.SpatialReference()
+    tile_srs.ImportFromProj4(projection)
+
+    # convert margin from km to meters
+    margin_m = int(1000 * margin_km)
+
+    tile_polygon = None
+    ocean_mask = np.zeros((length, width), dtype=np.uint8)
+    shapefile_ds = ogr.Open(shapefile, 0)
+
+    for layer in shapefile_ds:
+        for feature in layer:
+            geom = feature.GetGeometryRef()
+            if geom.GetGeometryName() != 'POLYGON' and \
+                geom.GetGeometryName() != 'MULTIPOLYGON':
+                continue
+
+            if tile_polygon is None:
+                polygon_srs = geom.GetSpatialReference()
+                tile_polygon_with_margin, *_ = \
+                    _get_tile_srs_bbox(tile_min_y_utm - 2 * margin_m,
+                                       tile_max_y_utm + 2 * margin_m,
+                                       tile_min_x_utm - 2 * margin_m,
+                                       tile_max_x_utm + 2 * margin_m,
+                                       tile_srs, polygon_srs)
+
+            # test if current geometry intersects with the tile
+            if not geom.Intersects(tile_polygon_with_margin):
+                continue
+
+            # intersect shoreline polygon to the tile and update its
+            # spatial reference system (SRS) to match the tile SRS
+            intersection_polygon = geom.Intersection(tile_polygon_with_margin)
+            intersection_polygon.AssignSpatialReference(polygon_srs)
+            intersection_polygon.TransformTo(tile_srs)
+
+            # add margin to polygon
+            if polygon_water:
+                margin_m = -1 * margin_m
+
+            intersection_polygon = intersection_polygon.Buffer(margin_m)
+
+            # Update feature with intersected polygon
+            feature.SetGeometry(intersection_polygon)
+
+            # Set up the shapefile driver 
+            shapefile_driver = ogr.GetDriverByName("ESRI Shapefile")
+
+            temp_shapefile_filename = tempfile.NamedTemporaryFile(
+                dir=scratch_dir, suffix='.shp').name
+
+            out_ds = shapefile_driver.CreateDataSource(temp_shapefile_filename)
+            out_layer = out_ds.CreateLayer("polygon", tile_srs, ogr.wkbPolygon)
+            out_layer.CreateFeature(feature)
+
+            gdal_ds = \
+                gdal.GetDriverByName('MEM').Create('', width, length, gdal.GDT_Byte)
+            gdal_ds.SetGeoTransform(geotransform)
+            gdal_ds.SetProjection(projection)
+            gdal.RasterizeLayer(gdal_ds, [1], out_layer, burn_values=[1])
+            current_ocean_mask = gdal_ds.ReadAsArray()
+            gdal_ds = None
+
+            if temp_files_list is not None:
+                for extension in ['.shp', '.prj', '.dbf', '.shx']:
+                    temp_file = temp_shapefile_filename.replace(
+                        '.shp', extension)
+                    if not os.path.isfile(temp_file):
+                        continue
+                    temp_files_list.append(temp_file)
+
+            ocean_mask |= current_ocean_mask
+
+    # if polygon represent the land, then create inverse binary.
+    if not polygon_water:
+        ocean_mask = ocean_mask == 0
+    return ocean_mask
 
 
 def create_geotiff_with_one_value(outpath, shape, filled_value):

@@ -11,7 +11,6 @@ from scipy import interpolate, ndimage
 from scipy.interpolate import Rbf
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
-from scipy.spatial import cKDTree
 from scipy.stats import norm
 from skimage.filters import threshold_multiotsu, threshold_otsu
 
@@ -50,7 +49,6 @@ class TileSelection:
         self.threshold_twele = [0.09, 0.8, 0.97]
         self.threshold_bimodality = 0.7
 
-
     def rescale_value(self,
                       raster,
                       min_value,
@@ -75,7 +73,6 @@ class TileSelection:
         rescaled_value = (raster - min_value) / (max_value - min_value)
 
         return rescaled_value
-
 
     def select_tile_bimodality(self,
                                intensity,
@@ -150,7 +147,6 @@ class TileSelection:
 
         return max_sigma, sigma, select_flag
 
-
     def select_tile_twele(self,
                           intensity_gray,
                           mean_intensity_global,
@@ -202,7 +198,6 @@ class TileSelection:
 
         return select_flag, cvx, rx
 
-
     def select_tile_chini(self,
                           intensity):
         """Select tiles based on Chini's method
@@ -228,7 +223,6 @@ class TileSelection:
         select_flag = metric_obj.compute_metric()
 
         return select_flag
-
 
     def get_water_portion_mask(self, water_mask):
         """
@@ -267,7 +261,6 @@ class TileSelection:
         water_area_flag = np.nansum(water_spatial_portion_bool) > 0
 
         return water_area_flag
-
 
     def tile_selection_wbd(self,
                            intensity,
@@ -442,7 +435,7 @@ class TileSelection:
                                     # the chini test is carried when the
                                     # 'twele' method passed.
                                     if (selection_methods in ['combined']) & \
-                                        (not tile_selected_flag):
+                                       (not tile_selected_flag):
 
                                         selected_tile_chini.append(False)
 
@@ -458,7 +451,8 @@ class TileSelection:
                                 else:
                                     selected_tile_chini.append(False)
 
-                                if {'bimodality', 'combined'}.intersection(set(selection_methods)):
+                                if {'bimodality', 'combined'}.intersection(
+                                    set(selection_methods)):
 
                                     if (selection_methods == 'combined') and \
                                         not tile_selected_flag:
@@ -502,7 +496,8 @@ class TileSelection:
                         # Initialize the result array with False values
                         detected_box_array = np.ones_like(selected_tile_twele,
                                                           dtype=bool)
-                        # Check and aggregate the results based on the selection_methods
+                        # Check and aggregate the results
+                        # based on the selection_methods
                         if 'twele' in selection_methods:
                             detected_box_array = np.logical_and(
                                 detected_box_array,
@@ -652,7 +647,7 @@ def bimodal(array, mu1, sigma1, amplitude1,
 
 def trimodal(array, mu1, sigma1, amplitude1,
              mu2, sigma2, amplitude2,
-              mu3, sigma3, amplitude3):
+             mu3, sigma3, amplitude3):
     """Generate trimodal gaussian distribution with given means and stds
     """
     return gauss(array, mu1, sigma1, amplitude1) + \
@@ -685,12 +680,14 @@ def compute_ki_threshold(
     index_ki_threshold : int
         index for ki threshold
     """
-    numstep = int((max_intensity_histogram - min_intensity_histogram) / step_histogram)
+    numstep = int((max_intensity_histogram -
+                   min_intensity_histogram) /
+                  step_histogram)
 
     if numstep < 100:
-        step_histogram = ((max_intensity_histogram
-                           - min_intensity_histogram)
-                           / 1000)
+        step_histogram = ((max_intensity_histogram -
+                           min_intensity_histogram) /
+                          1000)
         numstep = 1000
 
     intensity_counts, intensity_bins = np.histogram(
@@ -712,7 +709,7 @@ def compute_ki_threshold(
                                 negligible_value,
                                 intensity_cumsum)
 
-    intensity_cumsum[intensity_cumsum==0] = np.nan
+    intensity_cumsum[intensity_cumsum == 0] = np.nan
 
     intensity_area = np.cumsum(intensity_counts * intensity_bins)
     intenisty_s = np.cumsum(intensity_counts * intensity_bins ** 2)
@@ -731,7 +728,7 @@ def compute_ki_threshold(
     var_b = np.where(var_b <= 0, negligible_value, var_b)
     sigma_b = np.sqrt(var_b)
 
-    normalized_intensity_cumsum =  intensity_cumsum / intensity_cumsum[-1]
+    normalized_intensity_cumsum = intensity_cumsum / intensity_cumsum[-1]
     normalized_intensity_cumsum = \
         np.where(normalized_intensity_cumsum >= 1,
                  1 - negligible_value,
@@ -797,10 +794,12 @@ def determine_threshold(
     method: str
         Thresholding algorithm ('ki', 'otsu', 'rg')
     multi_threshold : bool
-        Flag indicating whether tri-mode Gaussian distribution is assumed or not.
+        Flag indicating whether tri-mode Gaussian distribution
+        is assumed or not.
     adjust_threshold_nonoverlapped_distribution : bool
         Flag enabling the adjustment of the threshold
-        If True, the threshold goes up to the point where the lower distribution ends
+        If True, the threshold goes up to the point where the
+        lower distribution ends
 
     Returns
     -------
@@ -813,12 +812,14 @@ def determine_threshold(
         max_intensity_histogram = np.nanpercentile(intensity, 90)
     if min_intensity_histogram == -1000:
         min_intensity_histogram = np.nanpercentile(intensity, 10)
-    numstep = int((max_intensity_histogram - min_intensity_histogram) / step_histogram)
+    numstep = int((max_intensity_histogram - min_intensity_histogram) /
+                  step_histogram)
     if numstep < 100:
         step_histogram0 = step_histogram
-        step_histogram = ((max_intensity_histogram - min_intensity_histogram) / 1000)
-        logger.info(f'Histogram bin step changes from {step_histogram0} to {step_histogram} '
-                    'in threshold computation.')
+        step_histogram = ((max_intensity_histogram - min_intensity_histogram) /
+                          1000)
+        logger.info(f'Histogram bin step changes from {step_histogram0} '
+                    f'to {step_histogram} in threshold computation.')
 
     threshold_array = []
     threshold_idx_array = []
@@ -839,7 +840,7 @@ def determine_threshold(
         intensity_sub = remove_invalid(intensity_sub)
 
         if intensity_sub.size == 0:
-            return global_threshold, glob_mode_thres
+            return np.nan, np.nan
 
         intensity_counts, bins = np.histogram(
             intensity_sub,
@@ -873,21 +874,26 @@ def determine_threshold(
 
         # Search the local peaks from histogram for initial values for fitting
         # peak for lower distribution
-        lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_threshold+1], distance=5)
+        lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_threshold+1],
+                                        distance=5)
         if not lowmaxind_cands.any():
-            lowmaxind_cands = np.array([np.nanargmax(intensity_counts[: idx_threshold+1])])
+            lowmaxind_cands = np.array(
+                [np.nanargmax(intensity_counts[: idx_threshold+1])])
 
         intensity_counts_cand = intensity_counts[lowmaxind_cands]
         lowmaxind = lowmaxind_cands[np.nanargmax(intensity_counts_cand)]
 
         # peak for higher distribution
-        highmaxind_cands, _ = find_peaks(intensity_counts[idx_threshold:], distance=5)
+        highmaxind_cands, _ = find_peaks(intensity_counts[idx_threshold:],
+                                         distance=5)
 
         # if highmaxind_cands is empty
         if not highmaxind_cands.any():
-            highmaxind_cands = np.array([np.nanargmax(intensity_counts[idx_threshold:])])
+            highmaxind_cands = np.array(
+                [np.nanargmax(intensity_counts[idx_threshold:])])
 
-        intensity_counts_cand = intensity_counts[idx_threshold + highmaxind_cands]
+        intensity_counts_cand = intensity_counts[idx_threshold +
+                                                 highmaxind_cands]
         highmaxind = idx_threshold + \
             highmaxind_cands[np.nanargmax(intensity_counts_cand)]
 
@@ -930,6 +936,7 @@ def determine_threshold(
 
             simul_first = gauss(intensity_bins, *first_mode)
             simul_second = gauss(intensity_bins, *second_mode)
+            simul_second_sum = np.nansum(simul_second)
             if simul_second_sum == 0:
                 simul_second_sum = negligible_value
             converge_ind = np.where((intensity_bins < tau_mode_right)
@@ -947,7 +954,8 @@ def determine_threshold(
 
         except:
             optimization = False
-            logger.info(f'Bimodal curve Fitting fails in threshold computation.')
+            logger.info(
+                'Bimodal curve Fitting fails in threshold computation.')
             modevalue = tau_mode_left
         try:
             dividers = threshold_multiotsu(intensity_sub)
@@ -966,9 +974,9 @@ def determine_threshold(
                                   bounds=((-35, 0, 0.01,
                                            -35, 0, 0.01,
                                            -35, 0, 0.01),
-                                           (5, 5, 0.95,
-                                            5, 5, 0.95,
-                                            5, 5, 0.95)))
+                                          (5, 5, 0.95,
+                                           5, 5, 0.95,
+                                           5, 5, 0.95)))
 
             # re-sort the order of estimated modes using amplitudes
             first_setind = 0
@@ -1022,35 +1030,47 @@ def determine_threshold(
             else:
                 third_second_dist_bool = False
 
+            intensity_sub_min = np.nanmin(intensity_sub)
             if tri_ratio_bool and third_second_dist_bool and \
-               first_second_dist_bool and tri_first_mode[0] > -32:
+               first_second_dist_bool and tri_first_mode[0] > -32 and \
+               intensity_sub_min < tri_second_mode[0]:
                 tri_optimization = True
-
             else:
                 tri_optimization = False
 
         except:
             tri_optimization = False
-            logger.info(f'Trimodal curve Fitting fails in threshold computation.')
+            logger.info(
+                'Trimodal curve Fitting fails in threshold computation.')
 
         if tri_optimization:
             intensity_sub2 = intensity_sub[intensity_sub < tri_second_mode[0]]
-            tau_bound_gauss = threshold_otsu(intensity_sub2)
+            if intensity_sub2.size > 0:
+                tau_bound_gauss = threshold_otsu(intensity_sub2)
 
-            if threshold > tau_bound_gauss:
-                threshold = tau_bound_gauss
-                idx_tau_bound_gauss = np.searchsorted(intensity_bins, threshold)
-                tri_lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_tau_bound_gauss+1], distance=5)
-                if not tri_lowmaxind_cands.any():
-                    tri_lowmaxind_cands = np.array([np.nanargmax(intensity_counts[: idx_tau_bound_gauss+1])])
-                intensity_counts_cand = intensity_counts[tri_lowmaxind_cands]
-                tri_lowmaxind = tri_lowmaxind_cands[np.nanargmax(intensity_counts_cand)]
-                tri_lowmaxind = np.squeeze(tri_lowmaxind)
+                if threshold > tau_bound_gauss:
+                    threshold = tau_bound_gauss
+                    idx_tau_bound_gauss = np.searchsorted(intensity_bins,
+                                                          threshold)
+                    tri_lowmaxind_cands, _ = find_peaks(
+                        intensity_counts[0:idx_tau_bound_gauss+1],
+                        distance=5)
 
-                if tri_lowmaxind.size > 1:
-                    tri_lowmaxind = tri_lowmaxind[tri_lowmaxind <= idx_tau_bound_gauss]
-                    tri_lowmaxind = tri_lowmaxind[0]
-                modevalue = intensity_bins[tri_lowmaxind]
+                    if not tri_lowmaxind_cands.any():
+                        tri_lowmaxind_cands = np.array(
+                            [np.nanargmax(
+                             intensity_counts[: idx_tau_bound_gauss+1])])
+                    intensity_counts_cand = intensity_counts[
+                        tri_lowmaxind_cands]
+                    tri_lowmaxind = tri_lowmaxind_cands[
+                        np.nanargmax(intensity_counts_cand)]
+                    tri_lowmaxind = np.squeeze(tri_lowmaxind)
+
+                    if tri_lowmaxind.size > 1:
+                        tri_lowmaxind = tri_lowmaxind[tri_lowmaxind <=
+                                                      idx_tau_bound_gauss]
+                        tri_lowmaxind = tri_lowmaxind[0]
+                    modevalue = intensity_bins[tri_lowmaxind]
 
         if method == 'rg':
             intensity_countspp, _ = np.histogram(
@@ -1058,7 +1078,7 @@ def determine_threshold(
                 bins=np.linspace(min_intensity_histogram,
                                  max_intensity_histogram,
                                  numstep + 1),
-                                 density=False)
+                density=False)
             with np.errstate(divide='ignore', invalid='ignore'):
                 ratios = np.where(intensity_counts != 0,
                                   intensity_countspp / intensity_counts,
@@ -1107,7 +1127,7 @@ def determine_threshold(
                         if compare_index1 != compare_index2:
                             rms = np.sqrt(np.nanmean(
                                 (intensity_counts_rg[compare_index1:compare_index2] -
-                                simul_first[compare_index1:compare_index2])**2))
+                                 simul_first[compare_index1:compare_index2])**2))
                             rms_sss.append(rms)
                             rms_xx.append(hist_bin)
                         else:
@@ -1156,6 +1176,7 @@ def determine_threshold(
 
     return global_threshold, glob_mode_thres
 
+
 def optimize_inter_distribution_threshold(
         threshold,
         mean1,
@@ -1167,9 +1188,11 @@ def optimize_inter_distribution_threshold(
     """
     Compute the threshold between two Gaussian distributions.
 
-    This function optimizes the threshold value between two non-overlapped Gaussian distributions.
-    The optimization is done iteratively, moving the threshold towards the second distribution's mean
-    in each step until the overlap criterion is met or the maximum number of iterations is reached.
+    This function optimizes the threshold value between two non-overlapped
+    Gaussian distributions. The optimization is done iteratively, moving
+    the threshold towards the second distribution's mean in each step until
+    the overlap criterion is met or the maximum number of iterations is
+    reached.
 
     Parameters
     ----------
@@ -1194,18 +1217,21 @@ def optimize_inter_distribution_threshold(
     Returns
     -------
     threshold : float
-        The optimized threshold value which best separates the two Gaussian distributions.
+        The optimized threshold value which best separates the 
+        two Gaussian distributions.
 
     Notes
     -----
-    The function uses a while loop to iteratively adjust the threshold. The loop terminates
-    when either the overlap criterion (based on cumulative distribution functions) is met,
-    or the maximum number of iterations is reached.
+    The function uses a while loop to iteratively adjust the threshold.
+    The loop terminates when either the overlap criterion (based on
+    cumulative distribution functions) is met, or the maximum number of
+    iterations is reached.
     """
     # Adjust the threshold if the distributions do not overlap
     iteration = 0
-    while (norm.cdf(threshold, mean1, std1) < 0.95 and norm.cdf(threshold, mean2, std2) < 0.05) \
-        and iteration < max_iterations:
+    while (norm.cdf(threshold, mean1, std1) < 0.95 and
+           norm.cdf(threshold, mean2, std2) < 0.05) and \
+            (iteration < max_iterations):
         # Move threshold towards the mean of the second distribution
         threshold += (mean2 - threshold) * step_fraction
         iteration += 1
@@ -1374,11 +1400,11 @@ def fill_threshold_with_gdal(threshold_array,
         else:
             logger.info('threshold array is empty')
 
-            # Define the GeoTransform (you may need to adjust this based on your spatial reference)
-            geotransform = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)  # Change as needed
+            # Define the GeoTransform
+            geotransform = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
 
-            # Define the projection (you may need to specify the correct projection)
-            projection = "EPSG:4326"  # Change as needed
+            # Define the projection
+            projection = "EPSG:4326"
 
             # Create an empty NumPy array filled with zeros
             empty_data = np.ones((rows, cols)) * no_data
@@ -1490,16 +1516,11 @@ def fill_threshold_with_distance(threshold_array,
         points[:, 1] = y_arr_tau_valid
         values = z_arr_tau_valid
 
-        # Now we create a KD-tree
-        tree = cKDTree(points)
-        if len(values) < 10:
-            number_point = len(values)
-        else:
-            number_point = 10
-        # Let's assume we have a grid and we want to interpolate the values on this grid
+        # Let's assume we have a grid and
+        # we want to interpolate the values on this grid
         grid_y, grid_x = np.mgrid[0:rows, 0:cols]  # a grid in 2D
 
-        rbf = Rbf(points[:,0], points[:,1], values,
+        rbf = Rbf(points[:, 0], points[:, 1], values,
                   function='multiquadric', smooth=0.2)
         # grid_values = rbf(grid_x, grid_y)
         grid_values = np.zeros(grid_x.shape)
@@ -1584,7 +1605,8 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
     mutli_threshold_flag = threshold_cfg.multi_threshold
     tile_selection_twele = threshold_cfg.tile_selection_twele
     tile_selection_bimodality = threshold_cfg.tile_selection_bimodality
-    adjust_threshold_flag = threshold_cfg.adjust_threshold_nonoverlapped_distribution
+    adjust_threshold_flag = \
+        threshold_cfg.adjust_threshold_nonoverlapped_distribution
     # water cfg
     water_cfg = processing_cfg.reference_water
 
@@ -1614,7 +1636,7 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
     tile_selection_object.threshold_bimodality = \
         tile_selection_bimodality
 
-    ## Tile Selection (with water body)
+    # Tile Selection (with water body)
     for polind, pol in enumerate(pol_list):
 
         candidate_tile_coords = tile_selection_object.tile_selection_wbd(
@@ -1624,16 +1646,22 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                            selection_methods=tile_selection_method)
 
         if pol in ['VV', 'VH', 'HH', 'HV', 'span']:
-            min_intensity_histogram, max_intensity_histogram, step_histogram = -35, 10, 0.1
+            (min_intensity_histogram,
+             max_intensity_histogram,
+             step_histogram) = -35, 10, 0.1
             target_im = np.squeeze(10*np.log10(intensity[polind, :, :]))
         elif pol == 'ratio':
-            min_intensity_histogram, max_intensity_histogram, step_histogram = -11, 0, 0.1
+            (min_intensity_histogram,
+             max_intensity_histogram,
+             step_histogram) = -11, 0, 0.1
             target_im = np.squeeze(10*np.log10(intensity[polind, :, :]))
         else:
-            min_intensity_histogram, max_intensity_histogram, step_histogram = -1000, -1000, 0.1
+            (min_intensity_histogram,
+             max_intensity_histogram,
+             step_histogram) = -1000, -1000, 0.1
             target_im = np.squeeze(intensity[polind, :, :])
 
-        if len(candidate_tile_coords) > 0 :
+        if len(candidate_tile_coords) > 0:
             wbdsub_norm = wbdsub/tile_selection_object.wbd_max_value
             if wbdsub_norm.shape[0]*wbdsub_norm.shape[1] == 0:
                 water_variation = 0
@@ -1665,7 +1693,8 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                 )
 
             logger.info(f'method {threshold_method} for {pol}')
-            logger.info(f'global threshold and bound : {intensity_threshold} {threshold_temp_max}')
+            logger.info('global threshold and bound : '
+                        f'{intensity_threshold} {threshold_temp_max}')
             logger.info(f'global mode thresholding : {mode_tau}')
 
         else:
@@ -1678,9 +1707,13 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
     return threshold_tau_set, mode_tau_set, candidate_tile_coords_set
 
 
-def process_block(ii, jj, n_rows_block, n_cols_block, m_rows_block, m_cols_block,
-                  block_row, block_col, width, filt_im_str, wbd_im_str,
-                  cfg, thres_max, average_tile_flag=False):
+def process_block(ii, jj,
+                  n_rows_block, n_cols_block,
+                  m_rows_block, m_cols_block,
+                  block_row, block_col, width,
+                  filt_im_str, wbd_im_str,
+                  cfg, thres_max,
+                  average_tile_flag=False):
     """
     Processes a specific block of an image.
 
@@ -1717,14 +1750,19 @@ def process_block(ii, jj, n_rows_block, n_cols_block, m_rows_block, m_cols_block
 
     Returns:
     --------
-        tuple: Contains processed block information, including row index, column index,
+        tuple: Contains processed block information,
+               including row index, column index,
                threshold list, mode list, and candidate coordinates.
     """
-    x_size = m_cols_block if (jj == n_cols_block - 1) and m_cols_block > 0 else block_col
-    y_size = m_rows_block if (ii == n_rows_block - 1) and m_rows_block > 0 else block_row
+    x_size = m_cols_block \
+        if (jj == n_cols_block - 1) and m_cols_block > 0 else block_col
+    y_size = m_rows_block \
+        if (ii == n_rows_block - 1) and m_rows_block > 0 else block_row
 
-    logger.info(f"block_processing: {ii + 1}/{n_rows_block} _ {jj + 1}/{n_cols_block}"
-                f" - {ii * n_cols_block + jj + 1}/{n_rows_block * n_cols_block}")
+    logger.info(f"block_processing: {ii + 1}/{n_rows_block} "
+                f"_ {jj + 1}/{n_cols_block}"
+                f" - {ii * n_cols_block + jj + 1}/"
+                f"{n_rows_block * n_cols_block}")
 
     filt_raster_tif = gdal.Open(filt_im_str)
     image_sub = filt_raster_tif.ReadAsArray(jj * block_col,
@@ -1795,8 +1833,8 @@ def compute_threshold_max_bound(intensity_path,
         - List of threshold maximum bounds for each band.
         - List of mean intensity values for valid water regions
           for each band.
-        - List of standard deviation of intensity values for valid water regions
-          for each band.
+        - List of standard deviation of intensity values
+          for valid water regions for each band.
         - Boolean indicating if the intensity distribution is bimodal.
     """
     im_meta = dswx_sar_util.get_meta_from_tif(intensity_path)
@@ -1819,7 +1857,9 @@ def compute_threshold_max_bound(intensity_path,
 
             intensity_array, water_body_data, no_data_area = [
                 dswx_sar_util.get_raster_block(path, block_param)
-                for path in [intensity_path, reference_water_path, no_data_path]]
+                for path in [intensity_path,
+                             reference_water_path,
+                             no_data_path]]
 
             if im_meta['band_number'] == 1:
                 intensity_array = intensity_array[np.newaxis, :, :]
@@ -1851,7 +1891,9 @@ def compute_threshold_max_bound(intensity_path,
 
                     if is_bimodal:
                         if metric_obj.optimization:
-                            intensity_sub_mean, intensity_sub_std, _ = metric_obj.first_mode
+                            (intensity_sub_mean,
+                             intensity_sub_std,
+                             _) = metric_obj.first_mode
                         else:
                             thres_temp = threshold_otsu(intensity_array_db_set)
                             valid_samples = intensity_array_db_set[
@@ -1862,9 +1904,11 @@ def compute_threshold_max_bound(intensity_path,
                         intensity_sub_mean = np.nanmean(intensity_array_db_set)
                         intensity_sub_std = np.nanstd(intensity_array_db_set)
                     thres_max_set.append(
-                        np.nanmax([np.percentile(intensity_array_db_set, 99.5) + \
+                        np.nanmax([np.percentile(intensity_array_db_set,
+                                                 99.5) +
                                    intensity_sub_std * 2,
-                                   intensity_sub_mean + intensity_sub_std * 2]))
+                                   intensity_sub_mean +
+                                   intensity_sub_std * 2]))
                     intensity_sub_mean_set.append(intensity_sub_mean)
                     intensity_sub_std_set.append(intensity_sub_std)
 
@@ -1874,7 +1918,8 @@ def compute_threshold_max_bound(intensity_path,
                     thres_max_set.append(np.nan)
                     is_bimodal = False
 
-    return thres_max_set, intensity_sub_mean_set, intensity_sub_std_set, is_bimodal
+    return (thres_max_set, intensity_sub_mean_set,
+            intensity_sub_std_set, is_bimodal)
 
 
 def compute_water_spatial_coverage(
@@ -1976,7 +2021,8 @@ def run(cfg):
     # Read metadata from intensity image (projection, geotransform)
     water_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
     band_number, height, width = [water_meta[attr_name]
-        for attr_name in ["band_number", "length", "width"]]
+                                  for attr_name in
+                                  ["band_number", "length", "width"]]
 
     # create water masks for normal,
     # flood and drought using dilation and erosion
@@ -2009,9 +2055,10 @@ def run(cfg):
         # then use the very high threshold to classify all pixels as water.
         for band_ind in range(band_number):
             pol_str = pol_list[band_ind]
-            thresh_file_str = os.path.join(outputdir,
-                                           f"intensity_threshold_filled_{pol_str}.tif")
-            thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol_str}.tif")
+            thresh_file_str = os.path.join(
+                outputdir, f"intensity_threshold_filled_{pol_str}.tif")
+            thresh_peak_str = os.path.join(
+                outputdir, f"mode_tau_filled_{pol_str}.tif")
             for filled_file_path in [thresh_file_str, thresh_peak_str]:
                 dswx_sar_util.create_geotiff_with_one_value(
                     filled_file_path,
@@ -2033,12 +2080,18 @@ def run(cfg):
             if pol_list[band_ind] == 'span':
                 thres_max[band_ind] = 30
             else:
-                logger.info(f'mean  intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {intensity_sub_mean[band_ind]:.2f}, {is_bimodal}')
-                logger.info(f'std   intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {intensity_sub_std[band_ind]:.2f}, {is_bimodal}')
-                logger.info(f'max bound intensity [dB] over water {pol_list[band_ind]}:'
-                            f' {thres_max[band_ind]:.2f}, {is_bimodal}')
+                logger.info(
+                    'mean  intensity [dB] over water '
+                    f'{pol_list[band_ind]}:'
+                    f' {intensity_sub_mean[band_ind]:.2f}, {is_bimodal}')
+                logger.info(
+                    'std   intensity [dB] over water '
+                    f'{pol_list[band_ind]}:'
+                    f' {intensity_sub_std[band_ind]:.2f}, {is_bimodal}')
+                logger.info(
+                    'max bound intensity [dB] over water '
+                    f'{pol_list[band_ind]}:'
+                    f' {thres_max[band_ind]:.2f}, {is_bimodal}')
 
         block_row = init_threshold_cfg.maximum_tile_size.y
         block_col = init_threshold_cfg.maximum_tile_size.x
@@ -2117,24 +2170,24 @@ def run(cfg):
 
                 # individual polarizations
                 for threshold_tau_block, mode_tau_block, window_coord in zip(
-                    threshold_tau_blocks, mode_tau_blocks, window_coords):
+                     threshold_tau_blocks, mode_tau_blocks, window_coords):
                     # -50 represent the no-data value.
                     threshold_tau_subset = list(filter(lambda x: x != -50,
                                                 [threshold_tau_block]))
                     mode_tau_subset = list(filter(lambda x: x != -50,
-                                                [mode_tau_block]))
+                                                  [mode_tau_block]))
 
                     if threshold_tau_subset:
                         # window center for row and col
                         window_center_row_list = [
-                            int(ii * block_row + 
+                            int(ii * block_row +
                                 (sub_window[1] + sub_window[2]) / 2)
-                                for sub_window in window_coord]
+                            for sub_window in window_coord]
 
                         window_center_col_list = [
-                            int(jj * block_col + 
+                            int(jj * block_col +
                                 (sub_window[3] + sub_window[4]) / 2)
-                                for sub_window in window_coord]
+                            for sub_window in window_coord]
 
                         # window coordinates
                         absolute_window_coord = [
@@ -2142,14 +2195,15 @@ def run(cfg):
                              ii * block_row + sub_window[2],
                              jj * block_col + sub_window[3],
                              jj * block_col + sub_window[4]]
-                                for sub_window in window_coord]
+                            for sub_window in window_coord]
 
                         coord_row_list[pol_index] = \
                             coord_row_list[pol_index] + window_center_row_list
                         coord_col_list[pol_index] = \
                             coord_col_list[pol_index] + window_center_col_list
 
-                        threshold_tau_set[pol_index].extend(threshold_tau_subset[0])
+                        threshold_tau_set[pol_index].extend(
+                            threshold_tau_subset[0])
                         mode_tau_set[pol_index].extend(mode_tau_subset[0])
                         window_coord_list[pol_index].extend(
                             absolute_window_coord)
@@ -2170,9 +2224,10 @@ def run(cfg):
         # Currently, only 'gdal_grid' method is supported.
         if threshold_extending_method == 'gdal_grid':
             dict_threshold_list = [threshold_tau_dict, mode_tau_dict]
-            interp_thres_str_list = ['intensity_threshold_filled', 'mode_tau_filled']
+            interp_thres_str_list = ['intensity_threshold_filled',
+                                     'mode_tau_filled']
             for dict_thres, thres_str in zip(dict_threshold_list,
-                                            interp_thres_str_list):
+                                             interp_thres_str_list):
                 fill_threshold_with_gdal(
                     threshold_array=dict_thres,
                     rows=height,
@@ -2192,7 +2247,7 @@ def run(cfg):
                 intensity_whole,
                 threshold_tau_dict,
                 outputdir=outputdir,
-                figname=f'int_threshold_visualization_')
+                figname='int_threshold_visualization_')
         else:
             for band_ind2 in range(band_number):
                 dswx_sar_util.block_threshold_visualization(
@@ -2291,6 +2346,7 @@ def main():
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
         run(cfg)
+
 
 if __name__ == '__main__':
     main()

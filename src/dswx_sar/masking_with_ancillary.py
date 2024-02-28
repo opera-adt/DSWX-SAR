@@ -414,13 +414,11 @@ def split_extended_water_parallel(
                 np.searchsorted(old_val, label_image),
                 dtype='uint32')
 
-            for ind in range(len(sizes)):
+            for coords, size in zip(coord_list, sizes):
                 (bbox_x_start,
                  bbox_x_end,
                  bbox_y_start,
-                 bbox_y_end) = coord_list[ind]
-
-                size = sizes[ind]
+                 bbox_y_end) = coords
 
                 # Check if the component touches the boundary
                 if bbox_y_start != 0 and \

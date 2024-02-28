@@ -558,7 +558,12 @@ def replace_reference_water_nodata_from_ancillary(
             hand_block <= 0.002)
         ref_water_block[no_data_area | replaced_area] = reference_water_max
 
-        # write updated reference water
+        replaced_area = np.logical_and(
+            ref_water_block == reference_water_no_data,
+            landcover_block != landcover_label['Permanent water bodies'])
+        ref_water_block[replaced_area] = 0
+
+        # write updated reference water 
         dswx_sar_util.write_raster_block(
             out_raster=reference_water_path,
             data=ref_water_block,

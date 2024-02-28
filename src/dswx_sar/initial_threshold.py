@@ -800,10 +800,25 @@ def determine_threshold(
     method: str
         Thresholding algorithm ('ki', 'otsu', 'rg')
     multi_threshold : bool
-        Flag indicating whether tri-mode Gaussian distribution is assumed or not.
+        Flag indicating whether tri-mode Gaussian distribution is assumed
+        or not.
     adjust_if_nonoverlap : bool
         Flag enabling the adjustment of the threshold
-        If True, the threshold goes up to the point where the lower distribution ends
+        If True, the threshold goes up to the point where the lower
+        distribution ends
+    adjust_thresh_low_dist_percent: float
+        Percentile threshold for the lower distribution. When
+        'adjust_if_nonoverlap' is enabled, this parameter defines the
+        threshold as the value at the specified percentile of the lower
+        distribution. This adjustment ensures that the threshold aligns
+        with the desired percentile position within the distribution.
+    adjust_thresh_high_dist_percent: float
+        Percentile threshold for the higher distribution.
+        Percentile threshold for the higher distribution. When
+        'adjust_if_nonoverlap' is enabled, this parameter defines the
+        threshold as the value at the specified percentile of the higher
+        distribution. This adjustment ensures that the threshold aligns
+        with the desired percentile position within the distribution.
 
     Returns
     -------
@@ -2197,12 +2212,12 @@ def run(cfg):
                     if threshold_tau_subset:
                         # window center for row and col
                         window_center_row_list = [
-                            int(ii * block_row + 
+                            int(ii * block_row +
                                 (sub_window[1] + sub_window[2]) / 2)
                                 for sub_window in window_coord]
 
                         window_center_col_list = [
-                            int(jj * block_col + 
+                            int(jj * block_col +
                                 (sub_window[3] + sub_window[4]) / 2)
                                 for sub_window in window_coord]
 

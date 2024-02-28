@@ -762,10 +762,13 @@ def determine_threshold(
         min_intensity_histogram=-32,
         max_intensity_histogram=0,
         step_histogram=0.1,
-        bounds=[-20, -13],
+        bounds=None,
         method='ki',
         mutli_threshold=True,
-        adjust_threshold_nonoverlapped_distribution=True):
+        adjust_if_nonoverlap=True,
+        adjust_thresh_low_dist_percent=None,
+        adjust_thresh_high_dist_percent=None,
+        ):
     """Compute the thresholds and peak values for left Gaussian
     from intensity image for given candidate coordinates.
     The three methods are supported:
@@ -798,7 +801,7 @@ def determine_threshold(
         Thresholding algorithm ('ki', 'otsu', 'rg')
     multi_threshold : bool
         Flag indicating whether tri-mode Gaussian distribution is assumed or not.
-    adjust_threshold_nonoverlapped_distribution : bool
+    adjust_if_nonoverlap : bool
         Flag enabling the adjustment of the threshold
         If True, the threshold goes up to the point where the lower distribution ends
 
@@ -809,6 +812,8 @@ def determine_threshold(
     glob_mode_thres : float
         mode value of gaussian distribution of water body
     """
+    if bounds is None:
+        bounds = [-20, -13]
     if max_intensity_histogram == -1000:
         max_intensity_histogram = np.nanpercentile(intensity, 90)
     if min_intensity_histogram == -1000:
@@ -1039,7 +1044,7 @@ def determine_threshold(
 
             if threshold > tau_bound_gauss:
                 threshold = tau_bound_gauss
-                idx_tau_bound_gauss = np.searchsorted(intensity_bins, threshold)
+                idx_tau_bound_gauss = np.searchsorted(intensity_bins,threshold)
                 tri_lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_tau_bound_gauss+1], distance=5)
                 if not tri_lowmaxind_cands.any():
                     tri_lowmaxind_cands = np.array([np.nanargmax(intensity_counts[: idx_tau_bound_gauss+1])])
@@ -1118,7 +1123,7 @@ def determine_threshold(
                 rg_tolerance = rms_xx[min_rms_ind[0][0]]
                 threshold = (rg_tolerance + threshold) / 2
 
-        if adjust_threshold_nonoverlapped_distribution:
+        if adjust_if_nonoverlap:
             old_threshold = threshold
 
             if optimization:
@@ -1137,7 +1142,9 @@ def determine_threshold(
                     mean2=mean2,
                     std2=std2,
                     step_fraction=0.05,
-                    max_iterations=100)
+                    max_iterations=100,
+                    thresh_low_dist_percent=adjust_thresh_low_dist_percent,
+                    thresh_high_dist_percent=adjust_thresh_high_dist_percent)
 
         # add final threshold to threshold list
         threshold_array.append(threshold)
@@ -1156,6 +1163,7 @@ def determine_threshold(
 
     return global_threshold, glob_mode_thres
 
+
 def optimize_inter_distribution_threshold(
         threshold,
         mean1,
@@ -1163,13 +1171,15 @@ def optimize_inter_distribution_threshold(
         mean2,
         std2,
         step_fraction=0.05,
-        max_iterations=100):
+        max_iterations=100,
+        thresh_low_dist_percent=None,
+        thresh_high_dist_percent=None):
     """
-    Compute the threshold between two Gaussian distributions.
+    Adjust the threshold between two non-overlapping Gaussian distributions.
 
-    This function optimizes the threshold value between two non-overlapped Gaussian distributions.
-    The optimization is done iteratively, moving the threshold towards the second distribution's mean
-    in each step until the overlap criterion is met or the maximum number of iterations is reached.
+    This function iteratively adjusts the threshold towards the mean of the
+    second distribution until overlap criteria are met or the maximum number
+    of iterations is reached.
 
     Parameters
     ----------
@@ -1184,28 +1194,37 @@ def optimize_inter_distribution_threshold(
     std2 : float
         Standard deviation of the second Gaussian distribution.
     step_fraction : float, optional
-        Fraction of distance to move the threshold towards the
-        mean of the second distribution at each iteration.
-        Default is 0.05.
+        Fraction of distance to move the threshold towards the mean of the
+        second distribution at each iteration (default is 0.05).
     max_iterations : int, optional
-        Maximum number of iterations to adjust the threshold.
-        Default is 100.
+        Maximum number of iterations to adjust the threshold (default is 100).
+    thresh_low_dist_percent : float, optional
+        Lower distribution threshold percentage criterion for optimization.
+    thresh_high_dist_percent : float, optional
+        Higher distribution threshold percentage criterion for optimization.
 
     Returns
     -------
     threshold : float
-        The optimized threshold value which best separates the two Gaussian distributions.
+        Optimized threshold value for separating the two distributions.
 
     Notes
     -----
-    The function uses a while loop to iteratively adjust the threshold. The loop terminates
-    when either the overlap criterion (based on cumulative distribution functions) is met,
-    or the maximum number of iterations is reached.
+    The function uses a while loop to iteratively adjust the threshold.
+    The loop terminates when either the overlap criterion (based on cumulative
+    distribution functions) is met, or the maximum number of iterations is
+    reached.
     """
+    if thresh_low_dist_percent is None:
+        thresh_low_dist_percent = 0.98
+    if thresh_high_dist_percent is None:
+        thresh_high_dist_percent = 0.02
     # Adjust the threshold if the distributions do not overlap
     iteration = 0
-    while (norm.cdf(threshold, mean1, std1) < 0.95 and norm.cdf(threshold, mean2, std2) < 0.05) \
-        and iteration < max_iterations:
+    while (norm.cdf(threshold, mean1, std1) < thresh_low_dist_percent) and \
+          (norm.cdf(threshold, mean2, std2) < thresh_high_dist_percent) and \
+            iteration < max_iterations:
+
         # Move threshold towards the mean of the second distribution
         threshold += (mean2 - threshold) * step_fraction
         iteration += 1
@@ -1564,8 +1583,46 @@ def save_threshold_dict(threshold, block_row, block_col):
     return threshold_dict
 
 
-def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
+def _get_histogram_params(polarization):
+    """Define Mininum, maximum, and step for histogram
+    based on polarization.
+    """
+    if polarization in ['VV', 'VH', 'HH', 'HV', 'span']:
+        return -35, 10, 0.1
+    elif polarization == 'ratio':
+        return -11, 0, 0.1
+    else:
+        return np.nan, np.nan, np.nan
 
+
+def run_sub_block(intensity,
+                  water_body_subset,
+                  cfg,
+                  winsize=200,
+                  thres_max=None):
+    """
+    Process sub-blocks of SAR intensity data for water detection based on
+    the specified configuration.
+
+    Parameters
+    ----------
+    intensity : ndarray
+        SAR intensity data, can be 2D or 3D (polarizations).
+    water_body_subset : ndarray
+        Water body subset data for masking.
+    cfg : object
+        Configuration settings for processing.
+    win_size : int, optional
+        Window size for processing tiles (default is 200).
+    threshold_max : list, optional
+        Maximum thresholds for different polarizations
+
+    Returns
+    -------
+    tuple of lists
+        A tuple containing lists of thresholds, mode values, and candidate tile
+        coordinates for each polarization.
+    """
     if intensity.ndim == 3:
         _, height, width = np.shape(intensity)
     else:
@@ -1582,9 +1639,15 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
     tile_selection_method = threshold_cfg.selection_method
     threshold_method = threshold_cfg.threshold_method
     mutli_threshold_flag = threshold_cfg.multi_threshold
+    threshold_bounds_co_pol = threshold_cfg.threshold_bounds.co_pol
+    threshold_bounds_cross_pol = threshold_cfg.threshold_bounds.cross_pol
+
     tile_selection_twele = threshold_cfg.tile_selection_twele
     tile_selection_bimodality = threshold_cfg.tile_selection_bimodality
-    adjust_threshold_flag = threshold_cfg.adjust_threshold_nonoverlapped_distribution
+    adjust_threshold_flag = threshold_cfg.adjust_if_nonoverlap
+    low_dist_percentile = threshold_cfg.low_dist_percentile
+    high_dist_percentile = threshold_cfg.high_dist_percentile
+
     # water cfg
     water_cfg = processing_cfg.reference_water
 
@@ -1619,22 +1682,21 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
 
         candidate_tile_coords = tile_selection_object.tile_selection_wbd(
                            intensity=intensity[polind, :, :],
-                           water_mask=wbdsub,
+                           water_mask=water_body_subset,
                            win_size=winsize,
                            selection_methods=tile_selection_method)
 
-        if pol in ['VV', 'VH', 'HH', 'HV', 'span']:
-            min_intensity_histogram, max_intensity_histogram, step_histogram = -35, 10, 0.1
-            target_im = np.squeeze(10*np.log10(intensity[polind, :, :]))
-        elif pol == 'ratio':
-            min_intensity_histogram, max_intensity_histogram, step_histogram = -11, 0, 0.1
-            target_im = np.squeeze(10*np.log10(intensity[polind, :, :]))
-        else:
-            min_intensity_histogram, max_intensity_histogram, step_histogram = -1000, -1000, 0.1
-            target_im = np.squeeze(intensity[polind, :, :])
+        if len(candidate_tile_coords) > 0:
+            if pol in ['VV', 'VH', 'HH', 'HV', 'span', 'ratio']:
+                target_im = 10 * np.log10(intensity[polind])
+            else:
+                target_im = intensity[polind]
+            (min_intensity_histogram,
+             max_intensity_histogram,
+             step_histogram) = _get_histogram_params(pol)
 
-        if len(candidate_tile_coords) > 0 :
-            wbdsub_norm = wbdsub/tile_selection_object.wbd_max_value
+            wbdsub_norm = water_body_subset / \
+                tile_selection_object.wbd_max_value
             if wbdsub_norm.shape[0]*wbdsub_norm.shape[1] == 0:
                 water_variation = 0
             else:
@@ -1643,14 +1705,20 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                                      (wbdsub_norm > 0.2)])\
                                      / (wbdsub_norm.shape[0] *
                                         wbdsub_norm.shape[1])
-
+            # When water bodies are not enough to compute the bound values,
+            # use the pre-defined values.
             if water_variation > 0.1:
                 threshold_temp_max = thres_max[polind]
             else:
                 if pol in ['VV', 'HH', 'span']:
-                    threshold_temp_max = -13
+                    threshold_temp_max = threshold_bounds_co_pol[1]
                 else:
-                    threshold_temp_max = -20
+                    threshold_temp_max = threshold_bounds_cross_pol[1]
+
+            if pol in ['VV', 'HH', 'span']:
+                threshold_temp_min = threshold_bounds_co_pol[0]
+            else:
+                threshold_temp_min = threshold_bounds_cross_pol[0]
 
             intensity_threshold, mode_tau = determine_threshold(
                 intensity=target_im,
@@ -1658,10 +1726,12 @@ def run_sub_block(intensity, wbdsub, cfg, winsize=200, thres_max=[-15, -22]):
                 min_intensity_histogram=min_intensity_histogram,
                 max_intensity_histogram=max_intensity_histogram,
                 step_histogram=step_histogram,
-                bounds=[-28, threshold_temp_max],
+                bounds=[threshold_temp_min, threshold_temp_max],
                 method=threshold_method,
                 mutli_threshold=mutli_threshold_flag,
-                adjust_threshold_nonoverlapped_distribution=adjust_threshold_flag
+                adjust_if_nonoverlap=adjust_threshold_flag,
+                adjust_thresh_low_dist_percent=low_dist_percentile,
+                adjust_thresh_high_dist_percent=high_dist_percentile,
                 )
 
             logger.info(f'method {threshold_method} for {pol}')

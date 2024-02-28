@@ -1169,8 +1169,8 @@ def block_threshold_visualization(intensity, block_row, block_col,
     Visualize an intensity image overlaid with threshold values from
     specified blocks/subtiles.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     intensity : numpy.ndarray
         A 2D or 3D array representing the intensity of the image.
         If 3D, only the second and third dimensions (rows and columns)

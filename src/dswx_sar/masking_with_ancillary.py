@@ -110,14 +110,14 @@ def extract_bbox_with_buffer(
     """Extract bounding boxes with buffer from binary image and
     save the labeled image.
 
-    Parameters:
+    Parameters
     ----------
     binary : np.ndarray
         Binary image containing connected components.
     buffer : int
         Buffer size to expand the bounding boxes.
 
-    Returns:
+    Returns
     -------
     coord_list : Tuple[List[List[int]]
         A tuple containing the list of coordinates for each bounding
@@ -167,7 +167,7 @@ def check_water_land_mixture(args):
     distribution of intensity values, implying a mix of water and land.
     The function further refines these regions using local metrics.
 
-    Parameters:
+    Parameters
     ----------
     args : tuple
     Contains the following elements:
@@ -182,7 +182,7 @@ def check_water_land_mixture(args):
         * water_mask_block (str): Numpy array of the water mask raster file.
         * pol_ind (int): Polarization index.
 
-    Returns:
+    Returns
     -------
     i : int
         Index of the water component.
@@ -195,7 +195,9 @@ def check_water_land_mixture(args):
         water_mask_block, pol_ind = args
 
     if int_linear_block.ndim == 2:
-        int_linear_block = np.reshape(
+        int_linear_block = np.expand_dims(int_linear_block,
+                                          axis=1)
+        np.reshape(
             int_linear_block,
             [1, int_linear_block.shape[0], int_linear_block.shape[1]])
     int_linear = int_linear_block[pol_ind,
@@ -406,7 +408,7 @@ def split_extended_water_parallel(
             filtered_sizes = []
             filtered_coord_list = []
             filtered_index = []
-            check_output = np.ones([len(sizes)], dtype='byte')
+            check_output = np.ones(len(sizes), dtype='byte')
             old_val = np.arange(1, len(sizes) + 1) - .1
             index_array_to_image = np.array(
                 np.searchsorted(old_val, label_image),
@@ -638,8 +640,8 @@ def compute_spatial_coverage(args):
     """Compute the spatial coverage of non-water areas
     based on given arguments.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     args (tuple): Tuple containing the following arguments:
         i (int): Index of the current iteration.
         size (int): Size of the current component.
@@ -648,12 +650,12 @@ def compute_spatial_coverage(args):
         water_label_str (str): Path to the water label file.
         ref_land_tif_str (str): Path to the reference land file.
 
-    Returns:
-    --------
+    Returns
+    -------
         tuple: Tuple containing the index (i) and the test output
                (test_output_i).
     """
-    i, size, threshold, bounds, water_label_str, ref_land_tif_str = args
+    i, _, threshold, bounds, water_label_str, ref_land_tif_str = args
 
     x_off = bounds[0]
     y_off = bounds[2]
@@ -686,8 +688,8 @@ def extend_land_cover(landcover_path,
     """
     Extends the specified type of land cover within a geographical dataset.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     landcover_path (str):
         Path to the land cover data file.
     reference_landcover_binary (numpy.ndarray):
@@ -701,8 +703,8 @@ def extend_land_cover(landcover_path,
     scratch_dir (str):
         Directory for saving intermediate and output files.
 
-    Returns:
-    --------
+    Returns
+    -------
     numpy.ndarray:
         Updated binary land cover array with the extended target land cover.
     """
@@ -805,8 +807,8 @@ def hand_filter_along_boundary(
     Filters geographic data along boundaries based on HAND model and
     standard deviation thresholds.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     target_area_path : str
         Path containing array representing the target area for filtering.
     height_std_threshold : float
@@ -822,8 +824,8 @@ def hand_filter_along_boundary(
     scratch_dir : str
         Directory for saving debug outputs.
 
-    Returns:
-    --------
+    Returns
+    -------
     numpy.ndarray
         Binary array representing the filtered HAND data.
     """
@@ -1001,8 +1003,7 @@ def get_darkland_from_intensity_ancillary(
 
         # Reshaping the intensity block if necessary
         if intensity_block.ndim < 3:
-            intensity_block = np.reshape(
-                intensity_block, (1,) + intensity_block.shape)
+            intensity_block = np.expand_dims(intensity_block, axis=0)
 
         low_backscatter_cand = np.ones(intensity_block.shape[1:], dtype=bool)
 

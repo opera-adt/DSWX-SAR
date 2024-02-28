@@ -890,7 +890,7 @@ def determine_threshold(
         # if highmaxind_cands is empty
         if not highmaxind_cands.any():
             highmaxind_cands = np.array(
-                [np.nanargmax(intensity_counts[idx_threshold:])])
+                np.nanargmax(intensity_counts[idx_threshold:]))
 
         intensity_counts_cand = intensity_counts[idx_threshold +
                                                  highmaxind_cands]
@@ -1717,8 +1717,8 @@ def process_block(ii, jj,
     """
     Processes a specific block of an image.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     ii : int
         Current row index of the block.
     jj : int
@@ -1810,8 +1810,8 @@ def compute_threshold_max_bound(intensity_path,
     Compute the threshold maximum bound and related statistics for intensity
     values in water regions.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     intensity_path : str
         File path to the GeoTIFF representing the intensity image.
     reference_water_path : str

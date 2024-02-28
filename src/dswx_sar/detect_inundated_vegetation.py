@@ -25,7 +25,7 @@ def run(cfg):
     outputdir = cfg.groups.product_path_group.scratch_path
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
 
@@ -46,7 +46,8 @@ def run(cfg):
     # Herbanceous wetland area
     landcover_path_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     mask_obj = FillMaskLandCover(landcover_path_str)
-    inundated_vege_path = f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
+    inundated_vege_path = \
+        f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
 
     dual_pol_flag = False
     if (('HH' in pol_list) and ('HV' in pol_list)) or \

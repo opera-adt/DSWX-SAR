@@ -26,13 +26,13 @@ logger = logging.getLogger('dswx_s1')
 def majority_element(num_list):
     """
     Determine the majority element in a list
-    Parameters:
-    -----------
+    Parameters
+    ----------
     num_list : List[int]
         A list of integers where the majority element needs to be determined.
 
-    Returns:
-    -----------
+    Returns
+    -------
     int:
         The majority element in the list. If no majority exists,
         it may return any element from the list.

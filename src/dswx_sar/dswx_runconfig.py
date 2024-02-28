@@ -163,6 +163,7 @@ def check_write_dir(dst_path: str):
         logger.error(err_str)
         raise PermissionError(err_str)
 
+
 def check_file_path(file_path: str) -> None:
     """Check if file_path exist else raise an error.
     Parameters
@@ -178,6 +179,7 @@ def check_file_path(file_path: str) -> None:
             err_str = f'{file_path} not found'
             logger.error(err_str)
             raise FileNotFoundError(err_str)
+
 
 def _find_polarization_from_data_dirs(input_dir_list):
     """
@@ -447,7 +449,7 @@ class RunConfig:
         return self.groups.dynamic_ancillary_file_group.dem_description
 
     @property
-    def polarizations(self): #-> list[str]:
+    def polarizations(self):
         return self.groups.processing.polarizations
 
     @property

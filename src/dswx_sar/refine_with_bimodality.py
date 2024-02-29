@@ -296,11 +296,9 @@ class BimodalityMetrics:
 
             if self.simul_first.ndim == 1:
                 start_ind = max(0, local_left_ind - 1)
-            else:
-                start_ind = max(0, local_left_ind[0] - 1)
-            if self.simul_first.ndim == 1:
                 end_ind = min(local_right_ind, len(self.simul_all))
             else:
+                start_ind = max(0, local_left_ind[0] - 1)
                 end_ind = min(local_right_ind[0], len(self.simul_all))
 
             local_min_ind = np.argmin(self.simul_all[start_ind:end_ind]) + \
@@ -1002,9 +1000,8 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                         output_water_type = 'uint16'
                     output_water = output_water.astype(output_water_type)
                     old_val = np.arange(1, nb_components_water + 1) - .1
-                    index_array_to_image = np.array(
-                        np.searchsorted(old_val, output_water),
-                        dtype=output_water_type)
+                    index_array_to_image = np.searchsorted(
+                        old_val, output_water).astype(dtype=output_water_type)
                     bimodality_output_add = np.insert(bimodality_output, 0, 0,
                                                       axis=0)
                     bimodality_image = bimodality_output_add[
@@ -1087,7 +1084,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                 scratch_dir=outputdir)
 
             # Skip saving the checking file in last iteration
-            if block_iter < len(lines_per_block_set)-1:
+            if block_iter < len(lines_per_block_set) - 1:
                 # 'check_remove_false_water' has 1 value
                 # for unprocessed components
                 # due to its touching the boundaries and
@@ -1324,19 +1321,18 @@ def fill_gap_water_bimodality_parallel(
                     # the checked compoenents is recorded.
                     check_output[result_ind] = 0
 
-                output_water = np.array(output_water, dtype=output_water_type)
+                output_water = output_water.astype(output_water_type)
 
                 old_val = np.arange(1, nb_components_water + 1) - .1
-                index_array_to_image = np.array(np.searchsorted(old_val,
-                                                                output_water),
-                                                dtype=output_water_type)
+                index_array_to_image = np.searchsorted(
+                    old_val, output_water).astype(output_water_type)
                 bimodality_output = np.insert(bimodality_output, 0, 0, axis=0)
                 check_output = np.insert(check_output, 0, 0, axis=0)
 
-                bimodality_image = np.array(
-                    bimodality_output[index_array_to_image], dtype='byte')
-                check_image = np.array(check_output[index_array_to_image],
-                                       dtype='byte')
+                bimodality_image = bimodality_output[
+                    index_array_to_image].astype(dtype='byte')
+                check_image = check_output[
+                    index_array_to_image].astype(dtype='byte')
                 bimodality_set += bimodality_image
 
             bimodal_ad_binary = bimodality_set > 0

@@ -136,8 +136,10 @@ class TileSelection:
                 meanp1 = np.nanmean(intensity_db_left)
                 meanp2 = np.nanmean(intensity_db_right)
 
-                probp1 = np.nansum(intensity_counts[cand1]) * intensity_bins_step
-                probp2 = np.nansum(intensity_counts[cand2]) * intensity_bins_step
+                probp1 = np.nansum(intensity_counts[cand1]) * \
+                    intensity_bins_step
+                probp2 = np.nansum(intensity_counts[cand2]) * \
+                    intensity_bins_step
 
                 sigma[bin_index] = probp1 * probp2 * (
                     (meanp1 - meanp2) ** 2) / intensity_db_variance
@@ -168,8 +170,8 @@ class TileSelection:
             Indicates whether the tile is selected based on Twele's method.
             Returns True if the tile is selected, and False otherwise.
         cvx : float
-            The coefficient of variation for the tile, calculated as the ratio of
-            the standard deviation to the mean intensity of the tile.
+            The coefficient of variation for the tile, calculated as the ratio
+            of the standard deviation to the mean intensity of the tile.
         rx : float
             The ratio of the mean intensity of the tile to the
             global mean intensity.
@@ -295,7 +297,7 @@ class TileSelection:
             Each row has index, y_start, y_end, x_start, and x_end.
         '''
 
-        if np.all(np.isnan(intensity)) or np.all(intensity==0):
+        if np.all(np.isnan(intensity)) or np.all(intensity == 0):
             candidate_tile_coords = []
             logger.info(f'No valid intensity values found.')
 
@@ -317,7 +319,8 @@ class TileSelection:
                 logger.info(f'tile size changed {win_size0} -> {win_size}')
 
             if (height != water_nrow) and (width != water_ncol):
-                raise ValueError("reference water image size differ from intensity image")
+                raise ValueError("reference water image size differ from "
+                                 "intensity image")
 
             if win_size < minimum_pixel_number:
                 logger.info('tile & image sizes are too small')
@@ -368,7 +371,7 @@ class TileSelection:
             # if 0.0 < water_coverage < 1 and 0.0 < land_coverage < 1:
             if water_area_flag:
                 while (num_detected_box_sum <= mininum_tile) and \
-                    (win_size >= minimum_pixel_number):
+                        (win_size >= minimum_pixel_number):
 
                     subrun += 1
                     number_y_window = np.int16(height / win_size)
@@ -392,12 +395,13 @@ class TileSelection:
                             box_count = box_count + 1
 
                             intensity_sub = intensity[x_start:x_end,
-                                                    y_start:y_end]
+                                                      y_start:y_end]
 
                             intensity_sub_gray = intensity_gray[x_start:x_end,
                                                                 y_start:y_end]
 
-                            validnum = np.count_nonzero(~np.isnan(intensity_sub))
+                            validnum = np.count_nonzero(
+                                ~np.isnan(intensity_sub))
 
                             # create subset from water mask
                             water_mask_sublock = water_mask[:, x_start:x_end,
@@ -408,17 +412,18 @@ class TileSelection:
                                     ~np.isnan(water_mask_sublock[0, :, :]))
 
                             # compute spatial portion for each polarization
-                            water_area_sublock_flag = self.get_water_portion_mask(
-                                water_mask_sublock)
+                            water_area_sublock_flag = \
+                                self.get_water_portion_mask(water_mask_sublock)
 
                             if water_number_sample_sub > 0 \
-                                and water_area_sublock_flag \
-                                and validnum > num_pixel_max:
+                                    and water_area_sublock_flag \
+                                    and validnum > num_pixel_max:
 
                                 # Initially set flag as True
                                 tile_selected_flag = True
 
-                                if {'twele', 'combined'}.intersection(set(selection_methods)):
+                                if {'twele', 'combined'}.intersection(
+                                        set(selection_methods)):
                                     tile_selected_flag, _, _ = \
                                         self.select_tile_twele(
                                             intensity_sub_gray,
@@ -430,7 +435,8 @@ class TileSelection:
                                 else:
                                     selected_tile_twele.append(False)
 
-                                if {'chini', 'combined'}.intersection(set(selection_methods)):
+                                if {'chini', 'combined'}.intersection(
+                                        set(selection_methods)):
                                     # Once 'combined' method is selected,
                                     # the chini test is carried when the
                                     # 'twele' method passed.
@@ -441,7 +447,9 @@ class TileSelection:
 
                                     else:
                                         tile_selected_flag = \
-                                            self.select_tile_chini(intensity_sub)
+                                            self.select_tile_chini(
+                                                intensity_sub
+                                                )
 
                                         if tile_selected_flag:
                                             selected_tile_chini.append(True)
@@ -452,7 +460,7 @@ class TileSelection:
                                     selected_tile_chini.append(False)
 
                                 if {'bimodality', 'combined'}.intersection(
-                                    set(selection_methods)):
+                                        set(selection_methods)):
 
                                     if (selection_methods == 'combined') and \
                                         not tile_selected_flag:
@@ -462,7 +470,8 @@ class TileSelection:
                                         _, _, tile_bimode_flag = \
                                             self.select_tile_bimodality(
                                                 intensity_sub,
-                                                threshold=self.threshold_bimodality)
+                                                threshold=self.threshold_bimodality
+                                                )
 
                                         if tile_bimode_flag:
                                             selected_tile_bimodality.append(True)
@@ -891,9 +900,8 @@ def determine_threshold(
 
         # if highmaxind_cands is empty
         if not highmaxind_cands.any():
-            highmaxind_cands = np.array(
-                np.nanargmax(intensity_counts[idx_threshold:]))
-
+            highmaxind_cands = np.array([
+                np.nanargmax(intensity_counts[idx_threshold:])])
         intensity_counts_cand = intensity_counts[idx_threshold +
                                                  highmaxind_cands]
         highmaxind = idx_threshold + \
@@ -1128,8 +1136,10 @@ def determine_threshold(
                         # to avoid empty array
                         if compare_index1 != compare_index2:
                             rms = np.sqrt(np.nanmean(
-                                (intensity_counts_rg[compare_index1:compare_index2] -
-                                 simul_first[compare_index1:compare_index2])**2))
+                                (intensity_counts_rg[compare_index1:
+                                                     compare_index2] -
+                                 simul_first[compare_index1:
+                                             compare_index2]) ** 2))
                             rms_sss.append(rms)
                             rms_xx.append(hist_bin)
                         else:
@@ -1219,7 +1229,7 @@ def optimize_inter_distribution_threshold(
     Returns
     -------
     threshold : float
-        The optimized threshold value which best separates the 
+        The optimized threshold value which best separates the
         two Gaussian distributions.
 
     Notes
@@ -1392,11 +1402,13 @@ def fill_threshold_with_gdal(threshold_array,
             else:
                 gdal_grid_str = \
                     "gdal_grid -zfield field_3 " \
-                    f"-l data_thres_{pol}_{filename} {vrt_file}  {tif_file_str} " \
+                    f"-l data_thres_{pol}_{filename} {vrt_file} " \
+                    f" {tif_file_str} " \
                     f" -txe 0 {cols} -tye 0 {rows} " \
-                    f" -a invdist:power=0.5000000:smoothing=1.000000:radius1={400*2}" \
-                    f":radius2={400*2}:angle=0.000000:max_points=0:min_points=1:" \
-                    f"nodata=0.000 -outsize {cols} {rows} -ot Float32"
+                    f" -a invdist:power=0.5000000:smoothing=1.000000:" \
+                    f"radius1={400*2}:radius2={400*2}:angle=0.000000:" \
+                    "max_points=0:min_points=1:nodata=0.000 "\
+                    f"-outsize {cols} {rows} -ot Float32"
 
             os.system(gdal_grid_str)
         else:
@@ -2145,7 +2157,7 @@ def run(cfg):
                                     band_number])
 
             for ii, jj, threshold_tau_block, mode_tau_block, window_coord \
-                in results:
+                    in results:
                 threshold_tau_set[ii, jj, :] = threshold_tau_block
                 mode_tau_set[ii, jj, :] = mode_tau_block
 
@@ -2166,7 +2178,7 @@ def run(cfg):
             window_coord_list = [[], [], []]
 
             for ii, jj, threshold_tau_blocks, mode_tau_blocks, window_coords \
-                in results:
+                    in results:
                 # extract threshold for tiles
                 pol_index = 0
 

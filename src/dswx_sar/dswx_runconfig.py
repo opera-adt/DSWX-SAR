@@ -34,8 +34,10 @@ DSWX_S1_POL_DICT = {
 
 
 def _get_parser():
-    parser = argparse.ArgumentParser(description='',
-                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description='',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        )
 
     # Input
     parser.add_argument('input_yaml',
@@ -118,7 +120,8 @@ def load_validate_yaml(yaml_path: str, workflow_name: str) -> dict:
     try:
         yamale.validate(schema, data)
     except yamale.YamaleError as yamale_err:
-        err_str = f'Validation fail for {workflow_name} runconfig yaml {yaml_path}.'
+        err_str = f'Validation fail for {workflow_name} ' \
+                  f'runconfig yaml {yaml_path}.'
         logger.error(err_str)
         raise yamale.YamaleError(err_str) from yamale_err
 
@@ -188,9 +191,9 @@ def check_file_path(file_path: str) -> None:
 
 def _find_polarization_from_data_dirs(input_dir_list):
     """
-    This function walks through each directory in the given list of input directories,
-    searches for specific file names that match the OPERA L2 RTC standard,
-    and extracts the polarization part from these filenames.
+    This function walks through each directory in the given list of input
+    directories, searches for specific file names that match the OPERA L2
+    RTC standard, and extracts the polarization part from these filenames.
     It then returns a list of unique polarizations found in these files.
 
     Parameters
@@ -226,6 +229,7 @@ def _find_polarization_from_data_dirs(input_dir_list):
 
     # return only unique polarizations
     return list(set(extracted_strings))
+
 
 def check_polarizations(pol_list, input_dir_list):
     """
@@ -340,9 +344,10 @@ def validate_group_dict(group_cfg: dict) -> None:
             'static_ancillary_file_group']['mgrs_collection_database_file']
 
         if mgrs_database_file is None or mgrs_collection_database_file is None:
-            err_str = f'Static ancillary data flag is {static_ancillary_flag} ' \
+            err_str = f'Static ancillary data flag is {static_ancillary_flag}'\
                       f'but mgrs_database_file {mgrs_database_file} and ' \
-                      f'mgrs_collection_database_file {mgrs_collection_database_file}'
+                      f'mgrs_collection_database_file '\
+                      f'{mgrs_collection_database_file}'
             logger.error(err_str)
             raise ValueError(err_str)
 
@@ -354,14 +359,17 @@ def validate_group_dict(group_cfg: dict) -> None:
 def wrap_namespace(ob):
     return ob
 
+
 @wrap_namespace.register(dict)
 def _wrap_dict(ob):
     return SimpleNamespace(**{key: wrap_namespace(val)
                               for key, val in ob.items()})
 
+
 @wrap_namespace.register(list)
 def _wrap_list(ob):
     return [wrap_namespace(val) for val in ob]
+
 
 def unwrap_to_dict(sns: SimpleNamespace) -> dict:
     sns_as_dict = {}
@@ -372,6 +380,7 @@ def unwrap_to_dict(sns: SimpleNamespace) -> dict:
             sns_as_dict[key] = val
 
     return sns_as_dict
+
 
 @dataclass
 class RunConfig:
@@ -403,24 +412,31 @@ class RunConfig:
         sensor = product.split('_')[-1]
         ancillary = sns.dynamic_ancillary_file_group
 
-        algorithm_cfg = load_validate_yaml(ancillary.algorithm_parameters,
-                                           f'algorithm_parameter_{sensor.lower()}')
+        algorithm_cfg = load_validate_yaml(
+            ancillary.algorithm_parameters,
+            f'algorithm_parameter_{sensor.lower()}')
 
         # Check if input files have the requested polarizations and
         # sort the order of the polarizations.
         input_dir_list = \
             cfg['runconfig']['groups']['input_file_group']['input_file_path']
-        requested_pol = algorithm_cfg['runconfig']['processing']['polarizations']
+        requested_pol = algorithm_cfg[
+            'runconfig']['processing']['polarizations']
         co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
             requested_pol, input_dir_list)
 
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list
-        algorithm_cfg['runconfig']['processing']['copol'] = co_pol if co_pol else None
-        algorithm_cfg['runconfig']['processing']['crosspol'] = cross_pol if cross_pol else None
-        algorithm_cfg['runconfig']['processing']['polarization_mode'] = pol_mode
+        algorithm_cfg[
+            'runconfig']['processing']['copol'] = co_pol if co_pol else None
+        algorithm_cfg[
+            'runconfig']['processing'][
+                'crosspol'] = cross_pol if cross_pol else None
+        algorithm_cfg[
+            'runconfig']['processing']['polarization_mode'] = pol_mode
 
-        algorithm_sns = wrap_namespace(algorithm_cfg['runconfig']['processing'])
+        algorithm_sns = wrap_namespace(
+            algorithm_cfg['runconfig']['processing'])
 
         # copy runconfig parameters from dictionary
         sns.processing = algorithm_sns

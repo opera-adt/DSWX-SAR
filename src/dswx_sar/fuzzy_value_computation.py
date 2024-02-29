@@ -293,7 +293,7 @@ def compute_fuzzy_value(intensity,
        binary image showing the area where
        ony co-polization is used.
     '''
-    band_number, rows, cols = intensity.shape
+    _, rows, cols = intensity.shape
 
     # fuzzy value for intensity for each polarization
     intensity_z_set = []
@@ -489,7 +489,8 @@ def run(cfg):
                 " are used to compute slope membership")
 
     logger.info('reference s membership')
-    logger.info(f"      {option_dict['reference_water_min']} {option_dict['reference_water_max']}"
+    logger.info(f"      {option_dict['reference_water_min']} "
+                f"{option_dict['reference_water_max']}"
                 " are used to compute reference water membership")
 
     logger.info('compute hand z membership')
@@ -653,7 +654,8 @@ def run(cfg):
                 nbits=16)
 
     t_all_elapsed = time.time() - t_all
-    logger.info(f"successfully ran fuzzy processing in {t_all_elapsed:.3f} seconds")
+    logger.info("successfully ran fuzzy processing in "
+                f"{t_all_elapsed:.3f} seconds")
 
 
 def main():

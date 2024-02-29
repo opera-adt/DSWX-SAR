@@ -190,9 +190,10 @@ class AncillaryRelocation:
                 polygon_srs.SetAxisMappingStrategy(
                     osr.OAMS_TRADITIONAL_GIS_ORDER)
             except AttributeError:
-                logger.warning('WARNING Could not set the ancillary input SRS '
-                               'axis mapping strategy (SetAxisMappingStrategy())'
-                               ' to osr.OAMS_TRADITIONAL_GIS_ORDER')
+                logger.warning(
+                    'WARNING Could not set the ancillary input SRS '
+                    'axis mapping strategy (SetAxisMappingStrategy())'
+                    ' to osr.OAMS_TRADITIONAL_GIS_ORDER')
         transformation = osr.CoordinateTransformation(tile_srs, polygon_srs)
 
         elevation = 0
@@ -364,7 +365,7 @@ class AncillaryRelocation:
 
             return relocated_array
 
-        logger.info(f'    tile crosses the antimeridian')
+        logger.info('    tile crosses the antimeridian')
 
         file_max_x = file_min_x + file_width * file_dx
         file_min_y = file_max_y + file_length * file_dy

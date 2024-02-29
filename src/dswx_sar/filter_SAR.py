@@ -1,11 +1,12 @@
 import numpy as np
 from scipy import signal
 
-from  dswx_sar.dswx_sar_util import Constants
+from dswx_sar.dswx_sar_util import Constants
 
 K_DEFAULT = 1.0
 CU_DEFAULT = 0.523
 CMAX_DEFAULT = 1.73
+
 
 def masked_convolve2d(array, window, *args, **kwargs):
     '''Perform convolution without spreading nan value to the neighbor pixels
@@ -15,16 +16,17 @@ def masked_convolve2d(array, window, *args, **kwargs):
     array: numpy.ndarray
         2 dimensional array
     window: integer
-        2 dimensional window 
+        2 dimensional window
     '''
     frames_complex = np.zeros_like(array, dtype=np.complex64)
     frames_complex[np.isnan(array)] = np.array((1j))
-    frames_complex[np.bitwise_not(np.isnan(array))] = array[np.bitwise_not(np.isnan(array))]
-    
+    frames_complex[np.bitwise_not(np.isnan(array))] = \
+        array[np.bitwise_not(np.isnan(array))]
+
     convolved_array = signal.convolve(frames_complex, window, *args, **kwargs)
-    convolved_array[np.imag(convolved_array)>0.2] = np.nan
+    convolved_array[np.imag(convolved_array) > 0.2] = np.nan
     convolved_array = convolved_array.real.astype(np.float32)
-    
+
     return convolved_array
 
 
@@ -61,6 +63,7 @@ def compute_window_mean_std(arr, winsize):
 
     return mean, std
 
+
 def weightingarr(im, winsize, k=K_DEFAULT,
                  cu=CU_DEFAULT, cmax=CMAX_DEFAULT):
     """
@@ -88,13 +91,14 @@ def weightingarr(im, winsize, k=K_DEFAULT,
     # ci is the variation coefficient in the window
     ci = window_std / window_mean
     w_t_arr = np.zeros(im.shape)
-    w_t_arr[ci<=cu] = 1
-    w_t_arr[ (ci > cu) & (ci < cmax) ] =\
-        np.exp((-k * (ci[( ci > cu) & (ci < cmax)] - cu))
-               / (cmax - ci[( ci > cu) & (ci < cmax)]))
+    w_t_arr[ci <= cu] = 1
+    w_t_arr[(ci > cu) & (ci < cmax)] =\
+        np.exp((-k * (ci[(ci > cu) & (ci < cmax)] - cu))
+               / (cmax - ci[(ci > cu) & (ci < cmax)]))
     w_t_arr[ci >= cmax] = 0
 
     return w_t_arr, window_mean, window_std
+
 
 def lee_enhanced_filter(img, win_size=3, k=K_DEFAULT, cu=CU_DEFAULT,
                         cmax=CMAX_DEFAULT):

@@ -188,5 +188,6 @@ def main():
         processing_cfg.polarizations = pol_set
         run(cfg)
 
+
 if __name__ == '__main__':
     main()

@@ -11,7 +11,7 @@ import geopandas as gpd
 import mgrs
 import numpy as np
 from osgeo import gdal, osr
-from pyproj import CRS, Proj, Transformer
+from pyproj import CRS, Transformer
 import rasterio
 from rasterio.warp import transform_bounds
 from rasterio.merge import merge
@@ -65,9 +65,9 @@ def merge_pol_layers(list_layers,
 
     # Update the metadata
     kwargs.update({"driver": "GTiff",
-                     "height": mosaic.shape[1],
-                     "width": mosaic.shape[2],
-                     "transform": out_trans,})
+                   "height": mosaic.shape[1],
+                   "width": mosaic.shape[2],
+                   "transform": out_trans})
 
     # Write the mosaic raster to disk
     with rasterio.open(output_file, "w", **kwargs) as dest:
@@ -224,15 +224,15 @@ def find_intersecting_burst_with_bbox(ref_bbox,
                 if epsg_code != ref_epsg:
                     # # Create a transformer
                     transformer = Transformer.from_crs(f'EPSG:{epsg_code}',
-                                                       f'EPSG:{ref_epsg}', always_xy=True)
+                                                       f'EPSG:{ref_epsg}',
+                                                       always_xy=True)
 
                     # Transform the polygon
                     rtc_polygon = transform(transformer.transform, rtc_polygon)
 
-
             # Check if bursts intersect the reference polygon
             if ref_polygon.intersects(rtc_polygon) or \
-                ref_polygon.overlaps(rtc_polygon):
+               ref_polygon.overlaps(rtc_polygon):
                 overlapped_rtc_dir_list.append(input_dir)
 
     if not overlapped_rtc_dir_list:
@@ -366,7 +366,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
                                                 top)
 
     antimeridian_crossing_flag = False
-    if left > 0  and right < 0:
+    if left > 0 and right < 0:
         antimeridian_crossing_flag = True
         logger.info('The mosaic image crosses the antimeridian.')
     # Create a GeoDataFrame from the raster polygon
@@ -374,14 +374,14 @@ def get_intersecting_mgrs_tiles_list_from_db(
         # Create a Polygon from the bounds
         raster_polygon_left = Polygon(
             [(left, bottom),
-            (left, top),
-            (180, top),
-            (180, bottom)])
+             (left, top),
+             (180, top),
+             (180, bottom)])
         raster_polygon_right = Polygon(
             [(-180, bottom),
-            (-180, top),
-            (right, top),
-            (right, bottom)])
+             (-180, top),
+             (right, top),
+             (right, bottom)])
         raster_gdf = gpd.GeoDataFrame([1, 2],
                                       geometry=[raster_polygon_left,
                                                 raster_polygon_right],
@@ -390,9 +390,9 @@ def get_intersecting_mgrs_tiles_list_from_db(
         # Create a Polygon from the bounds
         raster_polygon = Polygon(
             [(left, bottom),
-            (left, top),
-            (right, top),
-            (right, bottom)])
+             (left, top),
+             (right, top),
+             (right, bottom)])
         raster_gdf = gpd.GeoDataFrame([1],
                                       geometry=[raster_polygon],
                                       crs=4326)
@@ -400,10 +400,12 @@ def get_intersecting_mgrs_tiles_list_from_db(
     # Load the vector data
     vector_gdf = gpd.read_file(mgrs_collection_file)
 
-    # If track number is given, then search MGRS tile collection with track number
+    # If track number is given, then search MGRS tile collection with
+    # track number
     if track_number is not None:
         vector_gdf = vector_gdf[
-            vector_gdf['relative_orbit_number'] == track_number].to_crs("EPSG:4326")
+            vector_gdf['relative_orbit_number'] ==
+            track_number].to_crs("EPSG:4326")
     else:
         vector_gdf = vector_gdf.to_crs("EPSG:4326")
 
@@ -447,7 +449,7 @@ def get_intersecting_mgrs_tiles_list(image_tif: str):
         utm_coordinate_system = osr.SpatialReference()
         utm_coordinate_system.SetUTM(
             water_meta['utmzone'],
-            is_northern=water_meta['geotransform'][3]>0)
+            is_northern=water_meta['geotransform'][3] > 0)
 
         # create geographic (lat/lon) spatial reference
         wgs84_coordinate_system = osr.SpatialReference()
@@ -737,9 +739,9 @@ def run(cfg):
     full_bwtr_water_set_path = \
         os.path.join(scratch_dir, 'full_water_binary_BWTR_set.tif')
     full_conf_water_set_path = \
-        os.path.join(scratch_dir, f'full_water_binary_CONF_set.tif')
+        os.path.join(scratch_dir, 'full_water_binary_CONF_set.tif')
     full_diag_water_set_path = \
-        os.path.join(scratch_dir, f'full_water_binary_DIAG_set.tif')
+        os.path.join(scratch_dir, 'full_water_binary_DIAG_set.tif')
 
     # 4) inundated_vegetation
     if total_inundated_vege_flag:
@@ -763,7 +765,7 @@ def run(cfg):
             length=water_meta['length'],
             width=water_meta['width'],
             polygon_water=polygon_water,
-            temp_files_list = None)
+            temp_files_list=None)
     else:
         logger.info('Ocean mask disabled')
         ocean_mask = None
@@ -874,10 +876,12 @@ def run(cfg):
     mgrs_meta_dict = {}
 
     if database_bool:
-        mgrs_tile_list, most_overlapped = get_intersecting_mgrs_tiles_list_from_db(
-            mgrs_collection_file=mgrs_collection_db_path,
-            image_tif=paths['final_water'],
-            track_number=track_number)
+        mgrs_tile_list, most_overlapped = \
+            get_intersecting_mgrs_tiles_list_from_db(
+                mgrs_collection_file=mgrs_collection_db_path,
+                image_tif=paths['final_water'],
+                track_number=track_number
+                )
         maximum_burst = most_overlapped['number_of_bursts']
         # convert string to list
         expected_burst_list = ast.literal_eval(most_overlapped['bursts'])
@@ -889,7 +893,8 @@ def run(cfg):
             maximum_burst
         mgrs_meta_dict['MGRS_COLLECTION_ACTUAL_NUMBER_OF_BURSTS'] = \
             number_burst
-        missing_burst = len(list(set(expected_burst_list) - set(actual_burst_id)))
+        missing_burst = len(list(set(expected_burst_list) -
+                                 set(actual_burst_id)))
         mgrs_meta_dict['MGRS_COLLECTION_MISSING_NUMBER_OF_BURSTS'] = \
             missing_burst
 

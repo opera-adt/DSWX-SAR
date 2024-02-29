@@ -94,7 +94,7 @@ class BimodalityMetrics:
 
                 except ValueError:
                     logger.info('multiotsu method failed.')
-                    
+
             self.prob = self.counts * self.binstep
 
             # Initial values for curve fitting using threshold computed above
@@ -114,7 +114,6 @@ class BimodalityMetrics:
             amp_lt = self.prob[amp_lt_ind]
             amp_gt_ind = np.abs(self.bincenter - mean_gt).argmin()
             amp_gt = self.prob[amp_gt_ind]
-
                      
             try:
                 # starting value for curve_fit
@@ -137,8 +136,10 @@ class BimodalityMetrics:
                     self.first_mode = params[:3]
                     self.second_mode = params[3:]
                 # Left Gaussian
-                self.simul_first = self.gauss(self.bincenter, *self.first_mode)
-                self.simul_second = self.gauss(self.bincenter, *self.second_mode)
+                self.simul_first = self.gauss(self.bincenter,
+                                              *self.first_mode)
+                self.simul_second = self.gauss(self.bincenter,
+                                               *self.second_mode)
                 self.simul_all = self.simul_first + self.simul_second
                 self.optimization = True
 
@@ -414,7 +415,6 @@ class BimodalityMetrics:
                 bt_max, ad_max = estimate_bimodality(self.int_db)
                 if (bt_max > thresholds[3]) & (ad_max > 1.5):
                     bimodality_flag = True
-
 
         return bimodality_flag
 

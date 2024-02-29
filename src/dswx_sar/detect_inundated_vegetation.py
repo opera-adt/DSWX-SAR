@@ -45,7 +45,8 @@ def run(cfg):
     # Herbanceous wetland area
     landcover_path_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     mask_obj = FillMaskLandCover(landcover_path_str)
-    inundated_vege_path = f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
+    inundated_vege_path = \
+        f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
 
     dual_pol_flag = False
     if (('HH' in pol_list) and ('HV' in pol_list)) or \

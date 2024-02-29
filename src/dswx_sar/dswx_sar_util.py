@@ -7,7 +7,7 @@ import rasterio
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal, osr, ogr
 from pyproj import Transformer
 
 gdal.DontUseExceptions()
@@ -54,28 +54,35 @@ These classes are collapsed into no-water class
 '''
 
 collapse_wtr_classes_dict = {
-    band_assign_value_dict['nonwater'] : band_assign_value_dict['nonwater'],
-    band_assign_value_dict['water']: band_assign_value_dict['water'],
-    band_assign_value_dict['bright_water_fill']: band_assign_value_dict['water'],
-    band_assign_value_dict['dark_land_mask']: \
+    band_assign_value_dict['nonwater']:
         band_assign_value_dict['nonwater'],
-    band_assign_value_dict['landcover_mask']: \
+    band_assign_value_dict['water']:
+        band_assign_value_dict['water'],
+    band_assign_value_dict['bright_water_fill']:
+        band_assign_value_dict['water'],
+    band_assign_value_dict['dark_land_mask']:
         band_assign_value_dict['nonwater'],
-    band_assign_value_dict['hand_mask']: \
+    band_assign_value_dict['landcover_mask']:
+        band_assign_value_dict['nonwater'],
+    band_assign_value_dict['hand_mask']:
         band_assign_value_dict['hand_mask'],
-    band_assign_value_dict['layover_shadow_mask']: \
+    band_assign_value_dict['layover_shadow_mask']:
         band_assign_value_dict['layover_shadow_mask'],
-    band_assign_value_dict['inundated_vegetation']: band_assign_value_dict['inundated_vegetation'],
-    band_assign_value_dict['no_data']: band_assign_value_dict['no_data'],
-    band_assign_value_dict['ocean_mask']: band_assign_value_dict['ocean_mask'],
+    band_assign_value_dict['inundated_vegetation']:
+        band_assign_value_dict['inundated_vegetation'],
+    band_assign_value_dict['no_data']:
+        band_assign_value_dict['no_data'],
+    band_assign_value_dict['ocean_mask']:
+        band_assign_value_dict['ocean_mask'],
     }
 
 logger = logging.getLogger('dswx-s1')
 
+
 @dataclass
 class Constants:
     # negligible number to avoid the zero-division warning.
-    negligible_value : float = 1e-5
+    negligible_value: float = 1e-5
 
 
 def get_interpreted_dswx_s1_ctable():
@@ -90,24 +97,36 @@ def get_interpreted_dswx_s1_ctable():
     dswx_ctable = gdal.ColorTable()
 
     # set color for each value
+    # White - Not water
     dswx_ctable.SetColorEntry(band_assign_value_dict['nonwater'],
-                              (255, 255, 255))  # White - Not water
+                              (255, 255, 255))
+    # Blue - Water (high confidence)
     dswx_ctable.SetColorEntry(band_assign_value_dict['water'],
-                              (0, 0, 255))  # Blue - Water (high confidence)
+                              (0, 0, 255))
+    # baby blue - bright water
     dswx_ctable.SetColorEntry(band_assign_value_dict['bright_water_fill'],
-                              (120, 120,  240 ))  # baby blue - bright water
+                              (120, 120, 240))
+    #  blue - ocean_mask
+    dswx_ctable.SetColorEntry(band_assign_value_dict['ocean_mask'],
+                              (50, 50,  240 ))
+    # Red - dark land
     dswx_ctable.SetColorEntry(band_assign_value_dict['dark_land_mask'],
-                              (240, 20,  20 ))  # Red - dark land
+                              (240, 20, 20))
+    # Yellow - Landcover mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['landcover_mask'],
-                              (200, 200, 50))  # Yellow - Landcover mask
+                              (200, 200, 50))
+    # light gray - Hand mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['hand_mask'],
-                              (200, 200, 200))  # light gray - Hand mask
+                              (200, 200, 200))
+    # Gray - Layover/shadow mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['layover_shadow_mask'],
-                              (128, 128, 128))  # Gray - Layover/shadow mask
+                              (128, 128, 128))
+    # Green - Inundated vegetation
     dswx_ctable.SetColorEntry(band_assign_value_dict['inundated_vegetation'],
-                              (0, 255, 0))  # Green - Inundated vegetation
+                              (0, 255, 0))
+    # Black - Not observed (out of Boundary)
     dswx_ctable.SetColorEntry(band_assign_value_dict['no_data'],
-                              (0, 0, 0, 255))  # Black - Not observed (out of Boundary)
+                              (0, 0, 0, 255))
 
     return dswx_ctable
 
@@ -237,7 +256,8 @@ def save_dswx_product(wtr, output_file, geotransform,
     for band_key in band_value_dict.keys():
         if band_key.lower() in dswx_processed_bands_keys:
             dswx_product_value = band_value_dict[band_key]
-            wtr[dswx_processed_bands[band_key.lower()]==1] = dswx_product_value
+            wtr[dswx_processed_bands[band_key.lower()] == 1] = \
+                dswx_product_value
             msg = f'    {band_key.lower()} found {dswx_product_value}'
             if logger is not None:
                 logger.info(msg)
@@ -375,11 +395,11 @@ def convert_rounded_coordinates(
     to_epsg : int
         The EPSG code of the destination CRS.
     x_snap : int, optional
-        The grid size in the x-direction to which transformed x-coordinates will
-        be rounded. Default is 30.
+        The grid size in the x-direction to which transformed x-coordinates
+        will be rounded. Default is 30.
     y_snap : int, optional
-        The grid size in the y-direction to which transformed y-coordinates will
-        be rounded. Default is 30.
+        The grid size in the y-direction to which transformed y-coordinates
+        will be rounded. Default is 30.
 
     Returns
     -------
@@ -389,12 +409,13 @@ def convert_rounded_coordinates(
 
     Notes
     -----
-    This function converts a list of coordinates from one EPSG coordinate system
-    to another and then rounds the transformed coordinates to the nearest
-    multiples of specified grid sizes (x_snap and y_snap). This is useful for
-    aligning coordinates to a regular grid in the destination CRS.
+    This function converts a list of coordinates from one EPSG coordinate
+    system to another and then rounds the transformed coordinates to the
+    nearest multiples of specified grid sizes (x_snap and y_snap). This is
+    useful for aligning coordinates to a regular grid in the destination CRS.
     """
-    transformer = Transformer.from_crs(f"epsg:{from_epsg}", f"epsg:{to_epsg}", always_xy=True)
+    transformer = Transformer.from_crs(f"epsg:{from_epsg}", f"epsg:{to_epsg}",
+                                       always_xy=True)
 
     rounded_coords = []
     for corner in corners:
@@ -548,11 +569,209 @@ def get_meta_from_tif(tif_file_name):
     meta_dict['width'] = tif_gdal.RasterXSize
     proj = osr.SpatialReference(wkt=meta_dict['projection'])
     meta_dict['utmzone'] = proj.GetUTMZone()
-    output_epsg = proj.GetAttrValue('AUTHORITY',1)
+    output_epsg = proj.GetAttrValue('AUTHORITY', 1)
     meta_dict['epsg'] = output_epsg
     tif_gdal = None
 
     return meta_dict
+
+
+def _get_tile_srs_bbox(tile_min_y_utm, tile_max_y_utm,
+                       tile_min_x_utm, tile_max_x_utm,
+                       tile_srs, polygon_srs):
+    """Get tile bounding box for a given spatial reference system (SRS)
+
+       Parameters
+       ----------
+       tile_min_y_utm: float
+              Tile minimum Y-coordinate (UTM)
+       tile_max_y_utm: float
+              Tile maximum Y-coordinate (UTM)
+       tile_min_x_utm: float
+              Tile minimum X-coordinate (UTM)
+       tile_max_x_utm: float
+              Tile maximum X-coordinate (UTM)
+       tile_srs: osr.SpatialReference
+              Tile original spatial reference system (SRS)
+       polygon_srs: osr.SpatialReference
+              Polygon spatial reference system (SRS). If the polygon
+              SRS is geographic, its Axis Mapping Strategy will
+              be updated to osr.OAMS_TRADITIONAL_GIS_ORDER
+       Returns
+       -------
+       tile_polygon: ogr.Geometry
+              Rectangle representing polygon SRS bounding box
+       tile_min_y: float
+              Tile minimum Y-coordinate (polygon SRS)
+       tile_max_y: float
+              Tile maximum Y-coordinate (polygon SRS)
+       tile_min_x: float
+              Tile minimum X-coordinate (polygon SRS)
+       tile_max_x: float
+              Tile maximum X-coordinate (polygon SRS)
+    """
+
+    # forces returned values from TransformPoint() to be (x, y, z)
+    # rather than (y, x, z) for geographic SRS
+    if polygon_srs.IsGeographic():
+        try:
+            polygon_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        except AttributeError:
+            logger.warning('WARNING Could not set the ancillary input SRS axis'
+                           ' mapping strategy (SetAxisMappingStrategy())'
+                           ' to osr.OAMS_TRADITIONAL_GIS_ORDER')
+    transformation = osr.CoordinateTransformation(tile_srs, polygon_srs)
+
+    elevation = 0
+    tile_x_array = np.zeros((4))
+    tile_y_array = np.zeros((4))
+    tile_x_array[0], tile_y_array[0], z = transformation.TransformPoint(
+        tile_min_x_utm, tile_max_y_utm, elevation)
+    tile_x_array[1], tile_y_array[1], z = transformation.TransformPoint(
+        tile_max_x_utm, tile_max_y_utm, elevation)
+    tile_x_array[2], tile_y_array[2], z = transformation.TransformPoint(
+        tile_max_x_utm, tile_min_y_utm, elevation)
+    tile_x_array[3], tile_y_array[3], z = transformation.TransformPoint(
+        tile_min_x_utm, tile_min_y_utm, elevation)
+    tile_min_y = np.min(tile_y_array)
+    tile_max_y = np.max(tile_y_array)
+    tile_min_x = np.min(tile_x_array)
+    tile_max_x = np.max(tile_x_array)
+
+    # handles antimeridian: tile_max_x around +180 and tile_min_x around -180
+    # add 360 to tile_min_x, so it becomes a little greater than +180
+    if tile_max_x > tile_min_x + 340:
+        tile_min_x, tile_max_x = tile_max_x, tile_min_x + 360
+
+    tile_ring = ogr.Geometry(ogr.wkbLinearRing)
+    tile_ring.AddPoint(tile_min_x, tile_max_y)
+    tile_ring.AddPoint(tile_max_x, tile_max_y)
+    tile_ring.AddPoint(tile_max_x, tile_min_y)
+    tile_ring.AddPoint(tile_min_x, tile_min_y)
+    tile_ring.AddPoint(tile_min_x, tile_max_y)
+    tile_polygon = ogr.Geometry(ogr.wkbPolygon)
+    tile_polygon.AddGeometry(tile_ring)
+    tile_polygon.AssignSpatialReference(polygon_srs)
+    return tile_polygon, tile_min_y, tile_max_y, tile_min_x, tile_max_x
+
+
+def _create_ocean_mask(shapefile, margin_km, scratch_dir,
+                       geotransform, projection, length, width,
+                       polygon_water,
+                       temp_files_list = None,):
+    """Compute ocean mask from NOAA GSHHS shapefile. 
+
+       Parameters
+       ----------
+       shapefile: str
+              NOAA GSHHS shapefile (e.g., 'GSHHS_f_L1.shp')
+       margin_km: int
+              Margin (buffer) towards the ocean to be added to the shore lines
+              in km
+       scratch_dir: str
+              Directory for temporary files
+       geotransform: numpy.ndarray
+              Geotransform describing the DSWx-HLS product geolocation
+       projection: str
+              DSWx-HLS product's projection
+       length: int
+              DSWx-HLS product's length (number of lines)
+       width: int
+              DSWx-HLS product's width (number of columns)
+       temp_files_list: list (optional)
+              Mutable list of temporary files. If provided,
+              paths to the temporary files generated will be
+              appended to this list.
+
+       Returns
+       -------
+       ocean_mask : numpy.ndarray
+              Ocean mask (0: land, 1: ocean)
+    """
+    logger.info('creating the ocean mask')
+
+    tile_min_x_utm, tile_dx_utm, _, tile_max_y_utm, _, tile_dy_utm = \
+        geotransform
+    tile_max_x_utm = tile_min_x_utm + width * tile_dx_utm
+    tile_min_y_utm = tile_max_y_utm + length * tile_dy_utm
+
+    tile_srs = osr.SpatialReference()
+    tile_srs.ImportFromProj4(projection)
+
+    # convert margin from km to meters
+    margin_m = int(1000 * margin_km)
+
+    tile_polygon = None
+    ocean_mask = np.zeros((length, width), dtype=np.uint8)
+    shapefile_ds = ogr.Open(shapefile, 0)
+
+    for layer in shapefile_ds:
+        for feature in layer:
+            geom = feature.GetGeometryRef()
+            if geom.GetGeometryName() != 'POLYGON' and \
+                geom.GetGeometryName() != 'MULTIPOLYGON':
+                continue
+
+            if tile_polygon is None:
+                polygon_srs = geom.GetSpatialReference()
+                tile_polygon_with_margin, *_ = \
+                    _get_tile_srs_bbox(tile_min_y_utm - 2 * margin_m,
+                                       tile_max_y_utm + 2 * margin_m,
+                                       tile_min_x_utm - 2 * margin_m,
+                                       tile_max_x_utm + 2 * margin_m,
+                                       tile_srs, polygon_srs)
+
+            # test if current geometry intersects with the tile
+            if not geom.Intersects(tile_polygon_with_margin):
+                continue
+
+            # intersect shoreline polygon to the tile and update its
+            # spatial reference system (SRS) to match the tile SRS
+            intersection_polygon = geom.Intersection(tile_polygon_with_margin)
+            intersection_polygon.AssignSpatialReference(polygon_srs)
+            intersection_polygon.TransformTo(tile_srs)
+
+            # add margin to polygon
+            if polygon_water:
+                margin_m = -1 * margin_m
+
+            intersection_polygon = intersection_polygon.Buffer(margin_m)
+
+            # Update feature with intersected polygon
+            feature.SetGeometry(intersection_polygon)
+
+            # Set up the shapefile driver 
+            shapefile_driver = ogr.GetDriverByName("ESRI Shapefile")
+
+            temp_shapefile_filename = tempfile.NamedTemporaryFile(
+                dir=scratch_dir, suffix='.shp').name
+
+            out_ds = shapefile_driver.CreateDataSource(temp_shapefile_filename)
+            out_layer = out_ds.CreateLayer("polygon", tile_srs, ogr.wkbPolygon)
+            out_layer.CreateFeature(feature)
+
+            gdal_ds = \
+                gdal.GetDriverByName('MEM').Create('', width, length, gdal.GDT_Byte)
+            gdal_ds.SetGeoTransform(geotransform)
+            gdal_ds.SetProjection(projection)
+            gdal.RasterizeLayer(gdal_ds, [1], out_layer, burn_values=[1])
+            current_ocean_mask = gdal_ds.ReadAsArray()
+            gdal_ds = None
+
+            if temp_files_list is not None:
+                for extension in ['.shp', '.prj', '.dbf', '.shx']:
+                    temp_file = temp_shapefile_filename.replace(
+                        '.shp', extension)
+                    if not os.path.isfile(temp_file):
+                        continue
+                    temp_files_list.append(temp_file)
+
+            ocean_mask |= current_ocean_mask
+
+    # if polygon represent the land, then create inverse binary.
+    if not polygon_water:
+        ocean_mask = ocean_mask == 0
+    return ocean_mask
 
 
 def create_geotiff_with_one_value(outpath, shape, filled_value):
@@ -569,7 +788,7 @@ def create_geotiff_with_one_value(outpath, shape, filled_value):
         The value with which the GeoTIFF will be filled.
     """
     # Set up the new file's spatial properties
-    height, width= shape
+    height, width = shape
 
     # Create the file with a single band, Float32 type
     driver = gdal.GetDriverByName("GTiff")
@@ -687,26 +906,32 @@ def write_raster_block(out_raster, data,
         if not ds_data:
             raise IOError(f"Failed to open raster for update: {out_raster}")
 
-    if ndim == 2:
-        ds_data.GetRasterBand(1).WriteArray(
-                data[data_start_without_pad:data_end_without_pad,
-                    :],
-                xoff=0,
-                yoff=block_param.write_start_line)
-    else:
+    if ndim == 3:
         for im_ind in range(0, number_band):
+
             ds_data.GetRasterBand(im_ind+1).WriteArray(
-                np.squeeze(data[im_ind,
-                                data_start_without_pad:data_end_without_pad,
-                                :]),
+                data[im_ind,
+                     data_start_without_pad:data_end_without_pad,
+                     :],
                 xoff=0,
                 yoff=block_param.write_start_line)
-
+    elif data.ndim == 2:
+        data_towrite = data[data_start_without_pad:data_end_without_pad, :]
+        ds_data.GetRasterBand(1).WriteArray(
+            data_towrite,
+            xoff=0,
+            yoff=block_param.write_start_line)
+    # data.ndim == 1
+    else:
+        ds_data.GetRasterBand(1).WriteArray(
+            np.reshape(data, [1, len(data)]),
+            xoff=0,
+            yoff=block_param.write_start_line)
     del ds_data
 
     # Write COG is cog_flag is True and last block.
-    if (block_param.write_start_line + block_param.block_length == \
-        block_param.data_length) and cog_flag:
+    if (block_param.write_start_line + block_param.block_length ==
+       block_param.data_length) and cog_flag:
         _save_as_cog(out_raster, scratch_dir)
 
 
@@ -776,8 +1001,9 @@ def block_param_generator(lines_per_block, data_shape, pad_shape):
 
         # Determine block padding in length
         if first_block:
-            # Only the top part of the block should be padded. If end_deficit_line=0
-            # we have a sufficient number of lines to be read in the subsequent block
+            # Only the top part of the block should be padded.
+            # If end_deficit_line=0 we have a sufficient number
+            # of lines to be read in the subsequent block
             top_pad = half_pad_length
             bottom_pad = abs(end_line_deficit)
         elif last_block:
@@ -856,7 +1082,8 @@ def merge_binary_layers(layer_list, value_list, merged_layer_path,
     lines_per_block : int
         Number of lines per block for processing the data in chunks.
     mode : str, optional
-        Logical operation to apply for merging ('and' or 'or'). The default is 'or'.
+        Logical operation to apply for merging ('and' or 'or').
+        The default is 'or'.
     cog_flag : bool, optional
         Write to COG if True. Defaults to True.
     scratch_dir : str, optional
@@ -869,7 +1096,8 @@ def merge_binary_layers(layer_list, value_list, merged_layer_path,
     """
 
     if len(layer_list) != len(value_list):
-        raise ValueError('Number of layers does not match with number of values')
+        raise ValueError(
+            'Number of layers does not match with number of values')
 
     # Getting metadata from the reference layer
     meta_info = get_meta_from_tif(layer_list[0])
@@ -941,18 +1169,20 @@ def block_threshold_visualization(intensity, block_row, block_col,
     Visualize an intensity image overlaid with threshold values from
     specified blocks/subtiles.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     intensity : numpy.ndarray
         A 2D or 3D array representing the intensity of the image.
-        If 3D, only the second and third dimensions (rows and columns) are used for visualization.
+        If 3D, only the second and third dimensions (rows and columns)
+        are used for visualization.
     block_row : int
         Number of rows in each block/subtile.
     block_col : int
         Number of columns in each block/subtile.
     threshold_tile : numpy.ndarray
         2D array containing the threshold values for each block/subtile.
-        Its dimensions should match the number of blocks in the intensity image.
+        Its dimensions should match the number of blocks in the intensity
+        image.
     outputdir : str
         Path to the directory where visualizations will be saved.
     figname : str
@@ -998,9 +1228,14 @@ def block_threshold_visualization(intensity, block_row, block_col,
     plt.close()
 
 
-def block_threshold_visualization_rg(intensity, threshold_dict, outputdir, figname):
+def block_threshold_visualization_rg(
+        intensity,
+        threshold_dict,
+        outputdir,
+        figname):
     """
-    Visualize an intensity image overlaid with threshold values from provided blocks/subtiles.
+    Visualize an intensity image overlaid with threshold values from
+    provided blocks/subtiles.
 
     Parameters
     -----------
@@ -1010,8 +1245,9 @@ def block_threshold_visualization_rg(intensity, threshold_dict, outputdir, figna
     threshold_dict : dict
         A dictionary containing:
         * 'array': A nested list of threshold values for each band and block.
-        * 'subtile_coord': A nested list of block coordinates for each band and block,
-          in the format [[start_row, end_row, start_col, end_col], ...].
+        * 'subtile_coord': A nested list of block coordinates for each band
+           and block, in the format [[start_row, end_row, start_col, end_col],
+           ...].
     outputdir : str
         Path to the directory where visualizations will be saved.
     figname : str
@@ -1021,7 +1257,8 @@ def block_threshold_visualization_rg(intensity, threshold_dict, outputdir, figna
     --------
     None. The visualized figures are saved to the specified directory.
     """
-    # Determine the dimensions and the number of bands based on the shape of the intensity array
+    # Determine the dimensions and the number of bands based on the shape of
+    # the intensity array
     if len(intensity.shape) == 2:
         rows, cols = intensity.shape
         bands = [intensity]
@@ -1042,16 +1279,22 @@ def block_threshold_visualization_rg(intensity, threshold_dict, outputdir, figna
         # Prepare a matrix for the overlaid threshold values
         threshold_overlay = np.full((rows, cols), np.nan)
 
-        for threshold, coords in zip(threshold_dict['array'][band_index], threshold_dict['subtile_coord'][band_index]):
+        for threshold, coords in zip(
+             threshold_dict['array'][band_index],
+             threshold_dict['subtile_coord'][band_index]):
+
             start_row, end_row, start_col, end_col = coords
             threshold_overlay[start_row:end_row, start_col:end_col] = threshold
 
             # Draw a block boundary for visualization
             plt.plot([start_col, end_col, end_col, start_col, start_col],
-                     [start_row, start_row, end_row, end_row, start_row], 'black')
+                     [start_row, start_row, end_row, end_row, start_row], 
+                     'black')
 
         # Overlay the threshold values on top of the intensity image
-        plt.imshow(threshold_overlay, alpha=0.3, cmap='jet', vmin=-20, vmax=-14)
+        plt.imshow(threshold_overlay,
+                   alpha=0.3, cmap='jet',
+                   vmin=-20, vmax=-14)
 
         # Save the visualization to file
         plt.savefig(os.path.join(outputdir, f'{figname}_{band_index}'))
@@ -1166,10 +1409,11 @@ def _collapse_wtr_classes(interpreted_layer):
 
 
 def _save_array(input_array, output_file, dswx_metadata_dict, geotransform,
-                projection, description = None, scratch_dir = '.',
-                output_files_list = None, output_dtype = gdal.GDT_Byte,
-                ctable = None, no_data_value = None):
-    """Save a generic DSWx-SAR layer (e.g., diagnostic layer, shadow layer, etc.)
+                projection, description=None, scratch_dir='.',
+                output_files_list=None, output_dtype=gdal.GDT_Byte,
+                ctable=None, no_data_value=None):
+    """Save a generic DSWx-SAR layer
+    (e.g., diagnostic layer, shadow layer, etc.)
 
        Parameters
        ----------
@@ -1268,7 +1512,7 @@ def geotiff2png(src_geotiff_filename,
 
     gdal_dtype = gdal_ds.GetRasterBand(1).DataType
     dtype_name = gdal.GetDataTypeName(gdal_dtype).lower()
-    is_integer = 'byte' in dtype_name  or 'int' in dtype_name
+    is_integer = 'byte' in dtype_name or 'int' in dtype_name
 
     if is_integer:
         resamp_algorithm = 'NEAREST'
@@ -1288,7 +1532,7 @@ def geotiff2png(src_geotiff_filename,
                    width=output_width,
                    resampleAlg=resamp_algorithm,
                    nogcp=True,  # do not print GCPs
-    )
+                   )
 
     if logger is None:
         logger = logging.getLogger('dswx_s1')
@@ -1313,7 +1557,8 @@ def create_browse_image(water_geotiff_filename,
     The function performs the following steps:
     - Opens the specified GeoTIFF file and reads the water layer.
     - Extracts relevant metadata for geospatial referencing.
-    - Computes a browse array based on various masking and data classification criteria.
+    - Computes a browse array based on various masking and data classification
+      criteria.
     - Forms a color table for data visualization.
     - Saves the processed data as a new GeoTIFF file in a scratch directory.
     - Converts the GeoTIFF to a PNG file, resized to the specified dimensions.
@@ -1335,7 +1580,8 @@ def create_browse_image(water_geotiff_filename,
     flag_collapse_wtr_classes : bool, optional
         If True, collapses water classes. Default is True.
     exclude_inundated_vegetation : bool, optional
-        If True, excludes inundated vegetation from the processing. Default is False.
+        If True, excludes inundated vegetation from the processing.
+        Default is False.
     set_not_water_to_nodata : bool, optional
         If True, sets non-water pixels to NoData. Default is False.
     set_hand_mask_to_nodata : bool, optional

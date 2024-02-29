@@ -21,7 +21,8 @@ from shapely.ops import transform
 
 from dswx_sar import (dswx_sar_util,
                       generate_log)
-from dswx_sar.dswx_sar_util import band_assign_value_dict
+from dswx_sar.dswx_sar_util import (band_assign_value_dict,
+                                    _create_ocean_mask)
 from dswx_sar.dswx_runconfig import RunConfig, _get_parser, DSWX_S1_POL_DICT
 from dswx_sar.metadata import (create_dswx_sar_metadata,
                                collect_burst_id,
@@ -227,7 +228,7 @@ def find_intersecting_burst_with_bbox(ref_bbox,
 
                     # Transform the polygon
                     rtc_polygon = transform(transformer.transform, rtc_polygon)
-            
+
 
             # Check if bursts intersect the reference polygon
             if ref_polygon.intersects(rtc_polygon) or \
@@ -576,6 +577,11 @@ def run(cfg):
         browser_image_cfg.set_layover_shadow_to_nodata
     set_ocean_masked_to_nodata = browser_image_cfg.set_ocean_masked_to_nodata
 
+    shapefile = cfg.groups.dynamic_ancillary_file_group.shoreline_shapefile
+    ocean_mask_enabled = processing_cfg.ocean_mask.mask_enabled
+    margin_km = processing_cfg.ocean_mask.mask_margin_km
+    polygon_water = processing_cfg.ocean_mask.mask_polygon_water
+
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
 
@@ -653,6 +659,7 @@ def run(cfg):
     # If polarimetric methods such as ratio, span are used,
     # it is added to the name.
     if pol_options is not None and merge_layer_flag:
+
         merge_pol_list = [item + '_' + pol_option_str
                           for item in merge_pol_list]
 
@@ -746,6 +753,21 @@ def run(cfg):
         inundated_vegetation = None
         logger.warning('Inudated vegetation file was disabled.')
 
+    # 5) create ocean mask
+    if ocean_mask_enabled:
+        logger.info('Ocean mask enabled')
+        ocean_mask = _create_ocean_mask(
+            shapefile, margin_km, scratch_dir,
+            geotransform=water_meta['geotransform'],
+            projection=water_meta['projection'],
+            length=water_meta['length'],
+            width=water_meta['width'],
+            polygon_water=polygon_water,
+            temp_files_list = None)
+    else:
+        logger.info('Ocean mask disabled')
+        ocean_mask = None
+
     if dswx_workflow == 'opera_dswx_s1':
         logger.info('BWTR and WTR Files are created from pre-computed files.')
 
@@ -773,6 +795,7 @@ def run(cfg):
             hand_mask=hand_mask,
             inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
+            ocean_mask=ocean_mask
             )
 
         # water/ No-water
@@ -789,6 +812,7 @@ def run(cfg):
             logger=logger,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
+            ocean_mask=ocean_mask,
             no_data=no_data_raster)
 
         # Open water/landcover mask/bright water/dark land
@@ -807,6 +831,7 @@ def run(cfg):
             dark_land_mask=dark_land_mask,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
+            ocean_mask=ocean_mask,
             inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
             )
@@ -828,6 +853,7 @@ def run(cfg):
             logger=logger,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
+            ocean_mask=ocean_mask,
             no_data=no_data_raster)
     else:
 

@@ -456,7 +456,7 @@ class RunConfig:
         return self.groups.dynamic_ancillary_file_group.dem_description
 
     @property
-    def polarizations(self): #-> list[str]:
+    def polarizations(self):
         return self.groups.processing.polarizations
 
     @property

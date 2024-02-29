@@ -91,14 +91,16 @@ def _get_date_range(dates, mode='min'):
     Converts a list of date strings to datetime objects and
     returns either the minimum or maximum date.
 
-    Parameters:
-    dates (list of str):
+    Parameters
+    ----------
+    dates: list of str
         A list of date strings in the format "%Y-%m-%dT%H:%M:%S".
-    mode (str, optional):
+    mode: str, optional
         Determines whether to return the minimum or maximum date.
         Accepts 'min' or 'max'. Defaults to 'min'.
 
-    Returns:
+    Returns
+    -------
     str:
         The minimum or maximum date in the format "%Y-%m-%dT%H:%M:%SZ",
         depending on the mode.

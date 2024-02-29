@@ -12,6 +12,7 @@ COMPARISON_EXCEPTION_LIST = ['PROCESSING_DATETIME',
                              'REFERENCE_WATER_SOURCE',
                              'SOFTWARE_VERSION']
 
+
 def _get_parser():
     parser = argparse.ArgumentParser(
         description='Compare two DSWx-SAR products',
@@ -25,9 +26,11 @@ def _get_parser():
 
     return parser
 
+
 def _get_prefix_str(flag_same, flag_all_ok):
     flag_all_ok[0] = flag_all_ok[0] and flag_same
     return '[OK]   ' if flag_same else '[FAIL] '
+
 
 def _print_first_value_diff(image_1, image_2, prefix):
     """
@@ -49,7 +52,8 @@ def _print_first_value_diff(image_1, image_2, prefix):
                     COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE):
                 flag_error_found = True
 
-                print(prefix + f'     * input 1 has value'
+                print(
+                    prefix + f'     * input 1 has value'
                     f' "{image_1[i, j]}" in position'
                     f' (x: {j}, y: {i})'
                     f' whereas input 2 has value "{image_2[i, j]}"'
@@ -57,6 +61,7 @@ def _print_first_value_diff(image_1, image_2, prefix):
                 break
         if flag_error_found:
             break
+
 
 def _compare_dswx_sar_metadata(metadata_1, metadata_2):
     """
@@ -108,6 +113,7 @@ def _compare_dswx_sar_metadata(metadata_1, metadata_2):
 
     return metadata_error_message, flag_same_metadata
 
+
 def compare_dswx_sar_products(file_1, file_2):
 
     if not os.path.isfile(file_1):
@@ -137,7 +143,7 @@ def compare_dswx_sar_products(file_1, file_2):
     nbands_2 = layer_gdal_dataset_2.RasterCount
 
     # compare number of bands
-    flag_same_nbands =  nbands_1 == nbands_2
+    flag_same_nbands = nbands_1 == nbands_2
     flag_same_nbands_str = _get_prefix_str(flag_same_nbands, flag_all_ok)
     prefix = ' ' * 7
     print(f'{flag_same_nbands_str}Comparing number of bands')
@@ -154,7 +160,8 @@ def compare_dswx_sar_products(file_1, file_2):
         image_1 = gdal_band_1.ReadAsArray()
         image_2 = gdal_band_2.ReadAsArray()
         flag_bands_are_equal = np.allclose(
-            image_1, image_2, atol = COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE,
+            image_1, image_2,
+            atol=COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE,
             equal_nan=True)
         flag_bands_are_equal_str = _get_prefix_str(flag_bands_are_equal,
                                                    flag_all_ok)
@@ -169,7 +176,8 @@ def compare_dswx_sar_products(file_1, file_2):
                                                   flag_all_ok)
     print(f'{flag_same_geotransforms_str}Comparing geotransform')
     if not flag_same_geotransforms:
-        print(prefix + f'* input 1 geotransform with content "{geotransform_1}"'
+        print(prefix +
+              f'* input 1 geotransform with content "{geotransform_1}"'
               f' differs from input 2 geotransform with content'
               f' "{geotransform_2}".')
 
@@ -195,6 +203,7 @@ def compare_dswx_sar_products(file_1, file_2):
         print(prefix + metadata_error_message)
 
     return flag_all_ok[0]
+
 
 def main():
     parser = _get_parser()

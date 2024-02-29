@@ -19,6 +19,7 @@ from dswx_sar import generate_log
 
 logger = logging.getLogger('dswx_s1')
 
+
 def dswx_s1_workflow(cfg):
 
     t_all = time.time()
@@ -27,6 +28,7 @@ def dswx_s1_workflow(cfg):
     pol_mode = processing_cfg.polarization_mode
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
+    inundated_veg_cfg = processing_cfg.inundated_vegetation
 
     logger.info("")
     logger.info("Starting DSWx-S1 algorithm")
@@ -41,6 +43,12 @@ def dswx_s1_workflow(cfg):
                         DSWX_S1_POL_DICT['DH_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':
         proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
+                        DSWX_S1_POL_DICT['SH_POL']]
+    elif pol_mode == 'MIX_DUAL_H_SINGLE_V_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DH_POL'],
+                        DSWX_S1_POL_DICT['SV_POL']]
+    elif pol_mode == 'MIX_DUAL_V_SINGLE_H_POL':
+        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
                         DSWX_S1_POL_DICT['SH_POL']]
     else:
         proc_pol_set = [pol_list]
@@ -66,7 +74,10 @@ def dswx_s1_workflow(cfg):
             # Refinement
             refine_with_bimodality.run(cfg)
 
-            if processing_cfg.inundated_vegetation.enabled:
+            if ((inundated_veg_cfg.enabled == 'auto') and
+               len(pol_set) >= 2) or \
+               inundated_veg_cfg.enabled is True:
+
                 detect_inundated_vegetation.run(cfg)
 
     processing_cfg.polarizations = pol_list
@@ -85,6 +96,7 @@ def main():
     generate_log.configure_log_file(cfg.groups.log_file)
 
     dswx_s1_workflow(cfg)
+
 
 if __name__ == '__main__':
     '''run dswx_s1 from command line'''

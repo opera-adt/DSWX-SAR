@@ -32,15 +32,15 @@ class DSWXGeogrid:
     epsg : int
         The EPSG code representing the coordinate reference system of the grid.
     """
-    start_x : float = np.nan
-    start_y : float = np.nan
-    end_x : float = np.nan
-    end_y : float = np.nan
-    spacing_x : float = np.nan
-    spacing_y : float = np.nan
-    length : int = np.nan
-    width : int = np.nan
-    epsg : int = np.nan
+    start_x: float = np.nan
+    start_y: float = np.nan
+    end_x: float = np.nan
+    end_y: float = np.nan
+    spacing_x: float = np.nan
+    spacing_y: float = np.nan
+    length: int = np.nan
+    width: int = np.nan
+    epsg: int = np.nan
 
     def get_geogrid_from_geotiff(self,
                                  geotiff_path):
@@ -48,8 +48,8 @@ class DSWXGeogrid:
         Extract geographical grid parameters from a GeoTIFF file
         and update the dataclass attributes.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         geotiff_path : str
             The file path to the GeoTIFF file from which the grid
             parameters are to be extracted.
@@ -70,7 +70,7 @@ class DSWXGeogrid:
 
         projection = tif_gdal.GetProjection()
         proj = osr.SpatialReference(wkt=projection)
-        output_epsg = proj.GetAttrValue('AUTHORITY',1)
+        output_epsg = proj.GetAttrValue('AUTHORITY', 1)
         self.epsg = int(output_epsg)
         tif_gdal = None
         del tif_gdal
@@ -80,8 +80,8 @@ class DSWXGeogrid:
         """
         Extract geographical grid parameters from a GeoTIFF file
         and update the dataclass attributes.
-        Parameters:
-        -----------
+        Parameters
+        ----------
         geotiff_path : str
             The file path to the GeoTIFF file from which the grid
             parameters are to be extracted.
@@ -95,13 +95,12 @@ class DSWXGeogrid:
         end_y = start_y + length * spacing_y
         projection = tif_gdal.GetProjection()
         proj = osr.SpatialReference(wkt=projection)
-        output_epsg = proj.GetAttrValue('AUTHORITY',1)
+        output_epsg = proj.GetAttrValue('AUTHORITY', 1)
         epsg = int(output_epsg)
         tif_gdal = None
         del tif_gdal
         return cls(start_x, start_y, end_x, end_y, spacing_x, spacing_y,
                    length, width, epsg)
-
 
     def update_geogrid(self, geotiff_path):
         """
@@ -112,25 +111,37 @@ class DSWXGeogrid:
         new_geogrid = DSWXGeogrid.from_geotiff(geotiff_path)
 
         if self.epsg != new_geogrid.epsg and not np.isnan(self.epsg):
-            raise ValueError("EPSG codes of the existing and new geogrids do not match.")
-        self.start_x = min(filter(lambda x: not np.isnan(x), [self.start_x, new_geogrid.start_x]))
-        self.end_x = max(filter(lambda x: not np.isnan(x), [self.end_x, new_geogrid.end_x]))
+            raise ValueError("EPSG codes of the existing and "
+                             "new geogrids do not match.")
+        self.start_x = min(filter(lambda x: not np.isnan(x),
+                                  [self.start_x, new_geogrid.start_x]))
+        self.end_x = max(filter(lambda x: not np.isnan(x),
+                                [self.end_x, new_geogrid.end_x]))
 
         if self.spacing_y > 0 or np.isnan(self.spacing_y):
-            self.end_y = max(filter(lambda x: not np.isnan(x), [self.end_y, new_geogrid.end_y]))
-            self.start_y = min(filter(lambda x: not np.isnan(x), [self.start_y, new_geogrid.start_y]))
+            self.end_y = max(filter(lambda x: not np.isnan(x),
+                                    [self.end_y, new_geogrid.end_y]))
+            self.start_y = min(filter(lambda x: not np.isnan(x),
+                                      [self.start_y, new_geogrid.start_y]))
         else:
-            self.start_y = max(filter(lambda x: not np.isnan(x), [self.start_y, new_geogrid.start_y]))
-            self.end_y = min(filter(lambda x: not np.isnan(x), [self.end_y, new_geogrid.end_y]))
+            self.start_y = max(filter(lambda x: not np.isnan(x),
+                                      [self.start_y, new_geogrid.start_y]))
+            self.end_y = min(filter(lambda x: not np.isnan(x),
+                                    [self.end_y, new_geogrid.end_y]))
 
-        self.spacing_x = new_geogrid.spacing_x if not np.isnan(new_geogrid.spacing_x) else self.spacing_x
-        self.spacing_y = new_geogrid.spacing_y if not np.isnan(new_geogrid.spacing_y) else self.spacing_y
+        self.spacing_x = new_geogrid.spacing_x \
+            if not np.isnan(new_geogrid.spacing_x) else self.spacing_x
+        self.spacing_y = new_geogrid.spacing_y \
+            if not np.isnan(new_geogrid.spacing_y) else self.spacing_y
 
-        if not np.isnan(self.start_x) and not np.isnan(self.end_x) and not np.isnan(self.spacing_x):
+        if not np.isnan(self.start_x) and not np.isnan(self.end_x) and \
+           not np.isnan(self.spacing_x):
             self.width = int((self.end_x - self.start_x) / self.spacing_x)
-        
-        if not np.isnan(self.start_y) and not np.isnan(self.end_y) and not np.isnan(self.spacing_y):
+
+        if not np.isnan(self.start_y) and not np.isnan(self.end_y) and \
+           not np.isnan(self.spacing_y):
             self.length = int((self.end_y - self.start_y) / self.spacing_y)
 
-        self.epsg = new_geogrid.epsg if not np.isnan(new_geogrid.epsg) else self.epsg
+        self.epsg = new_geogrid.epsg \
+            if not np.isnan(new_geogrid.epsg) else self.epsg
 

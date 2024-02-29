@@ -5,7 +5,6 @@ import os
 import time
 
 import numpy as np
-import osgeo.gdal as gdal
 
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log
 from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT, _get_parser, RunConfig
@@ -25,7 +24,7 @@ def run(cfg):
     outputdir = cfg.groups.product_path_group.scratch_path
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
 
@@ -46,14 +45,23 @@ def run(cfg):
     # Herbanceous wetland area
     landcover_path_str = os.path.join(outputdir, 'interpolated_landcover.tif')
     mask_obj = FillMaskLandCover(landcover_path_str)
-    inundated_vege_path = f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
+    inundated_vege_path = \
+        f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
 
     dual_pol_flag = False
     if (('HH' in pol_list) and ('HV' in pol_list)) or \
        (('VV' in pol_list) and ('VH' in pol_list)):
         dual_pol_flag = True
 
-    if inundated_vege_cfg.enabled and not dual_pol_flag:
+    if inundated_vege_cfg.enabled == 'auto':
+        if dual_pol_flag:
+            inundated_vege_cfg_flag = True
+        else:
+            inundated_vege_cfg_flag = False
+    else:
+        inundated_vege_cfg_flag = inundated_vege_cfg.enabled
+
+    if inundated_vege_cfg_flag and not dual_pol_flag:
         err_str = 'Daul polarizations are required for inundated vegetation'
         raise ValueError(err_str)
 
@@ -128,7 +136,7 @@ def run(cfg):
         if processing_cfg.debug_mode:
             dswx_sar_util.write_raster_block(
                 out_raster=os.path.join(
-                outputdir, f'intensity_db_ratio_{pol_all_str}.tif'),
+                    outputdir, f'intensity_db_ratio_{pol_all_str}.tif'),
                 data=filt_ratio_db,
                 block_param=block_param,
                 geotransform=im_meta['geotransform'],
@@ -179,6 +187,7 @@ def main():
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
         run(cfg)
+
 
 if __name__ == '__main__':
     main()

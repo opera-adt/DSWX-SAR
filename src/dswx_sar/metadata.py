@@ -58,11 +58,12 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
     for meta_path in metapath_list:
 
         with rasterio.open(meta_path) as src:
-            # Accessing tags (additional metadata) of specific band (e.g., band 1)
+            # Accessing tags (additional metadata) of specific band
+            # (e.g., band 1)
             tags = src.tags(0)
             for rtc_field, dswx_field in dswx_meta_mapping.items():
                 rtc_meta_content = tags[rtc_field]
-                # 'INPUT_L1_SLC_GRANULES' in RTC GeoTIFF has [' ']. 
+                # 'INPUT_L1_SLC_GRANULES' in RTC GeoTIFF has [' '].
                 if rtc_field == 'INPUT_L1_SLC_GRANULES':
                     rtc_meta_content = rtc_meta_content[2:-2]
                 metadata_dict[rtc_field].append(rtc_meta_content)
@@ -78,12 +79,14 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
         elif rtc_field == 'QA_RFI_INFO_AVAILABLE':
             bool_list = [item.lower() == 'true' for item in values]
             dswx_metadata_dict[dswx_field] = any(bool_list)
-            dswx_metadata_dict['RTC_QA_RFI_NUMBER_OF_BURSTS'] = np.sum(bool_list)
+            dswx_metadata_dict['RTC_QA_RFI_NUMBER_OF_BURSTS'] = \
+                np.sum(bool_list)
 
         else:
             dswx_contents = sorted(set(values))
             dswx_metadata_dict[dswx_field] = \
-                values[0] if len(dswx_contents) == 1 else ', '.join(dswx_contents)
+                values[0] if len(dswx_contents) == 1 \
+                else ', '.join(dswx_contents)
 
 
 def _get_date_range(dates, mode='min'):
@@ -91,26 +94,30 @@ def _get_date_range(dates, mode='min'):
     Converts a list of date strings to datetime objects and
     returns either the minimum or maximum date.
 
-    Parameters:
-    dates (list of str):
+    Parameters
+    ----------
+    dates: list of str
         A list of date strings in the format "%Y-%m-%dT%H:%M:%S".
-    mode (str, optional):
+    mode: str, optional
         Determines whether to return the minimum or maximum date.
         Accepts 'min' or 'max'. Defaults to 'min'.
 
-    Returns:
+    Returns
+    -------
     str:
         The minimum or maximum date in the format "%Y-%m-%dT%H:%M:%SZ",
         depending on the mode.
     """
     input_date_format = "%Y-%m-%dT%H:%M:%S"
     output_date_format = "%Y-%m-%dT%H:%M:%SZ"
-    date_objects = [datetime.strptime(date[:19], input_date_format) for date in dates]
+    date_objects = [datetime.strptime(date[:19], input_date_format)
+                    for date in dates]
 
     mode_functions = {'min': min, 'max': max}
 
     if mode in mode_functions:
-        return datetime.strftime(mode_functions[mode](date_objects), output_date_format)
+        return datetime.strftime(mode_functions[mode](date_objects),
+                                 output_date_format)
     else:
         raise ValueError('Invalid mode. Only "min" and "max" are supported.')
 
@@ -123,15 +130,20 @@ def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
     dswx_metadata_dict : collections.OrderedDict
         Metadata dictionary.
     ancillary_cfg: obj
-        Configuration object containing all ancillary data sources and their descriptions.
+        Configuration object containing all ancillary data sources
+        and their descriptions.
     """
-    # Dictionary mapping of source type to its file and description attributes in ancillary_cfg
+    # Dictionary mapping of source type to its file and description attributes
+    # in ancillary_cfg
     source_map = {
         'INPUT_DEM_SOURCE': ('dem_file', 'dem_file_description'),
         'INPUT_HAND_SOURCE': ('hand_file', 'hand_file_description'),
-        'INPUT_WORLDCOVER_SOURCE': ('worldcover_file', 'worldcover_file_description'),
-        'INPUT_SHORELINE_SOURCE': ('shoreline_shapefile', 'shoreline_shapefile_description'),
-        'INPUT_REFERENCE_WATER_SOURCE': ('reference_water_file', 'reference_water_file_description')
+        'INPUT_WORLDCOVER_SOURCE': ('worldcover_file',
+                                    'worldcover_file_description'),
+        'INPUT_SHORELINE_SOURCE': ('shoreline_shapefile',
+                                   'shoreline_shapefile_description'),
+        'INPUT_REFERENCE_WATER_SOURCE': ('reference_water_file',
+                                         'reference_water_file_description')
     }
 
     for meta_key, (file_attr, desc_attr) in source_map.items():
@@ -170,49 +182,76 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
         refine_with_bimodality_cfg = processing_cfg.refine_with_bimodality
 
         dswx_metadata_dict.update({
-            'PROCESSING_INFORMATION_POLARIZATION': processing_cfg.polarizations,
+            'PROCESSING_INFORMATION_POLARIZATION':
+                processing_cfg.polarizations,
             'PROCESSING_INFORMATION_FILTER': 'Enhanced Lee filter',
-            'PROCESSING_INFORMATION_FILTER_ENABLED': processing_cfg.filter.enabled,
-            'PROCESSING_INFORMATION_FILTER_WINDOW_SIZE': processing_cfg.filter.window_size,
+            'PROCESSING_INFORMATION_FILTER_ENABLED':
+                processing_cfg.filter.enabled,
+            'PROCESSING_INFORMATION_FILTER_WINDOW_SIZE':
+                processing_cfg.filter.window_size,
 
-            'PROCESSING_INFORMATION_THRESHOLDING': threshold_mapping.get(initial_threshold_cfg.threshold_method),
-            'PROCESSING_INFORMATION_THRESHOLD_TILE_SELECTION': initial_threshold_cfg.selection_method,
-            'PROCESSING_INFORMATION_THRESHOLD_TILE_AVERAGE': initial_threshold_cfg.tile_average,
-            'PROCESSING_INFORMATION_THRESHOLD_MULTI_THRESHOLD': initial_threshold_cfg.multi_threshold,
-            'PROCESSING_INFORMATION_THRESHOLD_BIMODALITY': initial_threshold_cfg.tile_selection_bimodality,
-            'PROCESSING_INFORMATION_THRESHOLD_TWELE': initial_threshold_cfg.tile_selection_twele,
+            'PROCESSING_INFORMATION_THRESHOLDING':
+                threshold_mapping.get(initial_threshold_cfg.threshold_method),
+            'PROCESSING_INFORMATION_THRESHOLD_TILE_SELECTION':
+                initial_threshold_cfg.selection_method,
+            'PROCESSING_INFORMATION_THRESHOLD_TILE_AVERAGE':
+                initial_threshold_cfg.tile_average,
+            'PROCESSING_INFORMATION_THRESHOLD_MULTI_THRESHOLD':
+                initial_threshold_cfg.multi_threshold,
+            'PROCESSING_INFORMATION_THRESHOLD_BIMODALITY':
+                initial_threshold_cfg.tile_selection_bimodality,
+            'PROCESSING_INFORMATION_THRESHOLD_TWELE':
+                initial_threshold_cfg.tile_selection_twele,
 
-            'PROCESSING_INFORMATION_REGION_GROWING_INITIAL_SEED': processing_cfg.region_growing.initial_threshold,
-            'PROCESSING_INFORMATION_REGION_GROWING_RELAXED_THRESHOLD': processing_cfg.region_growing.relaxed_threshold,
+            'PROCESSING_INFORMATION_REGION_GROWING_INITIAL_SEED':
+                processing_cfg.region_growing.initial_threshold,
+            'PROCESSING_INFORMATION_REGION_GROWING_RELAXED_THRESHOLD':
+                processing_cfg.region_growing.relaxed_threshold,
 
-            'PROCESSING_INFORMATION_MASKING_ANCILLARY_CO_POL_THRESHOLD': masking_ancillary_cfg.co_pol_threshold,
-            'PROCESSING_INFORMATION_MASKING_ANCILLARY_CROSS_POL_THRESHOLD': masking_ancillary_cfg.cross_pol_threshold,
-            'PROCESSING_INFORMATION_MASKING_ANCILLARY_WATER_THRESHOLD': masking_ancillary_cfg.water_threshold,
+            'PROCESSING_INFORMATION_MASKING_ANCILLARY_CO_POL_THRESHOLD':
+                masking_ancillary_cfg.co_pol_threshold,
+            'PROCESSING_INFORMATION_MASKING_ANCILLARY_CROSS_POL_THRESHOLD':
+                masking_ancillary_cfg.cross_pol_threshold,
+            'PROCESSING_INFORMATION_MASKING_ANCILLARY_WATER_THRESHOLD':
+                masking_ancillary_cfg.water_threshold,
 
-            'PROCESSING_INFORMATION_FUZZY_VALUE_HAND': [fuzzy_value_cfg.hand.member_min,
-                                                        fuzzy_value_cfg.hand.member_max],
-            'PROCESSING_INFORMATION_FUZZY_VALUE_SLOPE': [fuzzy_value_cfg.slope.member_min,
-                                                        fuzzy_value_cfg.slope.member_max],
-            'PROCESSING_INFORMATION_FUZZY_VALUE_REFERENCE_WATER': [fuzzy_value_cfg.reference_water.member_min,
-                                                        fuzzy_value_cfg.reference_water.member_max],
-            'PROCESSING_INFORMATION_FUZZY_VALUE_AREA': [fuzzy_value_cfg.area.member_min,
-                                                        fuzzy_value_cfg.area.member_max],
-            'PROCESSING_INFORMATION_FUZZY_VALUE_DARK_AREA': [fuzzy_value_cfg.dark_area.cross_land,
-                                                        fuzzy_value_cfg.dark_area.cross_water],
-            'PROCESSING_INFORMATION_FUZZY_VALUE_HIGH_FREQUENT_AREA': [fuzzy_value_cfg.high_frequent_water.water_min_value,
-                                                             fuzzy_value_cfg.high_frequent_water.water_max_value],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_HAND':
+                [fuzzy_value_cfg.hand.member_min,
+                 fuzzy_value_cfg.hand.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_SLOPE':
+                [fuzzy_value_cfg.slope.member_min,
+                 fuzzy_value_cfg.slope.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_REFERENCE_WATER':
+                [fuzzy_value_cfg.reference_water.member_min,
+                 fuzzy_value_cfg.reference_water.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_AREA':
+                [fuzzy_value_cfg.area.member_min,
+                 fuzzy_value_cfg.area.member_max],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_DARK_AREA':
+                [fuzzy_value_cfg.dark_area.cross_land,
+                 fuzzy_value_cfg.dark_area.cross_water],
+            'PROCESSING_INFORMATION_FUZZY_VALUE_HIGH_FREQUENT_AREA':
+                [fuzzy_value_cfg.high_frequent_water.water_min_value,
+                 fuzzy_value_cfg.high_frequent_water.water_max_value],
 
-            'PROCESSING_INFORMATION_REFINE_BIMODALITY_MINIMUM_PIXEL': refine_with_bimodality_cfg.minimum_pixel,
-            'PROCESSING_INFORMATION_REFINE_BIMODALITY_THRESHOLD': [refine_with_bimodality_cfg.thresholds.ashman,
-                                                                   refine_with_bimodality_cfg.thresholds.Bhattacharyya_coefficient,
-                                                                   refine_with_bimodality_cfg.thresholds.bm_coefficient,
-                                                                   refine_with_bimodality_cfg.thresholds.surface_ratio,],
+            'PROCESSING_INFORMATION_REFINE_BIMODALITY_MINIMUM_PIXEL':
+                refine_with_bimodality_cfg.minimum_pixel,
+            'PROCESSING_INFORMATION_REFINE_BIMODALITY_THRESHOLD':
+                [refine_with_bimodality_cfg.thresholds.ashman,
+                 refine_with_bimodality_cfg.thresholds.Bhattacharyya_coefficient,
+                 refine_with_bimodality_cfg.thresholds.bm_coefficient,
+                 refine_with_bimodality_cfg.thresholds.surface_ratio,],
 
-            'PROCESSING_INFORMATION_INUNDATED_VEGETATION': inundated_vegetation_cfg.enabled,
-            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_MAX': inundated_vegetation_cfg.dual_pol_ratio_max,
-            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_MIN': inundated_vegetation_cfg.dual_pol_ratio_min,
-            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_THRESHOLD': inundated_vegetation_cfg.dual_pol_ratio_threshold,
-            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_CROSS_POL_MIN': inundated_vegetation_cfg.cross_pol_min
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION':
+                inundated_vegetation_cfg.enabled,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_MAX':
+                inundated_vegetation_cfg.dual_pol_ratio_max,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_MIN':
+                inundated_vegetation_cfg.dual_pol_ratio_min,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_THRESHOLD':
+                inundated_vegetation_cfg.dual_pol_ratio_threshold,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_CROSS_POL_MIN':
+                inundated_vegetation_cfg.cross_pol_min
 
         })
     except AttributeError as e:
@@ -260,10 +299,12 @@ def compute_layover_shadow_coverage(data_array, spatial_coverage):
     float
         Layover-shadow coverage as a percentage.
     """
-    layover_shadow_pixels = np.sum(data_array == band_assign_value_dict['layover_shadow_mask'])
+    layover_shadow_pixels = np.sum(
+        data_array == band_assign_value_dict['layover_shadow_mask'])
 
     if spatial_coverage > 0:
-        return round(layover_shadow_pixels / (spatial_coverage * data_array.size), 4)
+        return round(layover_shadow_pixels /
+                     (spatial_coverage * data_array.size), 4)
     else:
         return np.nan
 
@@ -284,7 +325,8 @@ def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
         dswx_data = read_geotiff(dswx_geotiff, verbose=False)
 
         spatial_cov = compute_spatial_coverage(dswx_data)
-        layover_shadow_cov = compute_layover_shadow_coverage(dswx_data, spatial_cov)
+        layover_shadow_cov = compute_layover_shadow_coverage(
+            dswx_data, spatial_cov)
 
         dswx_metadata_dict['SPATIAL_COVERAGE'] = spatial_cov
         dswx_metadata_dict['LAYOVER_SHADOW_COVERAGE'] = layover_shadow_cov
@@ -330,7 +372,8 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
         set_dswx_s1_metadata(dswx_metadata_dict)
 
     # save datetime 'YYYY-MM-DDTHH:MM:SSZ'
-    dswx_metadata_dict['PROCESSING_DATETIME'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    dswx_metadata_dict['PROCESSING_DATETIME'] = \
+        datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     return dswx_metadata_dict
 
@@ -357,10 +400,13 @@ def gather_rtc_files(rtc_dirs, pols):
     for pol in pols:  # Loop through each polarization
         for rtc_input_dir in rtc_dirs:
             # Find all matching files for the current polarization
-            rtc_tif_files = glob.glob(os.path.join(rtc_input_dir, f'*{pol.upper()}*.tif'))
-            tif_files.extend(rtc_tif_files)  # Extend the list with the found files
+            rtc_tif_files = glob.glob(
+                os.path.join(rtc_input_dir, f'*{pol.upper()}*.tif'))
+            # Extend the list with the found files
+            tif_files.extend(rtc_tif_files)
 
     return tif_files
+
 
 def collect_burst_id(rtc_dirs, pol):
     """
@@ -384,11 +430,13 @@ def collect_burst_id(rtc_dirs, pol):
     burst_id_list = []
     for rtc_file in rtc_list:
         with rasterio.open(rtc_file) as src:
-            # Accessing tags (additional metadata) of specific band (e.g., band 1)
+            # Accessing tags (additional metadata) of specific band
+            # (e.g., band 1)
             tags = src.tags(0)
             burst_id_list.append(tags['BURST_ID'])
 
     return list(set(burst_id_list))
+
 
 def create_dswx_sar_metadata(cfg,
                              rtc_dirs,

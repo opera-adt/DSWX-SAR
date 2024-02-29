@@ -24,11 +24,8 @@ def configure_log_file(log_file):
         file_handler = logging.FileHandler(log_file)
 
         # Log file format
-        # msgfmt = ('%(asctime)s.%(msecs)03d, %(levelname)s, DSWx-S1, '
-        #           '%(module)s, 999999, %(pathname)s:%(lineno)d, "%(message)s"')
         msgfmt = ('%(asctime)s.%(msecs)03d, %(levelname)s, DSWx-S1, '
                   '%(module)s, %(lineno)d, "%(message)s"')
-
 
         log_file_formatter = logging.Formatter(msgfmt, "%Y-%m-%d %H:%M:%S")
         file_handler.setFormatter(log_file_formatter)
@@ -44,13 +41,13 @@ class Logger(object):
     Class to redirect stdout and stderr to the logger
     """
     def __init__(self, logger, level, prefix=''):
-       """
-       Class constructor
-       """
-       self.logger = logger
-       self.level = level
-       self.prefix = prefix
-       self.buffer = ''
+        """
+        Class constructor
+        """
+        self.logger = logger
+        self.level = level
+        self.prefix = prefix
+        self.buffer = ''
 
     def write(self, message):
 

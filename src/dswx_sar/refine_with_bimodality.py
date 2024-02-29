@@ -68,83 +68,92 @@ class BimodalityMetrics:
         # remove invalid values
         mask = (np.isnan(int_db)) | (np.isinf(int_db)) | (np.isinf(-int_db))
         int_db = int_db[np.invert(mask)]
+        if len(int_db) >= 3:
+            self.enough_number = True
+            # Threshold for two Gaussian fitting
+            self.threshold_global_otsu = threshold_otsu(int_db)
 
-        # Threshold for two Gaussian fitting
-        self.threshold_global_otsu = threshold_otsu(int_db)
+            # If the threshold is too low,
+            # then apply multi-threshold algorithm
+            if self.threshold_global_otsu < gauss_dist_thres_bound[0]:
+                try:
+                    multithreshold_global_otsu = \
+                        threshold_multiotsu(int_db)
 
-        # If the threshold is too low,
-        # then apply multi-threshold algorithm
-        if self.threshold_global_otsu < gauss_dist_thres_bound[0]:
-            try:
-                multithreshold_global_otsu = threshold_multiotsu(int_db)
-                if any(multithreshold_global_otsu >=
-                       gauss_dist_thres_bound[0]):
-                    self.threshold_global_otsu_ind = \
-                        np.where((multithreshold_global_otsu >
-                                 gauss_dist_thres_bound[0]) &
-                                 (multithreshold_global_otsu <
-                                 gauss_dist_thres_bound[1]))
+                    if any(multithreshold_global_otsu >=
+                           gauss_dist_thres_bound[0]):
+                        self.threshold_global_otsu_ind = \
+                            np.where((multithreshold_global_otsu >
+                                      gauss_dist_thres_bound[0]) &
+                                     (multithreshold_global_otsu <
+                                      gauss_dist_thres_bound[1]))
+                        if self.threshold_global_otsu_ind[0]:
+                            self.threshold_global_otsu = \
+                                multithreshold_global_otsu[
+                                    self.threshold_global_otsu_ind[0][0]]
 
-                    if self.threshold_global_otsu_ind[0]:
-                        self.threshold_global_otsu = \
-                            multithreshold_global_otsu[
-                                self.threshold_global_otsu_ind[0][0]]
-            except ValueError:
-                logger.info('multiotsu method failed.')
+                except ValueError:
+                    logger.info('multiotsu method failed.')
 
-        self.prob = self.counts * self.binstep
+            self.prob = self.counts * self.binstep
 
-        # Initial values for curve fitting using threshold computed above
-        left_sample = int_db[int_db < self.threshold_global_otsu]
-        right_sample = int_db[int_db > self.threshold_global_otsu]
-        if len(left_sample) > 0 and len(right_sample) > 0:
-            mean_lt = np.nanmean(left_sample)
-            mean_gt = np.nanmean(right_sample)
-            std_lt = np.std(left_sample)
-            std_gt = np.std(right_sample)
-        else:
-            mean_lt = self.threshold_global_otsu - 1
-            mean_gt = self.threshold_global_otsu + 1
-            std_lt, std_gt = 1, 1
-
-        amp_lt_ind = np.abs(self.bincenter - mean_lt).argmin()
-        amp_lt = self.prob[amp_lt_ind]
-        amp_gt_ind = np.abs(self.bincenter - mean_gt).argmin()
-        amp_gt = self.prob[amp_gt_ind]
-
-        try:
-            # starting value for curve_fit
-            # mean, std, amplitude, mean, std, amplitude
-            expected = (mean_lt, std_lt, amp_lt,
-                        mean_gt, std_gt, amp_gt)
-            params, _ = curve_fit(self.bimodal,
-                                  self.bincenter,
-                                  self.prob,
-                                  expected,
-                                  bounds=(
-                                    (-30, 1e-10, 0,
-                                     -30, 1e-10, 0),
-                                    (5, 5, 1,
-                                     5, 5, 1)))
-            if params[0] > params[3]:
-                self.second_mode = params[:3]
-                self.first_mode = params[3:]
+            # Initial values for curve fitting using threshold computed above
+            left_sample = int_db[int_db < self.threshold_global_otsu]
+            right_sample = int_db[int_db > self.threshold_global_otsu]
+            if len(left_sample) > 0 and len(right_sample) > 0:
+                mean_lt = np.nanmean(left_sample)
+                mean_gt = np.nanmean(right_sample)
+                std_lt = np.std(left_sample)
+                std_gt = np.std(right_sample)
             else:
-                self.first_mode = params[:3]
-                self.second_mode = params[3:]
-            # Left Gaussian
-            self.simul_first = self.gauss(self.bincenter, *self.first_mode)
-            self.simul_second = self.gauss(self.bincenter, *self.second_mode)
-            self.simul_all = self.simul_first + self.simul_second
-            self.optimization = True
-        except ValueError:
-            logger.info('ValueError: Bimodal curve Fitting fails in '
-                        'BimodalityMetrics.')
+                mean_lt = self.threshold_global_otsu - 1
+                mean_gt = self.threshold_global_otsu + 1
+                std_lt, std_gt = 1, 1
+
+            amp_lt_ind = np.abs(self.bincenter - mean_lt).argmin()
+            amp_lt = self.prob[amp_lt_ind]
+            amp_gt_ind = np.abs(self.bincenter - mean_gt).argmin()
+            amp_gt = self.prob[amp_gt_ind]
+                     
+            try:
+                # starting value for curve_fit
+                # mean, std, amplitude, mean, std, amplitude
+                expected = (mean_lt, std_lt, amp_lt,
+                            mean_gt, std_gt, amp_gt)
+                params, _ = curve_fit(self.bimodal,
+                                      self.bincenter,
+                                      self.prob,
+                                      expected,
+                                      bounds=(
+                                        (-30, 1e-10, 0,
+                                         -30, 1e-10, 0),
+                                        (5, 5, 1,
+                                         5, 5, 1)))
+                if params[0] > params[3]:
+                    self.second_mode = params[:3]
+                    self.first_mode = params[3:]
+                else:
+                    self.first_mode = params[:3]
+                    self.second_mode = params[3:]
+                # Left Gaussian
+                self.simul_first = self.gauss(self.bincenter,
+                                              *self.first_mode)
+                self.simul_second = self.gauss(self.bincenter,
+                                               *self.second_mode)
+                self.simul_all = self.simul_first + self.simul_second
+                self.optimization = True
+
+            except ValueError:
+                logger.info('ValueError: Bimodal curve Fitting fails in '
+                            'BimodalityMetrics.')
+                self.optimization = False
+            except RuntimeError:
+                logger.info('RuntimeError: Bimodal curve Fitting fails in '
+                            'BimodalityMetrics.')
+                self.optimization = False
+        else:
             self.optimization = False
-        except RuntimeError:
-            logger.info('RuntimeError: Bimodal curve Fitting fails in '
-                        'BimodalityMetrics.')
-            self.optimization = False
+            self.enough_number = False
 
     def gauss(self, array, mu, sigma, amplitude):
         """ Calculate the value of a Gaussian (normal) function.
@@ -374,35 +383,38 @@ class BimodalityMetrics:
             (None, None, None, None)
         bimodality_flag = False
 
-        if self.optimization and len(self.int_db) > 4:
-            ashman, _, surface_ratio, bm_coeff, bc_coeff = self.get_metric()
+        if self.enough_number:
+            if self.optimization and len(self.int_db) > 4:
+                (ashman, bhc, surface_ratio,
+                 bm_coeff, bc_coeff) = self.get_metric()
 
-            # Check if the data satisfies the conditions for bimodality
-            bm_coeff_bool = bm_flag and \
-                (bm_coeff is None or bm_coeff > thresholds[3])
-            ashman_bool = ashman_flag and \
-                (ashman is None or ashman > thresholds[0])
-            surface_ratio_bool = surface_ratio_flag and \
-                (surface_ratio is None or surface_ratio > thresholds[2])
-            bc_coeff_bool = bc_flag and \
-                (bc_coeff is None or bc_coeff > 5/9)
-            bimodal_metrics = (int(ashman_bool) +
-                               int(bm_coeff_bool) +
-                               int(bc_coeff_bool))
-            # If more than two metric satisficed are higher than threshold
-            # or ashman coefficient is higher than 3
-            # and surface ratio is higher than threshold
-            bool_set = [(bimodal_metrics >= 2) or (ashman > 3),
-                        surface_ratio_bool]
+                # Check if the data satisfies the conditions for bimodality
+                bm_coeff_bool = bm_flag and \
+                    (bm_coeff is None or bm_coeff > thresholds[3])
+                ashman_bool = ashman_flag and \
+                    (ashman is None or ashman > thresholds[0])
+                surface_ratio_bool = surface_ratio_flag and \
+                    (surface_ratio is None or surface_ratio > thresholds[2])
+                bc_coeff_bool = bc_flag and \
+                    (bc_coeff is None or bc_coeff > 5/9)
+                bimodal_metrics = (int(ashman_bool) +
+                                   int(bm_coeff_bool) +
+                                   int(bc_coeff_bool))
+                # If more than two metric satisficed are higher than threshold
+                # or ashman coefficient is higher than 3
+                # and surface ratio is higher than threshold
+                bool_set = [(bimodal_metrics >= 2) or
+                            (ashman > 3),
+                            surface_ratio_bool]
 
-            if all(element for element in bool_set):
-                bimodality_flag = True
-        else:
-            # If optimization fails, then apply alternative way
-            # Compute bimodality using the estimate_bimodality function
-            bt_max, ad_max = estimate_bimodality(self.int_db)
-            if (bt_max > thresholds[3]) & (ad_max > thresholds[0]):
-                bimodality_flag = True
+                if all(element for element in bool_set):
+                    bimodality_flag = True
+            else:
+                # If optimization fails, then apply alternative way
+                # Compute bimodality using the estimate_bimodality function
+                bt_max, ad_max = estimate_bimodality(self.int_db)
+                if (bt_max > thresholds[3]) & (ad_max > 1.5):
+                    bimodality_flag = True
 
         return bimodality_flag
 

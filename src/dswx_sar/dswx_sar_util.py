@@ -108,7 +108,7 @@ def get_interpreted_dswx_s1_ctable():
                               (120, 120, 240))
     #  blue - ocean_mask
     dswx_ctable.SetColorEntry(band_assign_value_dict['ocean_mask'],
-                              (50, 50,  240 ))
+                              (50, 50, 240))
     # Red - dark land
     dswx_ctable.SetColorEntry(band_assign_value_dict['dark_land_mask'],
                               (240, 20, 20))
@@ -658,8 +658,9 @@ def _get_tile_srs_bbox(tile_min_y_utm, tile_max_y_utm,
 def _create_ocean_mask(shapefile, margin_km, scratch_dir,
                        geotransform, projection, length, width,
                        polygon_water,
-                       temp_files_list = None,):
-    """Compute ocean mask from NOAA GSHHS shapefile. 
+                       temp_files_list=None
+                       ):
+    """Compute ocean mask from NOAA GSHHS shapefile.
 
        Parameters
        ----------
@@ -709,7 +710,7 @@ def _create_ocean_mask(shapefile, margin_km, scratch_dir,
         for feature in layer:
             geom = feature.GetGeometryRef()
             if geom.GetGeometryName() != 'POLYGON' and \
-                geom.GetGeometryName() != 'MULTIPOLYGON':
+               geom.GetGeometryName() != 'MULTIPOLYGON':
                 continue
 
             if tile_polygon is None:
@@ -740,7 +741,7 @@ def _create_ocean_mask(shapefile, margin_km, scratch_dir,
             # Update feature with intersected polygon
             feature.SetGeometry(intersection_polygon)
 
-            # Set up the shapefile driver 
+            # Set up the shapefile driver
             shapefile_driver = ogr.GetDriverByName("ESRI Shapefile")
 
             temp_shapefile_filename = tempfile.NamedTemporaryFile(
@@ -751,7 +752,10 @@ def _create_ocean_mask(shapefile, margin_km, scratch_dir,
             out_layer.CreateFeature(feature)
 
             gdal_ds = \
-                gdal.GetDriverByName('MEM').Create('', width, length, gdal.GDT_Byte)
+                gdal.GetDriverByName('MEM').Create('',
+                                                   width,
+                                                   length,
+                                                   gdal.GDT_Byte)
             gdal_ds.SetGeoTransform(geotransform)
             gdal_ds.SetProjection(projection)
             gdal.RasterizeLayer(gdal_ds, [1], out_layer, burn_values=[1])
@@ -1288,7 +1292,7 @@ def block_threshold_visualization_rg(
 
             # Draw a block boundary for visualization
             plt.plot([start_col, end_col, end_col, start_col, start_col],
-                     [start_row, start_row, end_row, end_row, start_row], 
+                     [start_row, start_row, end_row, end_row, start_row],
                      'black')
 
         # Overlay the threshold values on top of the intensity image

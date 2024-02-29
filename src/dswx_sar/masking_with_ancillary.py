@@ -273,7 +273,6 @@ def check_water_land_mixture(args):
 
                 if not metric_obj_local.compute_metric(
                         ashman_flag=True,
-                        bhc_flag=True,
                         bm_flag=True,
                         surface_ratio_flag=True,
                         bc_flag=False):
@@ -312,7 +311,6 @@ def check_water_land_mixture(args):
 
                 if not metric_obj_local.compute_metric(
                         ashman_flag=True,
-                        bhc_flag=True,
                         bm_flag=True,
                         surface_ratio_flag=True,
                         bc_flag=False):
@@ -412,7 +410,7 @@ def split_extended_water_parallel(
                 np.searchsorted(old_val, label_image),
                 dtype='uint32')
 
-            for coords, size in zip(coord_list, sizes):
+            for ind, (coords, size) in enumerate(zip(coord_list, sizes)):
                 (bbox_x_start,
                  bbox_x_end,
                  bbox_y_start,

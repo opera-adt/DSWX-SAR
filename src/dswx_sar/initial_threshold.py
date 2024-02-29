@@ -1059,7 +1059,8 @@ def determine_threshold(
 
             if threshold > tau_bound_gauss:
                 threshold = tau_bound_gauss
-                idx_tau_bound_gauss = np.searchsorted(intensity_bins,threshold)
+                idx_tau_bound_gauss = np.searchsorted(intensity_bins,
+                                                      threshold)
                 tri_lowmaxind_cands, _ = find_peaks(intensity_counts[0:idx_tau_bound_gauss+1], distance=5)
                 if not tri_lowmaxind_cands.any():
                     tri_lowmaxind_cands = np.array([np.nanargmax(intensity_counts[: idx_tau_bound_gauss+1])])

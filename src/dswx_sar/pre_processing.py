@@ -22,6 +22,7 @@ from dswx_sar.masking_with_ancillary import get_label_landcover_esa_10
 
 logger = logging.getLogger('dswx_s1')
 
+
 def pol_ratio(array1, array2):
     '''
     Compute ratio between two arrays
@@ -55,13 +56,13 @@ def validate_gtiff(geotiff_path, value_list):
     Returns
     -------
     validation_result: str
-        If any of the checks fail, return a string that indicates potential issues
-        with the GeoTIFF file.
+        If any of the checks fail, return a string that indicates potential
+        issues with the GeoTIFF file.
         - Return 'nan_value' if some pixels in the file have NaN values.
         - Return 'invalid_only' if the mean pixel value matches any value
           in 'value_list', suggesting uniform pixel values across the file.
     """
-    image = dswx_sar_util.read_geotiff(geotiff_path)    
+    image = dswx_sar_util.read_geotiff(geotiff_path)
     mean_value = np.nanmean(image)
 
     validation_result = 'okay'
@@ -69,7 +70,7 @@ def validate_gtiff(geotiff_path, value_list):
     for invalid_value in value_list:
         if np.any(image == invalid_value):
             validation_result = 'invalid_found'
-            logger.warning(f'Some pixels in {geotiff_path} are within '\
+            logger.warning(f'Some pixels in {geotiff_path} are within '
                            'the specified value list.')
 
     if np.isnan(mean_value):
@@ -77,7 +78,7 @@ def validate_gtiff(geotiff_path, value_list):
         logger.warning(f'NaN pixels found in {geotiff_path}.')
     elif np.isin(image, value_list).all():
         validation_result = 'invalid_only'
-        logger.warning(f'All pixels in {geotiff_path} are within '\
+        logger.warning(f'All pixels in {geotiff_path} are within '
                        'the specified invalid value list.')
 
     return validation_result
@@ -106,7 +107,7 @@ class AncillaryRelocation:
         self.projection = reftif.GetProjection()
         self.geotransform = reftif.GetGeoTransform()
 
-        self.epsg = proj.GetAttrValue('AUTHORITY',1)
+        self.epsg = proj.GetAttrValue('AUTHORITY', 1)
         self.xsize = reftif.RasterXSize
         self.ysize = reftif.RasterYSize
         self.scratch_dir = scratch_dir
@@ -133,7 +134,7 @@ class AncillaryRelocation:
             self.geotransform,
             self.projection,
             self.ysize, self.xsize,
-            scratch_dir = self.scratch_dir,
+            scratch_dir=self.scratch_dir,
             resample_algorithm=method,
             relocated_file=os.path.join(self.scratch_dir,
                                         relocated_file_str),
@@ -143,13 +144,12 @@ class AncillaryRelocation:
 
         dswx_sar_util._save_as_cog(
             os.path.join(self.scratch_dir, relocated_file_str),
-                         self.scratch_dir)
+            self.scratch_dir)
 
-
-    def _get_tile_srs_bbox(self, 
+    def _get_tile_srs_bbox(self,
                            tile_min_y_utm, tile_max_y_utm,
-                        tile_min_x_utm, tile_max_x_utm,
-                        tile_srs, polygon_srs):
+                           tile_min_x_utm, tile_max_x_utm,
+                           tile_srs, polygon_srs):
         """Get tile bounding box for a given spatial reference system (SRS)
 
         Parameters
@@ -187,10 +187,11 @@ class AncillaryRelocation:
         # rather than (y, x, z) for geographic SRS
         if polygon_srs.IsGeographic():
             try:
-                polygon_srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+                polygon_srs.SetAxisMappingStrategy(
+                    osr.OAMS_TRADITIONAL_GIS_ORDER)
             except AttributeError:
-                logger.warning('WARNING Could not set the ancillary input SRS axis'
-                               ' mapping strategy (SetAxisMappingStrategy())'
+                logger.warning('WARNING Could not set the ancillary input SRS '
+                               'axis mapping strategy (SetAxisMappingStrategy())'
                                ' to osr.OAMS_TRADITIONAL_GIS_ORDER')
         transformation = osr.CoordinateTransformation(tile_srs, polygon_srs)
 
@@ -198,30 +199,34 @@ class AncillaryRelocation:
         tile_x_array = np.zeros((4))
         tile_y_array = np.zeros((4))
         # init list of x and y tiles to match expected order to tile corners
-        x_arrs = [tile_min_x_utm, tile_max_x_utm, tile_max_x_utm, tile_min_x_utm]
-        y_arrs = [tile_max_y_utm, tile_max_y_utm, tile_min_y_utm, tile_min_y_utm]
-        
+        x_arrs = [tile_min_x_utm, tile_max_x_utm,
+                  tile_max_x_utm, tile_min_x_utm]
+        y_arrs = [tile_max_y_utm, tile_max_y_utm,
+                  tile_min_y_utm, tile_min_y_utm]
+
         # transform corners
-        for i, (x_arr, y_arr) in enumerate(zip(x_arrs, y_arrs)):        
-            tile_x_array[i], tile_y_array[i], _ = transformation.TransformPoint(
-                x_arr, y_arr, elevation) 
+        for i, (x_arr, y_arr) in enumerate(zip(x_arrs, y_arrs)):
+            tile_x_array[i], tile_y_array[i], _ = \
+                transformation.TransformPoint(
+                x_arr, y_arr, elevation)
 
         tile_min_y = np.min(tile_y_array)
         tile_max_y = np.max(tile_y_array)
         tile_min_x = np.min(tile_x_array)
         tile_max_x = np.max(tile_x_array)
 
-        # handles antimeridian: tile_max_x around +180 and tile_min_x around -180
-        # add 360 to tile_min_x, so it becomes a little greater than +180
+        # handles antimeridian: tile_max_x around +180 and
+        # tile_min_x around -180 add 360 to tile_min_x, so
+        # it becomes a little greater than +180
         if tile_max_x > tile_min_x + 340:
-            tile_min_x = np.max(tile_x_array[tile_x_array<-150])
-            tile_max_x = np.min(tile_x_array[tile_x_array>150])
+            tile_min_x = np.max(tile_x_array[tile_x_array < -150])
+            tile_max_x = np.min(tile_x_array[tile_x_array > 150])
             tile_min_x, tile_max_x = tile_max_x, tile_min_x + 360
 
         # init list of x and y points in expected ring order
         x_pts = [tile_min_x, tile_max_x, tile_max_x, tile_min_x, tile_min_x]
         y_pts = [tile_max_y, tile_max_y, tile_min_y, tile_min_y, tile_max_y]
-        
+
         # init and populate ring
         tile_ring = ogr.Geometry(ogr.wkbLinearRing)
         for x_pt, y_pt in zip(x_pts, y_pts):
@@ -232,19 +237,19 @@ class AncillaryRelocation:
         tile_polygon.AssignSpatialReference(polygon_srs)
         return tile_polygon, tile_min_y, tile_max_y, tile_min_x, tile_max_x
 
-
     def _warp(
-            self, 
+            self,
             input_file, geotransform, projection,
             length, width,
-            scratch_dir = '.',
+            scratch_dir='.',
             resample_algorithm='nearest',
-            relocated_file=None, margin_in_pixels=0,
-            temp_files_list = None,
+            relocated_file=None,
+            margin_in_pixels=0,
+            temp_files_list=None,
             no_data=np.nan):
-        """Relocate/reproject a file (e.g., landcover or DEM) based on geolocation
-        defined by a geotransform, output dimensions (length and width)
-        and projection
+        """Relocate/reproject a file (e.g., landcover or DEM) based on
+        geolocation defined by a geotransform, output dimensions
+        (length and width) and projection
 
         Parameters
         ----------
@@ -278,7 +283,6 @@ class AncillaryRelocation:
         relocated_array : numpy.ndarray
                 Relocated array
         """
-
         # Pixel spacing
         dy = geotransform[5]
         dx = geotransform[1]
@@ -336,7 +340,7 @@ class AncillaryRelocation:
         # if input does not requires reprojection due to
         # antimeridian crossing
         if not self._antimeridian_crossing_requires_special_handling(
-            file_srs, file_min_x, tile_min_x, tile_max_x):
+           file_srs, file_min_x, tile_min_x, tile_max_x):
 
             # if it doesn't cross the antimeridian, reproject
             # input file using gdalwarp
@@ -344,15 +348,15 @@ class AncillaryRelocation:
                         f' file: {relocated_file}')
 
             gdal.Warp(relocated_file, input_file,
-                    format='GTiff',
-                    dstSRS=tile_srs_str,
-                    outputBounds=[tile_min_x_utm, tile_min_y_utm,
+                      format='GTiff',
+                      dstSRS=tile_srs_str,
+                      outputBounds=[tile_min_x_utm, tile_min_y_utm,
                                     tile_max_x_utm, tile_max_y_utm],
-                    multithread=True,
-                    xRes=dx, yRes=abs(dy),
-                    resampleAlg=resample_algorithm,
-                    errorThreshold=0,
-                    dstNodata=no_data)
+                      multithread=True,
+                      xRes=dx, yRes=abs(dy),
+                      resampleAlg=resample_algorithm,
+                      errorThreshold=0,
+                      dstNodata=no_data)
 
             gdal_ds = gdal.Open(relocated_file, gdal.GA_ReadOnly)
             relocated_array = gdal_ds.ReadAsArray()
@@ -368,9 +372,9 @@ class AncillaryRelocation:
         # Crop input at the two sides of the antimeridian:
         # left side: use tile bbox with file_max_x from input
         proj_win_antimeridian_left = [tile_min_x,
-                                    tile_max_y,
-                                    file_max_x,
-                                    tile_min_y]
+                                      tile_max_y,
+                                      file_max_x,
+                                      tile_min_y]
 
         cropped_input_antimeridian_left_temp = tempfile.NamedTemporaryFile(
                     dir=scratch_dir, suffix='.tif').name
@@ -379,17 +383,18 @@ class AncillaryRelocation:
                     ' with indexes (ulx uly lrx lry):'
                     f' {proj_win_antimeridian_left}')
 
-        gdal.Translate(cropped_input_antimeridian_left_temp, input_file,
-                    projWin=proj_win_antimeridian_left,
-                    outputSRS=file_srs,
-                    noData=no_data)
+        gdal.Translate(cropped_input_antimeridian_left_temp,
+                       input_file,
+                       projWin=proj_win_antimeridian_left,
+                       outputSRS=file_srs,
+                       noData=no_data)
 
         # right side: use tile bbox with file_min_x from input and tile_max_x
         # with subtracted 360 (lon) degrees
         proj_win_antimeridian_right = [file_min_x,
-                                    tile_max_y,
-                                    tile_max_x - 360,
-                                    tile_min_y]
+                                       tile_max_y,
+                                       tile_max_x - 360,
+                                       tile_min_y]
         cropped_input_antimeridian_right_temp = tempfile.NamedTemporaryFile(
                     dir=scratch_dir, suffix='.tif').name
 
@@ -398,10 +403,11 @@ class AncillaryRelocation:
                     ' with indexes (ulx uly lrx lry):'
                     f' {proj_win_antimeridian_right}')
 
-        gdal.Translate(cropped_input_antimeridian_right_temp, input_file,
-                    projWin=proj_win_antimeridian_right,
-                    outputSRS=file_srs,
-                    noData=no_data)
+        gdal.Translate(cropped_input_antimeridian_right_temp,
+                       input_file,
+                       projWin=proj_win_antimeridian_right,
+                       outputSRS=file_srs,
+                       noData=no_data)
 
         if temp_files_list is not None:
             temp_files_list.append(cropped_input_antimeridian_left_temp)
@@ -414,23 +420,22 @@ class AncillaryRelocation:
                     f' file: {relocated_file}'
                     f': {tile_min_x_utm} {tile_max_x_utm}'
                     f': {tile_min_y_utm} {tile_max_y_utm}')
-        
 
         gdal.Warp(relocated_file, gdalwarp_input_file_list,
-                format='GTiff',
-                dstSRS=tile_srs_str,
-                outputBounds=[tile_min_x_utm, tile_min_y_utm,
+                  format='GTiff',
+                  dstSRS=tile_srs_str,
+                  outputBounds=[tile_min_x_utm, tile_min_y_utm,
                                 tile_max_x_utm, tile_max_y_utm],
-                multithread=True,
-                xRes=dx, yRes=abs(dy), resampleAlg=resample_algorithm,
-                errorThreshold=0)
+                  multithread=True,
+                  xRes=dx, yRes=abs(dy),
+                  resampleAlg=resample_algorithm,
+                  errorThreshold=0)
 
         gdal_ds = gdal.Open(relocated_file, gdal.GA_ReadOnly)
         relocated_array = gdal_ds.ReadAsArray()
         del gdal_ds
 
         return relocated_array
-
 
     def _antimeridian_crossing_requires_special_handling(
             self, file_srs, file_min_x, tile_min_x, tile_max_x):
@@ -461,8 +466,7 @@ class AncillaryRelocation:
         # Flag to test if the ancillary input file is in geographic
         # coordinates and if its longitude domain is represented
         # within the [-180, +180] range, rather than the [0, +360] interval.
-        # This is verified by the test `min_x < -170`. There's no specific reason
-        # why -170 is used. It could be -160, or even 0.
+        # This is verified by the test `min_x < -170`.
         flag_input_geographic_and_longitude_not_0_360 = \
             file_srs.IsGeographic() and file_min_x < -170
 
@@ -494,18 +498,18 @@ def get_projection_proj4(projection):
 
 
 def replace_reference_water_nodata_from_ancillary(
-        reference_water_path : str,
-        landcover_path : str,
-        hand_path : str,
-        reference_water_max : float,
-        reference_water_no_data : float,
-        line_per_block : int):
+        reference_water_path: str,
+        landcover_path: str,
+        hand_path: str,
+        reference_water_max: float,
+        reference_water_no_data: float,
+        line_per_block: int):
     """
-    Replace no-data areas in a reference water raster 
+    Replace no-data areas in a reference water raster
     with maximum values based on landcover and HAND data.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     reference_water_path : str
         Path to the reference water raster file.
     landcover_path : str
@@ -537,7 +541,7 @@ def replace_reference_water_nodata_from_ancillary(
         ref_water_block, landcover_block, hand_block = [
             dswx_sar_util.get_raster_block(path, block_param)
             for path in [temp_water_path,
-                         landcover_path, 
+                         landcover_path,
                          hand_path]]
 
         # Both invalid and no-water areas have zero value
@@ -592,7 +596,7 @@ def run(cfg):
     ref_water_no_data = processing_cfg.reference_water.no_data_value
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
-    
+
     if pol_options is not None:
         pol_list += pol_options
 
@@ -618,7 +622,8 @@ def run(cfg):
         else:
             logger.info('Single input directories is found.')
             mosaic_flag = True
-            ref_filename = glob.glob(f'{input_list[0]}/*_{pol_list[0]}*.tif')[0]
+            ref_filename = glob.glob(
+                f'{input_list[0]}/*_{pol_list[0]}*.tif')[0]
     else:
         if num_input_path == 1:
             logger.info('Single input RTC is found.')
@@ -666,9 +671,9 @@ def run(cfg):
         ancillary_path = Path(
             os.path.join(scratch_dir, anc_filename))
 
-        # Check if input ancillary data is valid. 
+        # Check if input ancillary data is valid.
         if not os.path.isfile(input_anc_path) and \
-            not check_gdal_raster_s3(input_anc_path, raise_error=False):
+           not check_gdal_raster_s3(input_anc_path, raise_error=False):
             err_msg = f'Input {anc_type} file not found'
             raise FileNotFoundError(err_msg)
 
@@ -679,10 +684,10 @@ def run(cfg):
         else:
             no_data = np.nan
 
-        # crop or relocate ancillary images to fit the reference 
-        # intensity (RTC) image. 
+        # crop or relocate ancillary images to fit the reference
+        # intensity (RTC) image.
         if not ancillary_path.is_file():
-            logger.info(f'Relocated {anc_type} file will be created from ' \
+            logger.info(f'Relocated {anc_type} file will be created from '
                         f'{input_anc_path}.')
             ancillary_reloc.relocate(
                 input_anc_path,
@@ -697,10 +702,10 @@ def run(cfg):
 
         if validation_result not in ['okay']:
             if (anc_type in ['dem', 'hand']) and \
-                (validation_result in ['nan_value', 'invalid_only']):
+               (validation_result in ['nan_value', 'invalid_only']):
                 err_msg = f'Unable to get valid {anc_type}'
                 raise ValueError(err_msg)
-    
+
             elif anc_type in ['landcover']:
                 logger.warning(f'{anc_type} has invalid values.')
 
@@ -710,11 +715,14 @@ def run(cfg):
                 # are invalid.
                 replace_reference_water_nodata_from_ancillary(
                     os.path.join(scratch_dir,
-                                 relocated_ancillary_filename_set['reference_water']),
+                                 relocated_ancillary_filename_set[
+                                     'reference_water']),
                     os.path.join(scratch_dir,
-                                 relocated_ancillary_filename_set['landcover']),
+                                 relocated_ancillary_filename_set[
+                                     'landcover']),
                     os.path.join(scratch_dir,
-                                 relocated_ancillary_filename_set['hand']),
+                                 relocated_ancillary_filename_set[
+                                     'hand']),
                     reference_water_max=ref_water_max,
                     reference_water_no_data=ref_water_no_data,
                     line_per_block=line_per_block
@@ -773,7 +781,7 @@ def run(cfg):
                     intensity = dswx_sar_util.read_geotiff(
                             ref_filename, band_ind=polind)
                 # need to replace 0 value in padded area to NaN.
-                intensity[intensity==0] = np.nan
+                intensity[intensity == 0] = np.nan
                 if filter_flag:
                     filtered_intensity = filter_SAR.lee_enhanced_filter(
                                     intensity,
@@ -825,21 +833,22 @@ def run(cfg):
                 dswx_sar_util.save_raster_gdal(
                     data=single_intensity,
                     output_file=os.path.join(
-                        scratch_dir, 'intensity_{}.tif'.format(pol)),
+                        scratch_dir, f'intensity_{pol}.tif'),
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=scratch_dir)
             else:
                 dswx_sar_util.save_raster_gdal(
-                    data = 10 * np.log10(single_intensity),
+                    data=10 * np.log10(single_intensity),
                     output_file=os.path.join(
-                        scratch_dir, 'intensity_{}_db.tif'.format(pol)),
+                        scratch_dir, f'intensity_{pol}_db.tif'),
                     geotransform=im_meta['geotransform'],
                     projection=im_meta['projection'],
                     scratch_dir=scratch_dir)
 
     t_all_elapsed = time.time() - t_all
-    logger.info(f"successfully ran pre-processing in {t_all_elapsed:.3f} seconds")
+    logger.info("successfully ran pre-processing in "
+                f"{t_all_elapsed:.3f} seconds")
 
 
 def main():
@@ -876,6 +885,7 @@ def main():
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
         run(cfg)
+
 
 if __name__ == '__main__':
     main()

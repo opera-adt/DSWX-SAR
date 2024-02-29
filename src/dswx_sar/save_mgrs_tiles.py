@@ -624,17 +624,18 @@ def run(cfg):
     merge_pol_list = ['_'.join(DSWX_S1_POL_DICT[pol_type]),
                       '_'.join(DSWX_S1_POL_DICT[pol_type.replace('V', 'H')])]
     if pol_options is not None:
-        merge_pol_list = [item + '_' + pol_option_str  for item in merge_pol_list]
+        merge_pol_list = [item + '_' + pol_option_str
+                          for item in merge_pol_list]
 
     # Depending on the workflow, the final product are different.
     prefix_dict = {
-    'final_water': 'bimodality_output_binary'
+        'final_water': 'bimodality_output_binary'
         if dswx_workflow == 'opera_dswx_s1' else 'region_growing_output_binary',
-    'landcover_mask': 'refine_landcover_binary',
-    'no_data_area': 'no_data_area',
-    'inundated_veg': 'temp_inundated_vegetation',
-    'region_growing': 'region_growing_output_binary',
-    'fuzzy_value': 'fuzzy_image'
+        'landcover_mask': 'refine_landcover_binary',
+        'no_data_area': 'no_data_area',
+        'inundated_veg': 'temp_inundated_vegetation',
+        'region_growing': 'region_growing_output_binary',
+        'fuzzy_value': 'fuzzy_image'
     }
 
     paths = {}

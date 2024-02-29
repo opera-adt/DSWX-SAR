@@ -48,8 +48,8 @@ class DSWXGeogrid:
         Extract geographical grid parameters from a GeoTIFF file
         and update the dataclass attributes.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         geotiff_path : str
             The file path to the GeoTIFF file from which the grid
             parameters are to be extracted.
@@ -80,8 +80,8 @@ class DSWXGeogrid:
         """
         Extract geographical grid parameters from a GeoTIFF file
         and update the dataclass attributes.
-        Parameters:
-        -----------
+        Parameters
+        ----------
         geotiff_path : str
             The file path to the GeoTIFF file from which the grid
             parameters are to be extracted.

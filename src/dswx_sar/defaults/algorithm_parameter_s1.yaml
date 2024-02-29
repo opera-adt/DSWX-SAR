@@ -81,7 +81,7 @@ runconfig:
             # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
             # ['otsu', 'ki']
             threshold_method: 'ki'
-            # Thresholding boundary values. The boundary values are computed internally
+            # Thresholding boundary values in dB. The boundary values are computed internally
             # using the statics of the rtc image. If the values are out of the given range,
             # adopt these values instead of the computed values
             threshold_bounds:

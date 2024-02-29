@@ -1649,9 +1649,9 @@ def run_sub_block(intensity,
 
     Parameters
     ----------
-    intensity : ndarray
+    intensity : np.array
         SAR intensity data, can be 2D or 3D (polarizations).
-    water_body_subset : ndarray
+    water_body_subset : np.array
         Water body subset data for masking.
     cfg : object
         Configuration settings for processing.

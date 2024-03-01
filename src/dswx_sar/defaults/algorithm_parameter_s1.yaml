@@ -81,13 +81,26 @@ runconfig:
             # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
             # ['otsu', 'ki']
             threshold_method: 'ki'
+            # Thresholding boundary values in dB. The boundary values are computed internally
+            # using the statics of the rtc image. If the values are out of the given range,
+            # adopt these values instead of the computed values
+            threshold_bounds:
+                co_pol: [-28, -8]
+                cross_pol: [-28, -14]
             # Flag to assume the trimodal distribution.
             # If flag is false, the distribution is assumed to have bimodal distribution and
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: True
             # Flag to adjust threshold where two gaussian distribution is not overlapped. 
-            adjust_threshold_nonoverlapped_distribution: True
+            # If 'adjust_if_nonoverlap' is enabled,
+            # start to search the alternative threshold when two distributions are not
+            # overlapped. The 'low_dist_percentile' is the percentile of
+            # the low distribution and 'high_dist_percentile' is the percentile of
+            # the high distribution. Both values should be within range of 0 to 1.             
+            adjust_if_nonoverlap: True
+            low_dist_percentile: 0.99
+            high_dist_percentile: 0.01
             # Number of threads to run
             # -1 represents the all available threads
             number_cpu: -1
@@ -148,6 +161,7 @@ runconfig:
             # The elements is considered as the dark land candidates
             # where these elemtns are spatially connected to the dark land.
             land_cover_darkland_extension_list: ['Grassland', 'Shrubs']
+            land_cover_water_label: ['Permanent water bodies']
             # VV and VH threshold values for dark land candidates
             co_pol_threshold: -14.6
             cross_pol_threshold: -22.8
@@ -155,6 +169,8 @@ runconfig:
             water_threshold: 0.05
             # Flag to enable the darkland extension.
             extended_darkland: True
+            extended_darkland_minimum_pixel: 3
+            extended_darkland_water_buffer: 10
             # Flag to enable the HAND filter.
             hand_variation_mask: True
             # pixels with HAND threshold is masked out.

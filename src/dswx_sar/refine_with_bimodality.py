@@ -114,7 +114,7 @@ class BimodalityMetrics:
             amp_lt = self.prob[amp_lt_ind]
             amp_gt_ind = np.abs(self.bincenter - mean_gt).argmin()
             amp_gt = self.prob[amp_gt_ind]
-                     
+
             try:
                 # starting value for curve_fit
                 # mean, std, amplitude, mean, std, amplitude

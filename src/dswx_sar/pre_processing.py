@@ -564,7 +564,7 @@ def replace_reference_water_nodata_from_ancillary(
             landcover_block != landcover_label['Permanent water bodies'])
         ref_water_block[replaced_area] = 0
 
-        # write updated reference water 
+        # write updated reference water
         dswx_sar_util.write_raster_block(
             out_raster=reference_water_path,
             data=ref_water_block,

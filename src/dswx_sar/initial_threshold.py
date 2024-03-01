@@ -299,7 +299,7 @@ class TileSelection:
 
         if np.all(np.isnan(intensity)) or np.all(intensity == 0):
             candidate_tile_coords = []
-            logger.info(f'No valid intensity values found.')
+            logger.info('No valid intensity values found.')
 
         else:
             height, width = intensity.shape
@@ -474,9 +474,13 @@ class TileSelection:
                                                 )
 
                                         if tile_bimode_flag:
-                                            selected_tile_bimodality.append(True)
+                                            selected_tile_bimodality.append(
+                                                True
+                                                )
                                         else:
-                                            selected_tile_bimodality.append(False)
+                                            selected_tile_bimodality.append(
+                                                False
+                                                )
                                 else:
                                     selected_tile_bimodality.append(False)
 
@@ -1176,11 +1180,7 @@ def determine_threshold(
                 mean1, std1 = first_mode[0:2]
                 mean2, std2 = second_mode[0:2]
 
-            elif tri_optimization:
-                mean1, std1 = tri_first_mode[0:2]
-                mean2, std2 = tri_second_mode[0:2]
-
-            if optimization or tri_optimization:
+            if optimization:
                 threshold = optimize_inter_distribution_threshold(
                     old_threshold,
                     mean1=mean1,
@@ -1872,10 +1872,10 @@ def process_block(ii, jj,
             thres_max=thres_max)
 
     if average_tile_flag:
-        threshold_list = [np.nanmean(test_threshold)
+        threshold_list = [np.nanmedian(test_threshold)
                           if not np.all(np.isnan(test_threshold)) else np.nan
                           for test_threshold in threshold_tau_block]
-        mode_list = [np.nanmean(test_mode)
+        mode_list = [np.nanmedian(test_mode)
                      if not np.all(np.isnan(test_mode)) else np.nan
                      for test_mode in mode_tau_block]
     else:

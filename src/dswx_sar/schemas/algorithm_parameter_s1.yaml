@@ -154,6 +154,7 @@ runconfig:
             # The elements is considered as the dark land candidates
             # where these elemtns are spatially connected to the dark land.
             land_cover_darkland_extension_list: list(required=False)
+            land_cover_water_label: list(required=False)
             # VV and VH threshold values for dark land candidates
             co_pol_threshold: num(min=-30, max=10, required=False)
             cross_pol_threshold: num(min=-30, max=10, required=False)
@@ -162,6 +163,8 @@ runconfig:
             minimum_pixel: num(min=0, required=False)
             # Flag to enable the darkland extension.
             extended_darkland: bool(required=False)
+            extended_darkland_minimum_pixel: int(required=False)
+            extended_darkland_water_buffer: int(required=False, min=0)
             # Assuming the height of the water/land boundaries has low
             # variation, the standard deviation is estimated along the boundaries
             # and removed if the std is high. 

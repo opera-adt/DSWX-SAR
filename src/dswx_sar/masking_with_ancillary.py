@@ -673,10 +673,53 @@ def compute_spatial_coverage(args):
     return i, test_output_i
 
 
+def remove_small_components(image, min_size=3):
+    """
+    Remove small connected components from a binary image.
+
+    Parameters:
+    -----------
+    image : ndarray
+        2D binary image where the components to be removed are True or 1.
+    min_size : int, optional
+        Minimum size of components to keep. Components with fewer pixels
+        than this will be removed. Default is 3.
+
+    Returns:
+    --------
+    cleaned_image : ndarray
+        2D binary image with small components removed.
+    """
+    nb_components_water, output_water, stats_water, _ = \
+        cv2.connectedComponentsWithStats(image.astype(np.uint8),
+                                         connectivity=8)
+    sizes = stats_water[1:, -1]
+    nb_components_water = nb_components_water - 1
+
+    if nb_components_water > 65535:
+        output_water_type = 'uint32'
+    else:
+        output_water_type = 'uint16'
+
+    old_val = np.arange(1, nb_components_water + 1) - .1
+    index_array_to_image = np.searchsorted(
+        old_val, output_water).astype(dtype=output_water_type)
+    size_output_add = np.insert(sizes, 0, 0, axis=0)
+    size_image = size_output_add[index_array_to_image]
+
+    # Use the mask to remove small components
+    cleaned_image = size_image > min_size
+
+    return cleaned_image
+
+
 def extend_land_cover(landcover_path,
                       reference_landcover_binary,
                       target_landcover,
+                      water_landcover,
                       exclude_area_rg,
+                      minimum_pixel,
+                      water_buffer,
                       metainfo,
                       scratch_dir):
     """
@@ -688,10 +731,17 @@ def extend_land_cover(landcover_path,
         Path to the land cover data file.
     reference_landcover_binary (numpy.ndarray):
         Binary array representing the initial land cover.
-    target_landcover (int):
+    target_landcover (str):
         Label of the land cover type to be extended.
+    water_landcover (str):
+        Label of the water land cover type.
     exclude_area_rg (numpy.ndarray):
         Array representing areas to be excluded from processing.
+    minimum_pixel (int):
+        Minimum number of the seed pixels for region growing
+    water_buffer (int):
+        Buffer size to apply the water. Then, the area near the water
+        bodies are excluded from extended landcover masks.
     metainfo (dict):
         Metadata including geotransform and projection information.
     scratch_dir (str):
@@ -702,6 +752,7 @@ def extend_land_cover(landcover_path,
     numpy.ndarray:
         Updated binary land cover array with the extended target land cover.
     """
+    logger.info('Extending land cover....')
     mask_obj = FillMaskLandCover(landcover_path)
 
     mask_excluded_candidate = mask_obj.get_mask(
@@ -710,9 +761,24 @@ def extend_land_cover(landcover_path,
     new_landcover = np.zeros(
         reference_landcover_binary.shape,
         dtype='float32')
+    if minimum_pixel > 0:
+        logger.info(f'Removing small components less than {minimum_pixel}')
+
+        reference_landcover_binary = remove_small_components(
+            reference_landcover_binary,
+            minimum_pixel)
 
     new_landcover[reference_landcover_binary] = 1
     new_landcover[mask_excluded_candidate] = 0.75
+
+    if water_buffer > 0:
+        logger.info('Excluding buffered area along th water.')
+        water_landcover_binary = mask_obj.get_mask(
+            mask_label=water_landcover)
+        water_landcover_binary = ndimage.binary_dilation(
+            water_landcover_binary,
+            iterations=water_buffer)
+        new_landcover[water_landcover_binary] = 0
 
     excluded_rg_path = os.path.join(
         scratch_dir, "landcover_excluded_rg.tif")
@@ -1052,11 +1118,14 @@ def run(cfg):
 
     dry_water_area_threshold = masking_ancillary_cfg.water_threshold
     extended_landcover_flag = masking_ancillary_cfg.extended_darkland
+    extend_minimum = masking_ancillary_cfg.extended_darkland_minimum_pixel
+    water_buffer = masking_ancillary_cfg.extended_darkland_water_buffer
     hand_variation_mask = masking_ancillary_cfg.hand_variation_mask
     hand_variation_threshold = masking_ancillary_cfg.hand_variation_threshold
     landcover_masking_list = masking_ancillary_cfg.land_cover_darkland_list
     landcover_masking_extension_list = \
         masking_ancillary_cfg.land_cover_darkland_extension_list
+    landcover_water_label = masking_ancillary_cfg.land_cover_water_label
     lines_per_block = masking_ancillary_cfg.line_per_block
 
     # Binary water map extracted from region growing
@@ -1095,7 +1164,10 @@ def run(cfg):
             landcover_path=landcover_path,
             reference_landcover_binary=mask_excluded_landcover,
             target_landcover=landcover_masking_extension_list,
+            water_landcover=landcover_water_label,
             exclude_area_rg=rg_excluded_area,
+            water_buffer=water_buffer,
+            minimum_pixel=extend_minimum,
             metainfo=water_meta,
             scratch_dir=outputdir)
         logger.info('Landcover extension completed.')

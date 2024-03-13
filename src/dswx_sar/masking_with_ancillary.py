@@ -196,7 +196,7 @@ def check_water_land_mixture(args):
 
     if int_linear_block.ndim == 2:
         int_linear_block = np.expand_dims(int_linear_block,
-                                          axis=1)
+                                          axis=0)
 
     int_linear = int_linear_block[pol_ind,
                                   bounds[2]:bounds[3],

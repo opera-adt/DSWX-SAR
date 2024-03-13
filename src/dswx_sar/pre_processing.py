@@ -27,10 +27,13 @@ def pol_ratio(array1, array2):
     '''
     Compute ratio between two arrays
     '''
-    array1 = np.asarray(array1, dtype='float32')
-    array2 = np.asarray(array2, dtype='float32')
+    array1 = array1.astype('float32')
+    array2 = array2.astype('float32')
+    result = np.divide(array1, array2,
+                       out=np.zeros_like(array1),
+                       where=array2 != 0)
 
-    return array1 / array2
+    return result
 
 
 def validate_gtiff(geotiff_path, value_list):

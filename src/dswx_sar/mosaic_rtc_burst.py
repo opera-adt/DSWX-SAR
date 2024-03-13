@@ -910,7 +910,8 @@ def run(cfg):
                     mosaic_single_output_file(
                         rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
                         mosaic_mode, scratch_dir=scratch_path,
-                        geogrid_in=geogrid_in, temp_files_list=None)
+                        geogrid_in=geogrid_in, temp_files_list=None,
+                        no_data_value=0)
 
         if mask_list:
             geo_mask_filename = \

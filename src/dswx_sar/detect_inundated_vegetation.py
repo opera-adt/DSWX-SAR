@@ -104,9 +104,11 @@ def run(cfg):
             rtc_ratio,
             win_size=filter_size)
 
-        filt_ratio_db = 10 * np.log10(filt_ratio)
+        filt_ratio_db = 10 * np.log10(filt_ratio +
+                                      dswx_sar_util.Constants.negligible_value)
         cross_db = 10 * np.log10(
-            np.squeeze(rtc_dual[crosspol_ind, :, :]))
+            np.squeeze(rtc_dual[crosspol_ind, :, :]) +
+            dswx_sar_util.Constants.negligible_value)
 
         output_data = np.zeros(filt_ratio.shape, dtype='uint8')
 

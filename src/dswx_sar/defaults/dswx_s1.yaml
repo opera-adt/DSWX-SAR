@@ -104,12 +104,15 @@ runconfig:
             set_not_water_to_nodata: False
 
             # Flag to set HAND mask pixels to NoData value if set to True. 
-            set_hand_mask_to_nodata: False
+            set_hand_mask_to_nodata: True
 
             # Flag to set layover and shadow pixels to NoData value if set to True. 
-            set_layover_shadow_to_nodata: False
+            set_layover_shadow_to_nodata: True
             
             # Flag to set ocean-masked pixels to NoData value if set to True. 
             set_ocean_masked_to_nodata: False
+
+            # Flag to save Geotiff to output directory if set to True. 
+            save_tif_to_output: True
 
         log_file: None

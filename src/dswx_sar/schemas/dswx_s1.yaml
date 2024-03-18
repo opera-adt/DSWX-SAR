@@ -96,21 +96,24 @@ runconfig:
             browse_image_width: int(min=1, required=False)
 
             # Flag to collapse water classes if set to True. Default is True.
-            flag_collapse_wtr_classes:  bool(required=False)
+            flag_collapse_wtr_classes: bool(required=False)
 
             # Flag to exclude inundated vegetation from processing if set to True. 
-            exclude_inundated_vegetation:  bool(required=False)
+            exclude_inundated_vegetation: bool(required=False)
 
             # Flag to set non-water pixels to NoData value if set to True. 
-            set_not_water_to_nodata:  bool(required=False)
+            set_not_water_to_nodata: bool(required=False)
 
             # Flag to set HAND mask pixels to NoData value if set to True. 
-            set_hand_mask_to_nodata:  bool(required=False)
+            set_hand_mask_to_nodata: bool(required=False)
 
             # Flag to set layover and shadow pixels to NoData value if set to True. 
-            set_layover_shadow_to_nodata:  bool(required=False)
+            set_layover_shadow_to_nodata: bool(required=False)
             
             # Flag to set ocean-masked pixels to NoData value if set to True. 
-            set_ocean_masked_to_nodata:  bool(required=False)
+            set_ocean_masked_to_nodata: bool(required=False)
+
+            # Flag to save Geotiff to output directory if set to True. 
+            save_tif_to_output: bool(required=False)
 
         log_file: str(required=False)

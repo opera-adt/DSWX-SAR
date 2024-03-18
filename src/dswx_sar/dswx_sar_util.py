@@ -1554,7 +1554,8 @@ def create_browse_image(water_geotiff_filename,
                         set_not_water_to_nodata=False,
                         set_hand_mask_to_nodata=False,
                         set_layover_shadow_to_nodata=False,
-                        set_ocean_masked_to_nodata=False):
+                        set_ocean_masked_to_nodata=False,
+                        save_tif_to_output_dir=False):
     """
     Process a water-related GeoTIFF file to create a browse image.
 
@@ -1594,6 +1595,8 @@ def create_browse_image(water_geotiff_filename,
         If True, sets layover and shadow pixels to NoData. Default is False.
     set_ocean_masked_to_nodata : bool, optional
         If True, sets ocean-masked pixels to NoData. Default is False.
+    save_tif_to_output_dir : bool, optional
+        If True, save browse GeoTIff to output directory.
 
     Returns
     --------
@@ -1619,10 +1622,12 @@ def create_browse_image(water_geotiff_filename,
 
     # Form color table
     browse_ctable = get_interpreted_dswx_s1_ctable()
-    water_geotiff_basename = \
-        os.path.splitext(os.path.basename(water_geotiff_filename))[0]
-    browse_image_geotiff_filename = os.path.join(
-        scratch_dir, f'{water_geotiff_basename}_browse.tif')
+    if save_tif_to_output_dir:
+        browse_image_geotiff_filename = os.path.join(
+            output_dir_path, f'{browser_filename}.tif')
+    else:
+        browse_image_geotiff_filename = os.path.join(
+            scratch_dir, f'{browser_filename}.tif')
 
     _save_array(
         input_array=browse_arr,
@@ -1639,7 +1644,7 @@ def create_browse_image(water_geotiff_filename,
     geotiff2png(
         src_geotiff_filename=browse_image_geotiff_filename,
         dest_png_filename=os.path.join(output_dir_path,
-                                       browser_filename),
+                                       f'{browser_filename}.png'),
         output_height=browse_image_height,
         output_width=browse_image_width,
         logger=logger

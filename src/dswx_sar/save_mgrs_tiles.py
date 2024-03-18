@@ -578,6 +578,7 @@ def run(cfg):
     set_layover_shadow_to_nodata = \
         browser_image_cfg.set_layover_shadow_to_nodata
     set_ocean_masked_to_nodata = browser_image_cfg.set_ocean_masked_to_nodata
+    save_tif_to_output = browser_image_cfg.save_tif_to_output
 
     shapefile = cfg.groups.dynamic_ancillary_file_group.shoreline_shapefile
     ocean_mask_enabled = processing_cfg.ocean_mask.mask_enabled
@@ -964,7 +965,7 @@ def run(cfg):
                 output_mgrs_bwtr = f'{dswx_name_format_prefix}_B02_BWTR.tif'
                 output_mgrs_conf = f'{dswx_name_format_prefix}_B03_CONF.tif'
                 output_mgrs_diag = f'{dswx_name_format_prefix}_B04_DIAG.tif'
-                output_mgrs_browse = f'{dswx_name_format_prefix}_BROWSE.png'
+                output_mgrs_browse = f'{dswx_name_format_prefix}_BROWSE'
 
                 # Crop full size of BWTR, WTR, CONF file
                 # and save them into MGRS tile grid
@@ -1007,7 +1008,8 @@ def run(cfg):
                         set_not_water_to_nodata=set_not_water_to_nodata,
                         set_hand_mask_to_nodata=set_hand_mask_to_nodata,
                         set_layover_shadow_to_nodata=set_layover_shadow_to_nodata,
-                        set_ocean_masked_to_nodata=set_ocean_masked_to_nodata)
+                        set_ocean_masked_to_nodata=set_ocean_masked_to_nodata,
+                        save_tif_to_output_dir=save_tif_to_output)
 
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran save_mgrs_tiles in "

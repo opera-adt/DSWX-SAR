@@ -200,17 +200,21 @@ class RTCReader(DataReader):
                 for idx, dataset_path in enumerate(data_path):
                     data_name = Path(dataset_path).name[:2]
                     input_gtiff = f'{scratch_dir}/{input_prefix}_{data_name}.tif'
+                    temp_gtiff = f'{scratch_dir}/{input_prefix}_temp_{data_name}.tif'
                       
                     # Change EPSG
                     change_epsg_tif(
                         input_tif=input_gtiff,
-                        output_tif=input_gtiff,
+                        output_tif=temp_gtiff,
                         epsg_output=most_freq_epsg,
                         output_nodata=255,
                     )
                     
                     # Update geogrid
                     geogrid_in.update_geogrid(output_gtiff)
+
+                    # Replace input file with output temp file
+                    os.replace(temp_gtiff, input_gtiff)
             else:
                 for idx, dataset_path in enumerate(data_path):
                     data_name = Path(dataset_path).name[:2]
@@ -255,15 +259,19 @@ class RTCReader(DataReader):
                 if epsg_array[input_idx] != most_freq_epsg:
                     input_prefix = self.extract_file_name(input_rtc)
                     input_layover_gtiff = f'{scratch_dir}/{input_prefix}_layover.tif'
+                    temp_layover_gtiff = f'{scratch_dir}/{input_prefix}_temp_layover.tif'
                       
                     change_epsg_tif(
                         input_tif=input_layover_gtiff,
-                        output_tif=input_layover_gtiff,
+                        output_tif=temp_layover_gtiff,
                         epsg_output=most_freq_epsg,
                         output_nodata=255,
                     )  
 
                     geogrid_in.update_geogrid(output_layover_gtiff)
+
+                    # Replace input file with output temp file
+                    os.replace(temp_layover_gtiff, input_layover_gtiff)
                 else:
                     geogrid_in.update_geogrid(output_layover_gtiff)
                     
@@ -520,6 +528,8 @@ class RTCReader(DataReader):
 	    The number of rows to read each time from the dataset.
         col_blk_size: int
 	    The number of columns to read each time from the dataset
+        designated_value: np.float32
+            Identify Inf in the dataset and replace them with a designated value
         geotransform: Affine Transformation object
             Transformation matrix which maps pixcel locations in (row, col) 
             coordinates to (x, y) spatial positions.

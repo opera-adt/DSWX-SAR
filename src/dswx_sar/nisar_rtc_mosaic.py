@@ -9,7 +9,6 @@ from rasterio.transform import from_origin
 from rasterio.transform import Affine
 from rasterio.windows import Window
 import os
-import time
 import mimetypes
 import warnings
 from pathlib import Path
@@ -40,6 +39,7 @@ class RTCReader(DataReader):
         output_dir: str,
         scratch_dir: str,
         mosaic_mode: str,
+        mosaic_prefix: str,
     ):
 
         """Read data from input HDF5s in blocks and generate mosaicked output
@@ -55,6 +55,8 @@ class RTCReader(DataReader):
             Directory which stores the temporary files
         mosaic_mode: str
             Mosaic algorithm mode choice in 'average', 'first', or 'burst_center'
+        mosaic_prefix: str
+            Mosaicked output file name prefix
         """
 
         num_inputs = len(input_list)
@@ -103,6 +105,7 @@ class RTCReader(DataReader):
             geogrid_in, 
             nlooks_list, 
             mosaic_mode,
+            mosaic_prefix,
             layover_exist,
         )
                 
@@ -150,6 +153,8 @@ class RTCReader(DataReader):
 
         geogrid_in = dswx_geogrid.DSWXGeogrid()
 
+        designated_value = np.float32(500)
+
         # Create intermediate input Geotiffs
         for input_idx, input_rtc in enumerate(input_list):
             # Extract file names
@@ -182,6 +187,7 @@ class RTCReader(DataReader):
 		    num_cols,
 		    row_blk_size,
 		    col_blk_size,
+                    designated_value,
 		    geotransform,
 		    crs,
 		    dswx_metadata_dict,
@@ -239,6 +245,7 @@ class RTCReader(DataReader):
 		    num_cols,
 		    row_blk_size,
 		    col_blk_size,
+                    designated_value,
 		    geotransform,
 		    crs,
 		    dswx_metadata_dict,
@@ -272,6 +279,7 @@ class RTCReader(DataReader):
         geogrid_in, 
         nlooks_list, 
         mosaic_mode,
+        mosaic_prefix,
         layover_exist,
     ):
 
@@ -294,6 +302,8 @@ class RTCReader(DataReader):
             List of the nlooks raster that corresponds to list_rtc
         mosaic_mode: str
             Mosaic algorithm mode choice in 'average', 'first', or 'burst_center'
+        mosaic_prefix: str
+            Mosaicked output file name prefix
         layover_exist: bool
             Boolean which indicates if a layoverShadowMask layer exisits in input RTC
         """
@@ -308,7 +318,7 @@ class RTCReader(DataReader):
                 input_gtiff_list = np.append(input_gtiff_list, input_gtiff)
 
             # Mosaic dataset of same polarization into a single Geotiff
-            output_mosaic_gtiff = f'{output_dir}/mosaic_{data_name}.tif'
+            output_mosaic_gtiff = f'{output_dir}/{mosaic_prefix}_{data_name}.tif'
             mosaic_single_output_file(
                 input_gtiff_list, 
                 nlooks_list, 
@@ -327,7 +337,7 @@ class RTCReader(DataReader):
                 layover_gtiff = f'{scratch_dir}/{input_prefix}_layover.tif'
                 layover_gtiff_list = np.append(layover_gtiff_list, layover_gtiff)
        
-            layover_mosaic_gtiff = f'{output_dir}/mosaic_layover.tif'
+            layover_mosaic_gtiff = f'{output_dir}/{mosaic_prefix}_layover.tif'
 
             mosaic_single_output_file(
                 layover_gtiff_list, 
@@ -488,6 +498,7 @@ class RTCReader(DataReader):
         num_cols: int,
         row_blk_size: int,
         col_blk_size: int,
+        designated_value: np.float32,
 	geotransform: Affine,
         crs: str,
 	dswx_metadata_dict: dict,
@@ -544,6 +555,9 @@ class RTCReader(DataReader):
 			col_slice_size,
 			row_slice_size,
                     ) 
+
+                    # Replace Inf values with a designated value: 500
+                    ds_blk[np.isinf(ds_blk)] = designated_value 
 
                     dst.write(
 			ds_blk,
@@ -715,15 +729,19 @@ def run(cfg):
 
     mosaic_cfg = cfg.groups.processing.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
+    mosaic_prefix = mosaic_cfg.mosaic_prefix
 
     output_dir = cfg.groups.product_path_group.sas_output_path
     scratch_dir = cfg.groups.product_path_group.scratch_path
     os.makedirs(scratch_dir, exist_ok=True)
 
+    row_blk_size = mosaic_cfg.read_row_blk_size
+    col_blk_size = mosaic_cfg.read_col_blk_size
+
     # Create reader object
     reader = RTCReader(
-        row_blk_size=1000,
-        col_blk_size=1100,
+        row_blk_size=row_blk_size,
+        col_blk_size=col_blk_size,
     )
 
     # Mosaic input RTC into output Geotiff
@@ -732,6 +750,7 @@ def run(cfg):
         output_dir,
         scratch_dir,
         mosaic_mode,
+        mosaic_prefix,
     )
 
 

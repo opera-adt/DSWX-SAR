@@ -24,6 +24,8 @@ runconfig:
             mosaic_prefix: 'mosaic'
             mosaic_cog_enable: True
             mosaic_mode: 'first'
+            read_row_blk_size: 1000
+            read_col_blk_size: 1100
         # Flag to turn on/off the filtering for RTC image.
         # The enhanced Lee filter is available.
         filter:

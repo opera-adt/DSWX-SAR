@@ -11,13 +11,14 @@ from rasterio.windows import Window
 import os
 import time
 import mimetypes
+import warnings
 from pathlib import Path
 from collections.abc import Iterator
 from typing import Any
 from mosaic_rtc_burst import run, majority_element, mosaic_single_output_file
 from dswx_sar_util import change_epsg_tif
 from dswx_sar import dswx_geogrid
-from nisar_runconfig import _get_parser, RunConfig
+from dswx_ni_runconfig import _get_parser, RunConfig
 
 
 class DataReader(ABC):
@@ -59,13 +60,14 @@ class RTCReader(DataReader):
         num_inputs = len(input_list)
 
         # Extract polarizations
-        polarizations = self.extract_nisar_polarization(input_list)
-        pols = []
-        for idx in range(len(polarizations)):
-            pols.append(polarizations[idx].decode('utf-8'))
+        pols_rtc = self.extract_nisar_polarization(input_list)
 
         # Generate data paths
-        data_path = self.generate_nisar_datapath(polarizations)
+        data_path = self.generate_nisar_dataset_name(pols_rtc)
+
+        # Generate layover mask path
+        layover_mask_name = 'layoverShadowMask'
+        layover_path = str(self.generate_nisar_layover_name(layover_mask_name))
 
         output_prefix = self.extract_file_name(input_list[0])
 
@@ -81,28 +83,41 @@ class RTCReader(DataReader):
 
 
         # Currently, intermediate Geotiffs are created regardless of EPSG
-        self.mosaic_rtc_geotiff(
+        layover_exist, geogrid_in = self.write_rtc_geotiff(
 	    input_list, 
 	    output_dir,
 	    scratch_dir, 
-	    pols,
 	    epsg_array,
 	    data_path,
-	    mosaic_mode,
+            layover_path,
         )
 
-    def mosaic_rtc_geotiff(
+        # Mosaicking intermediate input geotiffs
+        nlooks_list = []
+
+        self.mosaic_rtc_geotiff(
+            input_list,
+            data_path,
+            output_dir,
+            scratch_dir,
+            geogrid_in, 
+            nlooks_list, 
+            mosaic_mode,
+            layover_exist,
+        )
+                
+
+    def write_rtc_geotiff(
         self, 
         input_list: list, 
         output_dir: str,
         scratch_dir: str, 
-        pols: list,
         epsg_array: np.ndarray,
         data_path: list,
-        mosaic_mode: str,
+        layover_path: list,
     ):
 
-        """ Create mosaicked output Geotiff from a list of input RTCs
+        """ Create intermediate Geotiffs from a list of input RTCs
 
         Parameters
         ----------
@@ -112,15 +127,28 @@ class RTCReader(DataReader):
             Directory which stores the mosaic output Geotiff
         scratch_dir: str
             Directory which stores the temporary files
-        pols: list of str
+        pols_rtc: list of str
             Polarizations extracted for input RTC in 'HH', 'HV', 'VV', VH', etc.
         epsg_array: array of int
             EPSG of each of the RTC input HDF5    
         data_path: list
             RTC dataset path within the HDF5 input file
-        mosaic_mode: str
-            Mosaic algorithm mode choice in 'average', 'first', or 'burst_center'
+        layover_path: str
+            layoverShadowMask layer dataset path
+
+        Returns
+        -------
+        layover_exist: bool
+            Boolean which indicates if a layoverShadowMask layer exisits in input RTC
+        geogrid_in: DSWXGeogrid object
+            A dataclass object  representing the geographical grid configuration
+            for an RTC (Radar Terrain Correction) run.
         """
+
+        # Reproject geotiff
+        most_freq_epsg = majority_element(epsg_array)
+
+        geogrid_in = dswx_geogrid.DSWXGeogrid()
 
         # Create intermediate input Geotiffs
         for input_idx, input_rtc in enumerate(input_list):
@@ -135,12 +163,12 @@ class RTCReader(DataReader):
             
             # Create Intermediate Geotiffs for each input GCOV file 
             for path_idx, dataset_path in enumerate(data_path):
-                pol = pols[path_idx]
-
+                data_name = Path(dataset_path).name[:2]
                 dataset = f'HDF5:{input_rtc}:/{dataset_path}'
-                output_gtiff = f'{scratch_dir}/{output_prefix}_{pol}{pol}.tif'
+                output_gtiff = f'{scratch_dir}/{output_prefix}_{data_name}.tif'
 
                 h5_ds = gdal.Open(dataset, gdal.GA_ReadOnly)
+                    
                 num_cols = h5_ds.RasterXSize
                 num_rows = h5_ds.RasterYSize
 
@@ -158,42 +186,153 @@ class RTCReader(DataReader):
 		    crs,
 		    dswx_metadata_dict,
                 )
-        
-        # Reproject geotiff
-        most_freq_epsg = majority_element(epsg_array)
-        
+
         # Loop through EPSG (input files)
         for input_idx, input_rtc in enumerate(input_list):
+            input_prefix = self.extract_file_name(input_rtc)
             if epsg_array[input_idx] != most_freq_epsg:
-                input_prefix = self.extract_file_name(input_rtc)
-                for idx, pol in enumerate(pols):
-                    input_gtiff = f'{scratch_dir}/{input_prefix}_{pol}{pol}.tif'
+                for idx, dataset_path in enumerate(data_path):
+                    data_name = Path(dataset_path).name[:2]
+                    input_gtiff = f'{scratch_dir}/{input_prefix}_{data_name}.tif'
                       
+                    # Change EPSG
                     change_epsg_tif(
                         input_tif=input_gtiff,
                         output_tif=input_gtiff,
                         epsg_output=most_freq_epsg,
                         output_nodata=255,
                     )
+                    
+                    # Update geogrid
+                    geogrid_in.update_geogrid(output_gtiff)
+            else:
+                for idx, dataset_path in enumerate(data_path):
+                    data_name = Path(dataset_path).name[:2]
+                    output_gtiff = f'{scratch_dir}/{input_prefix}_{data_name}.tif'
 
-        # Mosaicking intermediate input  geotiffs
-        nlooks_list = []
-        mask_list = []
-        geogrid_in = None
+                    # Update geogrid
+                    geogrid_in.update_geogrid(output_gtiff)
+        
+            
+        # Generate Layover Shadow Mask Geotiff
+        for input_idx, input_rtc in enumerate(input_list):
+            layover_data = f'HDF5:{input_rtc}:/{layover_path}'
+            h5_layover = gdal.Open(layover_data, gdal.GA_ReadOnly)
+
+            # Check if layoverShadowMask layer exists:
+            if h5_layover is None:
+                warnings.warn(f'\nDataset at {layover_data} does not exist or cannot be opened.', RuntimeWarning)
+                layover_exist = False
+                break
+            else:
+                layover_exist = True
+
+                output_prefix = self.extract_file_name(input_rtc)
+                output_layover_gtiff = f'{scratch_dir}/{output_prefix}_layover.tif'
+                num_cols = h5_layover.RasterXSize
+                col_blk_size = self.col_blk_size
+
+                self.read_write_rtc(
+		    h5_layover,
+		    output_layover_gtiff,
+		    num_rows,
+		    num_cols,
+		    row_blk_size,
+		    col_blk_size,
+		    geotransform,
+		    crs,
+		    dswx_metadata_dict,
+                )   
+
+                # Change EPSG of layOverMask if necessary
+                if epsg_array[input_idx] != most_freq_epsg:
+                    input_prefix = self.extract_file_name(input_rtc)
+                    input_layover_gtiff = f'{scratch_dir}/{input_prefix}_layover.tif'
+                      
+                    change_epsg_tif(
+                        input_tif=input_layover_gtiff,
+                        output_tif=input_layover_gtiff,
+                        epsg_output=most_freq_epsg,
+                        output_nodata=255,
+                    )  
+
+                    geogrid_in.update_geogrid(output_layover_gtiff)
+                else:
+                    geogrid_in.update_geogrid(output_layover_gtiff)
+                    
+        return layover_exist, geogrid_in
+
+
+    def mosaic_rtc_geotiff(
+        self,
+        input_list,
+        data_path,
+        output_dir,
+        scratch_dir,
+        geogrid_in, 
+        nlooks_list, 
+        mosaic_mode,
+        layover_exist,
+    ):
+
+        """ Create mosaicked output Geotiff from a list of input RTCs
+
+        Parameters
+        ----------
+        input_list: list
+            The HDF5 file paths of input RTCs to be mosaicked.
+        data_path: list
+            RTC dataset path within the HDF5 input file
+        output_dir: str
+            Directory which stores the mosaic output Geotiff
+        scratch_dir: str
+            Directory which stores the temporary files
+        geogrid_in: DSWXGeogrid object
+            A dataclass object  representing the geographical grid configuration
+            for an RTC (Radar Terrain Correction) run.
+        nlooks_list: list
+            List of the nlooks raster that corresponds to list_rtc
+        mosaic_mode: str
+            Mosaic algorithm mode choice in 'average', 'first', or 'burst_center'
+        layover_exist: bool
+            Boolean which indicates if a layoverShadowMask layer exisits in input RTC
+        """
+
         output_prefix = self.extract_file_name(input_list[0])
-
-        for idx, pol in enumerate(pols):
+        for idx, dataset_path in enumerate(data_path):
+            data_name = Path(dataset_path).name[:2]
             input_gtiff_list = []
             for input_idx, input_rtc in enumerate(input_list):
                 input_prefix = self.extract_file_name(input_rtc)
-                input_gtiff_list.append(f'{scratch_dir}/{input_prefix}_{pol}{pol}.tif')
+                input_gtiff = f'{scratch_dir}/{input_prefix}_{data_name}.tif'
+                input_gtiff_list = np.append(input_gtiff_list, input_gtiff)
 
-            output_mosaic_gtiff = f'{output_dir}/{output_prefix}_mosaic_{pol}{pol}.tif'
-
+            # Mosaic dataset of same polarization into a single Geotiff
+            output_mosaic_gtiff = f'{output_dir}/mosaic_{data_name}.tif'
             mosaic_single_output_file(
                 input_gtiff_list, 
                 nlooks_list, 
                 output_mosaic_gtiff,
+                mosaic_mode, 
+                scratch_dir=scratch_dir,
+                geogrid_in=geogrid_in, 
+                temp_files_list=None,
+            )        
+
+        # Mosaic layover shadow mask
+        if layover_exist:
+            layover_gtiff_list = []
+            for input_idx, input_rtc in enumerate(input_list):
+                input_prefix = self.extract_file_name(input_rtc)
+                layover_gtiff = f'{scratch_dir}/{input_prefix}_layover.tif'
+                layover_gtiff_list = np.append(layover_gtiff_list, layover_gtiff)
+       
+            layover_mosaic_gtiff = f'{output_dir}/mosaic_layover.tif'
+
+            mosaic_single_output_file(
+                layover_gtiff_list, 
+                nlooks_list, 
+                layover_mosaic_gtiff,
                 mosaic_mode, 
                 scratch_dir=scratch_dir,
                 geogrid_in=geogrid_in, 
@@ -240,6 +379,7 @@ class RTCReader(DataReader):
 
         pol_list_path = f'/science/LSAR/GCOV/grids/frequencyA/listOfPolarizations'
         polarizations = [] 
+        pols_rtc = []
         for input_idx, input_rtc in enumerate(input_list):
             # Check if the file exists
             if not os.path.exists(input_rtc):
@@ -254,29 +394,53 @@ class RTCReader(DataReader):
                          "Polarizations of multiple RTC files are not consistent."
                      )
 
-        return polarizations
+        for pol_idx, pol in enumerate(polarizations):
+            pols_rtc = np.append(pols_rtc, pol.decode('utf-8'))
 
-    def generate_nisar_datapath(self, polarizations: list):
-        """Generate dataset paths based on input polarizations
+        return pols_rtc
+
+    def generate_nisar_dataset_name(self, data_name: str | list[str]):
+        """Generate dataset paths
 
         Parameters
         ----------
-        polarizations: list of str
+        data_name: str or list of str
             All dataset polarizations listed in the input HDF5 file 
 
         Returns
         -------
-        data_path: list
+        data_path: np.ndarray of str
+            RTC dataset path within the HDF5 input file
+        """
+
+        if isinstance(data_name, str):
+            data_name = [data_name]
+
+        group = f'/science/LSAR/GCOV/grids/frequencyA/'
+        data_path = []
+        for name_idx, dname in enumerate(data_name):
+            data_path = np.append(data_path, f'{group}{dname * 2}')
+
+        return data_path
+
+
+    def generate_nisar_layover_name(self, layover_name: str):
+        """Generate layOverShadowMask dataset path
+
+        Parameters
+        ----------
+        layover_name: str
+            Name of layover and shadow Mask layer in the input HDF5 file 
+
+        Returns
+        -------
+        data_path: str
             RTC dataset path within the HDF5 input file
         """
 
         group = f'/science/LSAR/GCOV/grids/frequencyA/'
-        data_path = []
-        for pol_idx, pol in enumerate(polarizations):
-            pol = pol.decode('utf-8')
-            pols = f'{pol}{pol}'
-            
-            data_path = np.append(data_path, f'{group}{pols}')
+
+        data_path = f'{group}{layover_name}'
 
         return data_path
 

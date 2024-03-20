@@ -85,8 +85,8 @@ runconfig:
             # using the statics of the rtc image. If the values are out of the given range,
             # adopt these values instead of the computed values
             threshold_bounds:
-                co_pol: [-28, -8]
-                cross_pol: [-28, -14]
+                co_pol: [-28, -11]
+                cross_pol: [-28, -18]
             # Flag to assume the trimodal distribution.
             # If flag is false, the distribution is assumed to have bimodal distribution and
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,

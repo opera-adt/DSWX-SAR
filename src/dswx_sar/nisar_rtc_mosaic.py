@@ -16,7 +16,7 @@ from collections.abc import Iterator
 from typing import Any
 from mosaic_rtc_burst import run, majority_element, mosaic_single_output_file
 from dswx_sar_util import change_epsg_tif
-from dswx_sar import dswx_geogrid
+from dswx_sar.dswx_geogrid import DSWXGeogrid
 from dswx_ni_runconfig import _get_parser, RunConfig
 
 
@@ -130,8 +130,6 @@ class RTCReader(DataReader):
             Directory which stores the mosaic output Geotiff
         scratch_dir: str
             Directory which stores the temporary files
-        pols_rtc: list of str
-            Polarizations extracted for input RTC in 'HH', 'HV', 'VV', VH', etc.
         epsg_array: array of int
             EPSG of each of the RTC input HDF5    
         data_path: list
@@ -151,7 +149,7 @@ class RTCReader(DataReader):
         # Reproject geotiff
         most_freq_epsg = majority_element(epsg_array)
 
-        geogrid_in = dswx_geogrid.DSWXGeogrid()
+        geogrid_in = DSWXGeogrid()
 
         designated_value = np.float32(500)
 
@@ -280,15 +278,15 @@ class RTCReader(DataReader):
 
     def mosaic_rtc_geotiff(
         self,
-        input_list,
-        data_path,
-        output_dir,
-        scratch_dir,
-        geogrid_in, 
-        nlooks_list, 
-        mosaic_mode,
-        mosaic_prefix,
-        layover_exist,
+        input_list: list,
+        data_path: list,
+        output_dir: str,
+        scratch_dir: str,
+        geogrid_in: DSWXGeogrid, 
+        nlooks_list: list, 
+        mosaic_mode: str,
+        mosaic_prefix: str,
+        layover_exist: bool,
     ):
 
         """ Create mosaicked output Geotiff from a list of input RTCs
@@ -470,9 +468,6 @@ class RTCReader(DataReader):
         -----------
         input_list: list
             The HDF5 file paths of input RTCs to be mosaicked.
-        geo_name_mapping: dictionary
-            This dictionary contains Geo information fields in the input
-            RTC HDF5 file.
 
         Returns
         -------
@@ -630,9 +625,8 @@ class RTCReader(DataReader):
 
         Parameters
         ----------
-        dswx_meta_mapping: dictionary
-            This dictionary contains mapping of metadata fields in the input
-            RTC HDF5 file.
+        input_rtc: str
+            The HDF5 RTC input file path
 
         Returns
         -------

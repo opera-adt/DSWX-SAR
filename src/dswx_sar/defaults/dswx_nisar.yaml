@@ -1,0 +1,35 @@
+runconfig:
+  groups:
+    dynamic_ancillary_file_group:
+      algorithm_parameters: ./defaults/algorithm_parameter_nisar.yaml
+      dem_file: ../../input/dem/dem.vrt # /home/shiroma/dat/nisar-dem-copernicus/EPSG4326.vrt
+      hand_file: ../../input/hand/hand.vrt
+      reference_water_file: /mnt/aurora-r0/jungkyo/data/pekel.vrt
+      worldcover_file: /mnt/aurora-r0/jungkyo/data/landcover.vrt
+
+    static_ancillary_file_group:
+      mgrs_collection_database_file: /mnt/aurora-r0/jungkyo/OPERA/DSWx_S1_AWS/input/MGRS_tile_collection_v0.2.sqlite
+      mgrs_database_file: /mnt/aurora-r0/jungkyo/OPERA/DSWx_S1_AWS/input/MGRS_tile.sqlite
+      static_ancillary_inputs_flag: true
+
+    input_file_group:
+      input_file_path:
+         - /u/aurora-r0/bohuang/opera/surface_water/DSWX-SAR/input/rtc/ALPSRP074860840-L1.0_GCOV.h5
+         - /u/aurora-r0/bohuang/opera/surface_water/DSWX-SAR/input/rtc/ALPSRP074860850-L1.0_GCOV.h5
+
+    log_file: ../../output/dswx-sar.log
+    pge_name_group:
+      pge_name: DSWX_S1_PGE
+    primary_executable:
+      product_type: dswx_s1
+    product_path_group:
+      product_path: DSWx_S1
+      product_version: 0.1
+      sas_output_path: /u/aurora-r0/bohuang/opera/surface_water/DSWX-SAR/output
+      scratch_path: /u/aurora-r0/bohuang/opera/surface_water/DSWX-SAR/scratch
+
+    browse_image_group:
+      save_browse: True
+      browse_image_height: 1024
+  
+  name: dswx_s1_workflow_default

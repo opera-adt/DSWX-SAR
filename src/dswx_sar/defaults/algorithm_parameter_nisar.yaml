@@ -1,0 +1,114 @@
+runconfig:
+    name: dswx_s1_workflow_algorithm
+
+    processing:
+        # dswx_workflow 'opera_dswx_s1', 'twele', 'opera_dswx_s1_inundated_vegetation'
+        dswx_workflow: 'opera_dswx_s1'
+        # valid values for polarizations
+        # empty for all polarizations found in RSLC
+        # [polarizations] for list of specific frequency(s) e.g. [HH, HV] or [HH]
+        polarizations: ['dual-pol'] #['VV', 'VH']
+        #polarizations: ['VV', 'VH']
+
+        # Input RTC are read in data blocks with dimensions [row_blk_size, col_blk_size]
+        #row_blk_size: int(min=1)
+        #col_blk_size: int(min=1)
+
+        # Specifiy the max_value for permanent water and no_data_value for invalid pixels
+        reference_water:
+            max_value: 100
+            no_data_value: 255
+        hand:
+            mask_value: 200
+        mosaic:
+            mosaic_prefix: 'mosaic'
+            mosaic_cog_enable: True
+            mosaic_mode: 'first'
+            read_row_blk_size: 1000
+            read_col_blk_size: 1100
+        # Flag to turn on/off the filtering for RTC image.
+        # The enhanced Lee filter is available.
+        filter:
+            enabled: True
+            # Window size for filtering.
+            window_size: 5
+
+        initial_threshold:
+            # Maximum tile size for initial threshold.
+            maximum_tile_size:
+                x: 400
+                y: 400
+            minimum_tile_size:
+                x: 40
+                y: 40
+            # tile selecting strategy to identify the boundary between water and nonwater
+            # ['twele', 'chini', 'bimodality', 'combined']
+            # 'combined' option applies all selection strategy
+            
+            #selection_method: 'combined'
+            selection_method: ['chini', 'bimodality']
+            # Stratey to interpolate the tile-based thresholds.
+            # Currently, only 'smoothed' is available.
+            extending_method: 'gdal_grid'
+            # Thresholding algorithm for initial thresholds.
+            # Currently, 1) Otsu and 2) Kittler-Illingworth algorithms are available.
+            # ['otsu', 'ki']
+            threshold_method: 'ki'
+            #threshold_method: 'rg'
+            # Flag to assume the trimodal distribution.
+            # If flag is false, the distribution is assumed to have bimodal distribution and
+            # estimate single threshold per tile. If True, the trimodal distribution is assumed,
+            # the lowest threshold is estimated.
+            multi_threshold: True
+            tile_average: True
+            number_cpu: -1
+
+        # Region growing options
+        region_growing:
+            # seed value for region growing start
+            initial_threshold: 0.81
+            # end value for region growing
+            relaxed_threshold: 0.51
+            line_per_block: 100
+
+        fuzzy_value:
+            hand:
+                member_min: 0
+                member_max: 40
+            area:
+                member_min: 0
+                member_max: 40
+            slope:
+                member_min: 0.5
+                member_max: 15
+            reference_water:
+                member_min: 0.8
+                member_max: 0.95
+            dark_area:
+                cross_land: -18
+                cross_water: -24
+            high_frequent_water:
+                water_min_value: 0.1
+                water_max_value: 0.9
+
+        masking_ancillary:
+            co_pol_threshold: -14.8
+            cross_pol_threshold: -22.8
+            water_threshold: 0.05
+            number_cpu: -1
+
+        refine_with_bimodality:
+            number_cpu: -1
+            minimum_pixel: 6
+            thresholds:
+                ashman: 1.5
+                Bhattacharyya_coefficient: 0.97
+                bm_coefficient: 0.7
+                surface_ratio: 0.1
+        inundated_vegetation:
+            enabled: True
+            line_per_block: 300
+
+        # debug mode is true, intermeidate product is generated. 
+        debug_mode: False #True
+

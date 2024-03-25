@@ -1,0 +1,118 @@
+runconfig:
+    name: dswx_ni_workflow_default
+
+    groups:
+        pge_name_group:
+            pge_name: DSWX_NI_PGE
+
+        input_file_group:
+            # REQUIRED - Single S1 RTC geotiff or
+            #            multiple burst RTC directory containing
+            #            hdf5 metadata and rtc geotiff (directory or files)
+            #            for open water
+            input_file_path:
+
+        dynamic_ancillary_file_group:
+            # Digital elevation model (Required)
+            dem_file:
+
+            # Digital elevation model source description
+            dem_file_description:
+
+            # ESA WorldCover map file
+            # (Required for opera_dswx_s1)
+            worldcover_file:
+
+            # ESA WorldCover map description
+            worldcover_file_description:
+
+            # Reference water body map (Required)
+            # e.g., Pekel's water occurrence or seasonality map
+            reference_water_file:
+
+            # Reference water description
+            reference_water_file_description:
+
+            # Height Above Nearest Drainage (Required)
+            hand_file:
+
+            # HAND description
+            hand_file_description:
+
+            # NOAA GSHHS shapefile (optional)
+            shoreline_shapefile:
+
+            # NOAA GSHHS shapefile description
+            shoreline_shapefile_description:
+
+            # algorithm parameter
+            algorithm_parameters:
+
+        static_ancillary_file_group:
+
+            # Static ancillary input should be given
+            # when flag is True. 
+            static_ancillary_inputs_flag: True
+
+            # MGRS database sqlite file
+            mgrs_database_file:
+
+            # MGRS collection database sqlite file
+            mgrs_collection_database_file:
+
+        primary_executable:
+            product_type: DSWX_S1
+
+        product_path_group:
+            # Directory where PGE will place results
+            product_path:
+
+            # Directory where SAS can write temporary data
+            scratch_path:
+
+            # SAS writes the output product to the following file.
+            sas_output_path:
+
+            product_version:
+
+            output_imagery_format: COG
+            output_imagery_compression: DEFLATE
+            output_imagery_nbits: 32
+
+        browse_image_group:
+            # Save a full-res Cloud-Optimized GEOTIFF DSWx-S1 browse image and
+            # a modified-resolution PNG of the browse image for DSWx-S1
+            save_browse: True
+
+            # Setting `browse_image_height` and `browse_image_width` equal
+            # will maintain this original DSWx-S1 aspect ratio
+            # of 3660 pixels x 3660 pixels for the PNG browse image.
+            # If these fields are left empty, 1024 x 1024 will be used.
+            # Height in pixels for the PNG browse image
+            browse_image_height: 1024
+
+            # Width in pixels for the PNG browse image
+            browse_image_width: 1024
+
+            # Flag to collapse water classes if set to True. Default is True.
+            flag_collapse_wtr_classes: True
+
+            # Flag to exclude inundated vegetation from processing if set to True. 
+            exclude_inundated_vegetation:  False
+
+            # Flag to set non-water pixels to NoData value if set to True. 
+            set_not_water_to_nodata: False
+
+            # Flag to set HAND mask pixels to NoData value if set to True. 
+            set_hand_mask_to_nodata: True
+
+            # Flag to set layover and shadow pixels to NoData value if set to True. 
+            set_layover_shadow_to_nodata: True
+            
+            # Flag to set ocean-masked pixels to NoData value if set to True. 
+            set_ocean_masked_to_nodata: False
+
+            # Flag to save Geotiff to output directory if set to True. 
+            save_tif_to_output: True
+
+        log_file: None

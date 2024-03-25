@@ -1,0 +1,119 @@
+runconfig:
+    name: str()
+
+    groups:
+        pge_name_group:
+            pge_name: enum('DSWX_NI_PGE')
+
+        input_file_group:
+            # REQUIRED - list of RTC products (directory or files)
+            input_file_path: list(str(), min=1)
+
+        dynamic_ancillary_file_group:
+            # Digital elevation model
+            dem_file: str(required=True)
+
+            # Digital elevation model description
+            dem_file_description: str(required=False)
+
+            # Reference water body map (Required)
+            # https://global-surface-water.appspot.com/download
+            reference_water_file: str(required=True)
+
+            # Pekel's water description
+            reference_water_file_description: str(required=False)
+
+            # Height Above Nearest Drainage (optional)
+            hand_file: str(required=True)
+            
+            # HAND description
+            hand_file_description: str(required=False)
+
+            # ESA WorldCover map file
+            worldcover_file: str(required=False)
+
+            # ESA WorldCover map description
+            worldcover_file_description: str(required=False)
+
+            # NOAA GSHHS shapefile
+            shoreline_shapefile: str(required=False)
+
+            # NOAA GSHHS shapefile description
+            shoreline_shapefile_description: str(required=False)
+
+            # algorithm parameter 
+            algorithm_parameters: str(required=True)
+
+        static_ancillary_file_group:
+
+            static_ancillary_inputs_flag: bool(required=False)
+
+            # MGRS database sqlite file
+            mgrs_database_file: str(required=False)
+
+            # MGRS collection database sqlite file
+            mgrs_collection_database_file: str(required=False)
+
+        primary_executable:
+            product_type: enum('dswx_s1', 'twele')
+
+        product_path_group:
+            # Directory where PGE will place results
+            product_path: str()
+       
+            # Directory where SAS can write temporary data
+            scratch_path: str()
+       
+            # Intermediate file name.  SAS writes the output product to the following file.
+            # After the SAS completes, the PGE wrapper renames the product file
+            # according to proper file naming conventions.
+            sas_output_path: str()
+
+            product_version: num(required=False)
+
+            # DSWx-S1 product format (default is 'COG')
+            output_imagery_format: enum('GTiff', 'COG', required=False)
+
+            # DSWx-S1 Compression Options for COG
+            output_imagery_compression: str(required=False)
+
+            # DSWx-S1 Compression bits for COG
+            output_imagery_nbits: int(min=1, required=False)
+
+        browse_image_group:
+            # Save a full-res Cloud-Optimized GEOTIFF DSWx-S1 browse image and
+            # a modified-resolution PNG of the browse image for DSWx-S1
+            save_browse: bool(required=False)
+
+            # Setting `browse_image_height` and `browse_image_width` equal
+            # will maintain this original DSWx-S1 aspect ratio
+            # of 3660 pixels x 3660 pixels for the PNG browse image.
+            # If these fields are left empty, 1024 x 1024 will be used.
+            # Height in pixels for the PNG browse image
+            browse_image_height: int(min=1, required=False)
+
+            # Width in pixels for the PNG browse image
+            browse_image_width: int(min=1, required=False)
+
+            # Flag to collapse water classes if set to True. Default is True.
+            flag_collapse_wtr_classes: bool(required=False)
+
+            # Flag to exclude inundated vegetation from processing if set to True. 
+            exclude_inundated_vegetation: bool(required=False)
+
+            # Flag to set non-water pixels to NoData value if set to True. 
+            set_not_water_to_nodata: bool(required=False)
+
+            # Flag to set HAND mask pixels to NoData value if set to True. 
+            set_hand_mask_to_nodata: bool(required=False)
+
+            # Flag to set layover and shadow pixels to NoData value if set to True. 
+            set_layover_shadow_to_nodata: bool(required=False)
+            
+            # Flag to set ocean-masked pixels to NoData value if set to True. 
+            set_ocean_masked_to_nodata: bool(required=False)
+
+            # Flag to save Geotiff to output directory if set to True. 
+            save_tif_to_output: bool(required=False)
+
+        log_file: str(required=False)

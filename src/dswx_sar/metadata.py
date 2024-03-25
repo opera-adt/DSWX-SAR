@@ -478,3 +478,44 @@ def create_dswx_sar_metadata(cfg,
     if extra_meta_data is not None:
         dswx_metadata_dict.update(extra_meta_data)
     return dswx_metadata_dict
+
+def create_dswx_ni_metadata(cfg,
+                            rtc_dirs,
+                            product_version=None,
+                            extra_meta_data=None):
+    """
+    Create dictionary containing metadata.
+
+    Parameters
+    ----------
+    cfg: RunConfig
+        Input runconfig.
+    rtc_dirs: list
+        List of directories containing RTC files.
+    product_version: str, optional
+        Version of the DSWx product. Defaults to None.
+    extra_meta_data: dict, optional
+        Additional metadata to merge with dswx_metadata_dict.
+        Defaults to None.
+
+    Returns
+    -------
+    dict
+        Metadata dictionary.
+    """
+    # Get general DSWx-S1 metadata
+    dswx_metadata_dict = _get_general_dswx_metadata_dict(
+        cfg,
+        product_version=product_version)
+    # Add metadata related to ancillary data
+    ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
+
+    h5path_list = gather_rtc_files(rtc_dirs, DSWX_S1_POL_DICT['CO_POL'])
+    _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict)
+
+    _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)
+    _populate_processing_metadata_datasets(dswx_metadata_dict, cfg)
+    # Merge extra_meta_data with dswx_metadata_dict if provided
+    if extra_meta_data is not None:
+        dswx_metadata_dict.update(extra_meta_data)
+    return dswx_metadata_dict

@@ -431,6 +431,9 @@ def compute_fuzzy_value(intensity,
         'opera_dswx_s1': lambda: (nanmean_intensity_z_set * 0.5
                                   + (hand_z + slope_z + reference_water_s)
                                   / 3 * 0.5),
+        'opera_dswx_ni': lambda: (nanmean_intensity_z_set * 0.5
+                                  + (hand_z + slope_z + reference_water_s)
+                                  / 3 * 0.5),
         'twele': lambda: (nanmean_intensity_z_set * 0.5 +
                           (hand_z + slope_z + area_s) / 3 * 0.5)
     }

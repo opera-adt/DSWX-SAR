@@ -20,6 +20,8 @@ from dswx_sar.dswx_geogrid import DSWXGeogrid
 from dswx_ni_runconfig import _get_parser, RunConfig
 
 
+logger = logging.getLogger('dswx_sar')
+
 class DataReader(ABC):
     def __init__(self, row_blk_size: int, col_blk_size: int):
         self.row_blk_size = row_blk_size

@@ -1,7 +1,6 @@
 import argparse
 from dataclasses import dataclass
 from functools import singledispatch
-import glob
 import h5py
 import os
 import sys
@@ -14,12 +13,13 @@ from ruamel.yaml import YAML
 import dswx_sar
 from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 
-logger = logging.getLogger('dswx-ni')
+logger = logging.getLogger('dswx_sar')
 
 WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 
 # Potential polarization scenarios for DSWx-S1
 # NOTE: DO NOT CHANGE THE ORDER of the items in the dictionary below.
+# TODO: Need to update dictionary for NISAR
 DSWX_S1_POL_DICT = {
     'CO_POL': ['HH', 'VV'],
     'CROSS_POL': ['HV', 'VH'],

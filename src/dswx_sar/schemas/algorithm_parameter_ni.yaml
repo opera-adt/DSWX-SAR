@@ -3,7 +3,7 @@ runconfig:
 
     processing:
         # Algorithms for surface water extents
-        # ['opera_dswx_s1', 'twele', 'opera_dswx_s1_inundated_vegetation']
+        # ['opera_dswx_ni', 'twele']
         dswx_workflow: str(required=False)
 
         # Polarizations to be used for DSWx-SAR

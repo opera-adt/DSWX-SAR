@@ -11,6 +11,8 @@ runconfig:
             #            hdf5 metadata and rtc geotiff (directory or files)
             #            for open water
             input_file_path:
+            # Placeholder for historical GCOV data [TBD]
+            input_file_path_historical: list(str(), min=1, required=False)
 
         dynamic_ancillary_file_group:
             # Digital elevation model (Required)
@@ -48,6 +50,10 @@ runconfig:
             # algorithm parameter
             algorithm_parameters:
 
+            # placeholder for inundated vegettion 
+            mean_backscattering:
+            standard_deviation_backscattering:
+
         static_ancillary_file_group:
 
             # Static ancillary input should be given
@@ -61,7 +67,7 @@ runconfig:
             mgrs_collection_database_file:
 
         primary_executable:
-            product_type: DSWX_S1
+            product_type: DSWX_NI
 
         product_path_group:
             # Directory where PGE will place results
@@ -75,9 +81,13 @@ runconfig:
 
             product_version:
 
+            output_mgrs_collection_id:
+
             output_imagery_format: COG
             output_imagery_compression: DEFLATE
             output_imagery_nbits: 32
+            # output product spacing
+            output_spacing: 30
 
         browse_image_group:
             # Save a full-res Cloud-Optimized GEOTIFF DSWx-S1 browse image and
@@ -113,6 +123,6 @@ runconfig:
             set_ocean_masked_to_nodata: False
 
             # Flag to save Geotiff to output directory if set to True. 
-            save_tif_to_output: True
+            save_tif_to_output: False
 
         log_file: None

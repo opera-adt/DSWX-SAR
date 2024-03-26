@@ -2,7 +2,7 @@ runconfig:
     name: dswx_ni_workflow_algorithm
 
     processing:
-        # dswx_workflow 'opera_dswx_s1', 'twele', 'opera_dswx_s1_inundated_vegetation'
+        # dswx_workflow 'opera_dswx_ni', 'twele'
         dswx_workflow: 'opera_dswx_ni'
         # Polarizations to be used for DSWx-SAR
         # [polarizations] for list of specific frequency(s) e.g. [VV, VH] or [VV]

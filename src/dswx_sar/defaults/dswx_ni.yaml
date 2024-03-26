@@ -12,7 +12,7 @@ runconfig:
             #            for open water
             input_file_path:
             # Placeholder for historical GCOV data [TBD]
-            input_file_path_historical: list(str(), min=1, required=False)
+            input_file_path_historical:
 
         dynamic_ancillary_file_group:
             # Digital elevation model (Required)

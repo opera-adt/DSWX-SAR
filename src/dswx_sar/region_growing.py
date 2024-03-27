@@ -15,7 +15,7 @@ from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      RunConfig,
                                      _get_parser)
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 def region_growing(likelihood_image,

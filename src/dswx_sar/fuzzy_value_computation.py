@@ -14,7 +14,7 @@ from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      _get_parser,
                                      RunConfig)
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 # Define constants
 SOBEL_KERNEL_SIZE = 3
@@ -429,6 +429,9 @@ def compute_fuzzy_value(intensity,
     # of the ancillary data contributes 0.5 to the final result.
     method_dict = {
         'opera_dswx_s1': lambda: (nanmean_intensity_z_set * 0.5
+                                  + (hand_z + slope_z + reference_water_s)
+                                  / 3 * 0.5),
+        'opera_dswx_ni': lambda: (nanmean_intensity_z_set * 0.5
                                   + (hand_z + slope_z + reference_water_s)
                                   / 3 * 0.5),
         'twele': lambda: (nanmean_intensity_z_set * 0.5 +

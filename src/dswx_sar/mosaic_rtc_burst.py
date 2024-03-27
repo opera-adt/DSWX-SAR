@@ -20,7 +20,7 @@ from dswx_sar import (dswx_geogrid,
                       dswx_sar_util,
                       generate_log)
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 def majority_element(num_list):

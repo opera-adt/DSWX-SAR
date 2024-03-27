@@ -13,7 +13,7 @@ from ruamel.yaml import YAML
 import dswx_sar
 from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 
-logger = logging.getLogger('dswx-s1')
+logger = logging.getLogger('dswx_sar')
 
 WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 

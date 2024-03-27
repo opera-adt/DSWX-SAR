@@ -76,7 +76,7 @@ collapse_wtr_classes_dict = {
         band_assign_value_dict['ocean_mask'],
     }
 
-logger = logging.getLogger('dswx-s1')
+logger = logging.getLogger('dswx_sar')
 
 
 @dataclass
@@ -1539,7 +1539,7 @@ def geotiff2png(src_geotiff_filename,
                    )
 
     if logger is None:
-        logger = logging.getLogger('dswx_s1')
+        logger = logging.getLogger('dswx_sar')
     logger.info(f'Browse Image PNG created: {dest_png_filename}')
 
 

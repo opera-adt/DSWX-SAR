@@ -21,7 +21,7 @@ from dswx_sar.dswx_runconfig import (_get_parser,
                                      RunConfig,
                                      DSWX_S1_POL_DICT)
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 class BimodalityMetrics:

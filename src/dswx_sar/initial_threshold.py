@@ -19,11 +19,10 @@ from dswx_sar import (dswx_sar_util,
                       refine_with_bimodality,
                       region_growing)
 from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
-                                     _get_parser,
-                                     RunConfig)
+                                     _get_parser)
 
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 def convert_pow2db(intensity):
@@ -2329,6 +2328,9 @@ def run(cfg):
     if processing_cfg.debug_mode:
 
         intensity_whole = dswx_sar_util.read_geotiff(filt_im_str)
+        if intensity_whole.ndim == 2:
+            intensity_whole = np.expand_dims(intensity_whole,
+                                             axis=0)
         if not average_threshold_flag:
             dswx_sar_util.block_threshold_visualization_rg(
                 intensity_whole,
@@ -2368,7 +2370,9 @@ def run(cfg):
                     thresh_file_path, block_param=block_param)
                 intensity_block = dswx_sar_util.get_raster_block(
                     filt_im_str, block_param=block_param)
-
+                if intensity_block.ndim == 2:
+                    intensity_block = np.expand_dims(intensity_block,
+                                                     axis=0)
                 initial_water_binary = convert_pow2db(np.squeeze(
                     intensity_block[polind, :, :])) < threshold_block
                 if initial_water_binary.ndim == 1:
@@ -2417,7 +2421,14 @@ def main():
         return
 
     if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+        try:
+            from dswx_sar.dswx_runconfig import RunConfig
+            workflow = 'dswx_s1'
+        except:
+            from dswx_sar.dswx_ni_runconfig import RunConfig
+            workflow = 'dswx_ni'
+        cfg = RunConfig.load_from_yaml(args.input_yaml[0],
+                                       workflow, args)
 
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode

@@ -16,7 +16,7 @@ from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 from dswx_sar.masking_with_ancillary import get_label_landcover_esa_10
 
 
-logger = logging.getLogger('dswx_ni')
+logger = logging.getLogger('dswx_sar')
 
 
 def run(cfg):

@@ -28,7 +28,7 @@ from dswx_sar.metadata import (create_dswx_sar_metadata,
                                collect_burst_id,
                                _populate_statics_metadata_datasets)
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 def merge_pol_layers(list_layers,

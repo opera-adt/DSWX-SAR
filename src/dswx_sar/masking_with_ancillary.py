@@ -23,7 +23,7 @@ from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      RunConfig)
 
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 def get_label_landcover_esa_10():

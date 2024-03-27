@@ -1,4 +1,5 @@
 import os
+import logging
 import warnings
 
 from abc import ABC, abstractmethod
@@ -21,6 +22,7 @@ from dswx_ni_runconfig import _get_parser, RunConfig
 
 
 logger = logging.getLogger('dswx_sar')
+
 
 class DataReader(ABC):
     def __init__(self, row_blk_size: int, col_blk_size: int):
@@ -557,6 +559,8 @@ class RTCReader(DataReader):
 
                     # Replace Inf values with a designated value: 500
                     ds_blk[np.isinf(ds_blk)] = designated_value
+                    ds_blk[ds_blk > designated_value] = designated_value
+                    ds_blk[ds_blk == 0] = np.nan
 
                     dst.write(
                         ds_blk,

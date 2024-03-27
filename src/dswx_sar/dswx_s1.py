@@ -17,7 +17,7 @@ from dswx_sar.dswx_runconfig import (_get_parser,
                                      DSWX_S1_POL_DICT)
 from dswx_sar import generate_log
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 def dswx_s1_workflow(cfg):

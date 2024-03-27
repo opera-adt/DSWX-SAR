@@ -11,7 +11,7 @@ from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT, _get_parser, RunConfig
 from dswx_sar.pre_processing import pol_ratio
 from dswx_sar.masking_with_ancillary import FillMaskLandCover
 
-logger = logging.getLogger('dswx_s1')
+logger = logging.getLogger('dswx_sar')
 
 
 def run(cfg):

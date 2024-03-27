@@ -4,7 +4,7 @@ import sys
 
 def configure_log_file(log_file):
     # create logger
-    logger = logging.getLogger('dswx_s1')
+    logger = logging.getLogger('dswx_sar')
     logger.setLevel(logging.DEBUG)
 
     # create console handler and set level to debug
@@ -92,7 +92,7 @@ def create_logger(log_file, full_log_formatting=None):
               Logger object
     """
     # create logger
-    logger = logging.getLogger('dswx_s1')
+    logger = logging.getLogger('dswx_sar')
     logger.setLevel(logging.DEBUG)
 
     # create console handler and set level to debug

@@ -10,7 +10,7 @@ set -ex
 python3 setup_ni.py sdist
 
 # build image
-docker build --rm --force-rm --network=host -t ${IMAGE}:$tag -f docker/Dockerfile .
+docker build --rm --force-rm --network=host -t ${IMAGE}:$tag -f docker/Dockerfile_ni .
 
 # create image tar
 docker save opera/dswx-ni > docker/dockerimg_dswx_ni_$tag.tar

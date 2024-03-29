@@ -5,7 +5,7 @@ from setuptools import Command
 
 
 def _get_version():
-    """Returns the PROTEUS software version from the
+    """Returns the DSWx-SAR software version from the
     file `src/dswx_sar/version.py`
        Returns
        -------
@@ -58,15 +58,19 @@ package_data_dict = {}
 
 package_data_dict['dswx_sar'] = [
     os.path.join('defaults', 'algorithm_parameter_s1.yaml'),
+    os.path.join('defaults', 'algorithm_parameter_ni.yaml'),
     os.path.join('defaults', 'dswx_s1.yaml'),
+    os.path.join('defaults', 'dswx_ni.yaml'),
     os.path.join('schemas', 'algorithm_parameter_s1.yaml'),
-    os.path.join('schemas', 'dswx_s1.yaml')]
+    os.path.join('schemas', 'algorithm_parameter_ni.yaml'),
+    os.path.join('schemas', 'dswx_s1.yaml'),
+    os.path.join('schemas', 'dswx_ni.yaml')]
 
 setup(
     name='dswx-s1',
     version=version,
     description='Compute Dynamic Surface Water Extent (DSWx)'
-                ' from Sentinel-1 (S1) data',
+                ' from SAR data',
     # Gather all packages located under `src`.
     # (A package is any directory containing an __init__.py file.)
     package_dir={'': 'src'},
@@ -74,6 +78,7 @@ setup(
     package_data=package_data_dict,
     classifiers=['Programming Language :: Python',],
     scripts=['src/dswx_sar/dswx_s1.py',
+             'src/dswx_sar/dswx_ni.py',
              'src/dswx_sar/dswx_comparison.py'],
     install_requires=['argparse', 'numpy', 'yamale',
                       'scipy', 'pytest', 'requests',

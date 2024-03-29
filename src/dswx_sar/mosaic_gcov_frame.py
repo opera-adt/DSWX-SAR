@@ -15,10 +15,11 @@ from rasterio.transform import Affine
 from rasterio.windows import Window
 from typing import Any
 
-from mosaic_rtc_burst import majority_element, mosaic_single_output_file
-from dswx_sar_util import change_epsg_tif
+from dswx_sar.mosaic_rtc_burst import (majority_element,
+                                       mosaic_single_output_file)
+from dswx_sar.dswx_sar_util import change_epsg_tif
 from dswx_sar.dswx_geogrid import DSWXGeogrid
-from dswx_ni_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_ni_runconfig import _get_parser, RunConfig
 
 
 logger = logging.getLogger('dswx_sar')

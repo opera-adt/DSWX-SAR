@@ -11,8 +11,11 @@ runconfig:
             #            hdf5 metadata and rtc geotiff (directory or files)
             #            for open water
             input_file_path:
-            # Placeholder for historical GCOV data [TBD]
-            input_file_path_historical:
+            # Placeholder for historical GCOV data
+            input_file_historical_path:
+
+            # Specify the MGRS tile collection ID
+            input_mgrs_collection_id:
 
         dynamic_ancillary_file_group:
             # Digital elevation model (Required)
@@ -80,8 +83,6 @@ runconfig:
             sas_output_path:
 
             product_version:
-
-            output_mgrs_collection_id:
 
             output_imagery_format: COG
             output_imagery_compression: DEFLATE

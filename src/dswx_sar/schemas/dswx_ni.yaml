@@ -9,7 +9,9 @@ runconfig:
             # REQUIRED - list of RTC products (directory or files)
             input_file_path: list(str(), min=1)
             # Placeholder for historical GCOV data
-            input_file_path_historical: list(str(), min=1, required=False)
+            input_file_historical_path: list(str(), min=1, required=False)
+            # Specify the MGRS tile collection ID
+            input_mgrs_collection_id: str(required=False)
 
         dynamic_ancillary_file_group:
             # Digital elevation model
@@ -76,9 +78,6 @@ runconfig:
             sas_output_path: str()
 
             product_version: num(required=False)
-
-            # Specify the MGRS tile collection ID
-            output_mgrs_collection_id: str(required=False)
 
             # DSWx-NI product format (default is 'COG')
             output_imagery_format: enum('GTiff', 'COG', required=False)

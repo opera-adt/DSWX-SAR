@@ -172,8 +172,8 @@ def compare_dswx_sar_products(file_1, file_2):
     for b in range(1, nbands_1 + 1):
         gdal_band_1 = layer_gdal_dataset_1.GetRasterBand(b)
         gdal_band_2 = layer_gdal_dataset_2.GetRasterBand(b)
-        image_1 = gdal_band_1.ReadAsArray()
-        image_2 = gdal_band_2.ReadAsArray()
+        image_1 = gdal_band_1.ReadAsArray(buf_type=gdal.GDT_Int64)
+        image_2 = gdal_band_2.ReadAsArray(buf_type=gdal.GDT_Int64)
         flag_bands_are_equal = np.allclose(
             image_1, image_2,
             atol=COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE,

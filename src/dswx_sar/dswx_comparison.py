@@ -96,16 +96,29 @@ def _compare_dswx_sar_metadata(metadata_1, metadata_2):
         return metadata_error_message, flag_same_metadata
 
     for k1, v1, in metadata_1.items():
+        if k1 in COMPARISON_EXCEPTION_LIST:
+            continue
+
         if k1 not in metadata_2.keys():
             flag_same_metadata = False
             metadata_error_message = (
                 f'* the metadata key {k1} is present in'
                 ' but it is not present in input 2')
             break
-        # Exclude metadata fields that are not required to be the same
-        if k1 in COMPARISON_EXCEPTION_LIST:
-            continue
-        if metadata_2[k1] != v1:
+
+        if k1 == 'RTC_INPUT_LIST':
+            l1 = list(v1)
+            l2 = list(metadata_2[k1])
+
+            if sorted(l1) != sorted(l2):
+                flag_same_metadata = False
+                metadata_error_message = (
+                    f'* RTC_INPUT_LIST differs between inputs, '
+                    f'input 1 has value {l1} whereas input 2 has value {l2}'
+                )
+                break
+
+        elif metadata_2[k1] != v1:
             flag_same_metadata = False
             metadata_error_message = (
                 f'* contents of metadata key {k1} from'

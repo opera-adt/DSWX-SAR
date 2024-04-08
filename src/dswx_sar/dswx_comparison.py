@@ -7,9 +7,11 @@ from osgeo import gdal
 
 COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE = 1e-6
 COMPARISON_EXCEPTION_LIST = ['PROCESSING_DATETIME',
-                             'DEM_SOURCE',
-                             'WORLDCOVER_SOURCE',
-                             'REFERENCE_WATER_SOURCE',
+                             'INPUT_DEM_SOURCE',
+                             'INPUT_WORLDCOVER_SOURCE',
+                             'INPUT_REFERENCE_WATER_SOURCE',
+                             'INPUT_HAND_SOURCE',
+                             'INPUT_SHORELINE_SOURCE',
                              'SOFTWARE_VERSION']
 
 

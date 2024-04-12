@@ -252,8 +252,11 @@ def save_dswx_product(wtr, output_file, geotransform,
         print(msg)
 
     band_value_dict = band_assign_value_dict
+    sorted_band_keys = sorted(
+        band_value_dict.keys(),
+        key=lambda x: x.lower() == 'inundated_vegetation')
 
-    for band_key in band_value_dict.keys():
+    for band_key in sorted_band_keys:
         if band_key.lower() in dswx_processed_bands_keys:
             dswx_product_value = band_value_dict[band_key]
             wtr[dswx_processed_bands[band_key.lower()] == 1] = \

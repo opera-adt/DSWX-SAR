@@ -308,7 +308,7 @@ def compute_layover_shadow_coverage(data_array):
 
     if valid_pixels > 0:
         return round(layover_shadow_pixels /
-                     valid_pixels, 4)
+                     valid_pixels * 100, 4)
     else:
         return 0
 

@@ -890,7 +890,7 @@ def write_raster_block(out_raster, data,
     number_band = 1 if ndim < 3 else data.shape[0]
 
     data_start_without_pad = block_param.write_start_line - \
-        block_param.read_start_line
+        block_param.read_start_line + block_param.block_pad[0][0]
     data_end_without_pad = data_start_without_pad + \
         block_param.block_length
 

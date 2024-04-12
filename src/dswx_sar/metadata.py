@@ -283,7 +283,7 @@ def compute_spatial_coverage(data_array):
     return round(valid_pixels / total_pixels * 100, 4)
 
 
-def compute_layover_shadow_coverage(data_array, spatial_coverage):
+def compute_layover_shadow_coverage(data_array):
     """
     Compute the layover-shadow coverage.
 
@@ -301,12 +301,16 @@ def compute_layover_shadow_coverage(data_array, spatial_coverage):
     """
     layover_shadow_pixels = np.sum(
         data_array == band_assign_value_dict['layover_shadow_mask'])
+    total_pixels = data_array.size
+    invalid_pixels = np.sum(
+        data_array == band_assign_value_dict['no_data'])
+    valid_pixels = total_pixels - invalid_pixels
 
-    if spatial_coverage > 0:
+    if valid_pixels > 0:
         return round(layover_shadow_pixels /
-                     (spatial_coverage * data_array.size), 4)
+                     valid_pixels, 4)
     else:
-        return np.nan
+        return 0
 
 
 def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
@@ -326,7 +330,7 @@ def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
 
         spatial_cov = compute_spatial_coverage(dswx_data)
         layover_shadow_cov = compute_layover_shadow_coverage(
-            dswx_data, spatial_cov)
+            dswx_data)
 
         dswx_metadata_dict['SPATIAL_COVERAGE'] = spatial_cov
         dswx_metadata_dict['LAYOVER_SHADOW_COVERAGE'] = layover_shadow_cov

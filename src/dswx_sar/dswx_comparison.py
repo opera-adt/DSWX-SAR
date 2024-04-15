@@ -7,9 +7,11 @@ from osgeo import gdal
 
 COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE = 1e-6
 COMPARISON_EXCEPTION_LIST = ['PROCESSING_DATETIME',
-                             'DEM_SOURCE',
-                             'WORLDCOVER_SOURCE',
-                             'REFERENCE_WATER_SOURCE',
+                             'INPUT_DEM_SOURCE',
+                             'INPUT_WORLDCOVER_SOURCE',
+                             'INPUT_REFERENCE_WATER_SOURCE',
+                             'INPUT_HAND_SOURCE',
+                             'INPUT_SHORELINE_SOURCE',
                              'SOFTWARE_VERSION']
 
 
@@ -94,16 +96,29 @@ def _compare_dswx_sar_metadata(metadata_1, metadata_2):
         return metadata_error_message, flag_same_metadata
 
     for k1, v1, in metadata_1.items():
+        if k1 in COMPARISON_EXCEPTION_LIST:
+            continue
+
         if k1 not in metadata_2.keys():
             flag_same_metadata = False
             metadata_error_message = (
                 f'* the metadata key {k1} is present in'
                 ' but it is not present in input 2')
             break
-        # Exclude metadata fields that are not required to be the same
-        if k1 in COMPARISON_EXCEPTION_LIST:
-            continue
-        if metadata_2[k1] != v1:
+
+        if k1 == 'RTC_INPUT_LIST':
+            l1 = list(v1)
+            l2 = list(metadata_2[k1])
+
+            if sorted(l1) != sorted(l2):
+                flag_same_metadata = False
+                metadata_error_message = (
+                    f'* RTC_INPUT_LIST differs between inputs, '
+                    f'input 1 has value {l1} whereas input 2 has value {l2}'
+                )
+                break
+
+        elif metadata_2[k1] != v1:
             flag_same_metadata = False
             metadata_error_message = (
                 f'* contents of metadata key {k1} from'
@@ -157,8 +172,8 @@ def compare_dswx_sar_products(file_1, file_2):
     for b in range(1, nbands_1 + 1):
         gdal_band_1 = layer_gdal_dataset_1.GetRasterBand(b)
         gdal_band_2 = layer_gdal_dataset_2.GetRasterBand(b)
-        image_1 = gdal_band_1.ReadAsArray()
-        image_2 = gdal_band_2.ReadAsArray()
+        image_1 = gdal_band_1.ReadAsArray(buf_type=gdal.GDT_Int64)
+        image_2 = gdal_band_2.ReadAsArray(buf_type=gdal.GDT_Int64)
         flag_bands_are_equal = np.allclose(
             image_1, image_2,
             atol=COMPARE_DSWX_SAR_PRODUCTS_ERROR_TOLERANCE,

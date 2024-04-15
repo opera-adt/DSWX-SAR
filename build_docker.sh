@@ -1,7 +1,7 @@
 #!/bin/bash
 
 IMAGE=opera/dswx-s1
-tag=calval_0.4.1
+tag=calval_0.4.2
 echo "IMAGE is $IMAGE:$tag"
 
 # fail on any non-zero exit codes

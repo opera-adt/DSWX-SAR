@@ -291,8 +291,6 @@ def compute_layover_shadow_coverage(data_array):
     ----------
     data_array : np.array
         The 2D numpy array representation of the GeoTIFF.
-    spatial_coverage : float
-        Spatial coverage as a percentage.
 
     Returns
     -------
@@ -310,7 +308,7 @@ def compute_layover_shadow_coverage(data_array):
         return round(layover_shadow_pixels /
                      valid_pixels * 100, 4)
     else:
-        return 0
+        return 0.0
 
 
 def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):

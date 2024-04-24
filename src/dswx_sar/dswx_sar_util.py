@@ -1,14 +1,16 @@
 import logging
 import os
+import math
 import shutil
 import tempfile
-import rasterio
 
+import rasterio
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr, ogr
 from pyproj import Transformer
+from scipy.signal import convolve2d
 
 gdal.DontUseExceptions()
 
@@ -32,6 +34,7 @@ band_assign_value_dict = {
     'water': 1,  # water body
     'bright_water_fill': 2,
     'inundated_vegetation': 3,
+    'partial_water': 4,
     'dark_land_mask': 5,
     'landcover_mask': 6,
     'hand_mask': 250,
@@ -74,6 +77,8 @@ collapse_wtr_classes_dict = {
         band_assign_value_dict['no_data'],
     band_assign_value_dict['ocean_mask']:
         band_assign_value_dict['ocean_mask'],
+    band_assign_value_dict['partial_water']:
+        band_assign_value_dict['water'],
     }
 
 logger = logging.getLogger('dswx_sar')
@@ -103,6 +108,9 @@ def get_interpreted_dswx_s1_ctable():
     # Blue - Water (high confidence)
     dswx_ctable.SetColorEntry(band_assign_value_dict['water'],
                               (0, 0, 255))
+    # Cyan - Partial Water (high confidence)
+    dswx_ctable.SetColorEntry(band_assign_value_dict['partial_water'],
+                              (0, 255, 255))
     # baby blue - bright water
     dswx_ctable.SetColorEntry(band_assign_value_dict['bright_water_fill'],
                               (120, 120, 240))
@@ -221,6 +229,89 @@ def save_dswx_product(wtr, output_file, geotransform,
                       is_diag=False, datatype='uint8',
                       logger=None,
                       **dswx_processed_bands):
+    """Save DSWx product for assigned classes with colortable
+
+    Parameters
+    ----------
+    wtr: numpy.ndarray
+        classified image for DSWx-S1 product
+    output_file: str
+        full path for filename to save the DSWx-S1 file
+    geotransform: gdal
+        gdaltransform information
+    projection: gdal
+        projection object
+    scratch_dir: str
+        temporary file path to process COG file.
+    description: str
+        description for DSWx-S1
+    dswx_processed_bands
+        classes to save to output
+    """
+    shape = wtr.shape
+    driver = gdal.GetDriverByName("GTiff")
+    wtr = np.asarray(wtr, dtype=datatype)
+    dswx_processed_bands_keys = dswx_processed_bands.keys()
+
+    msg = f'Saving dswx product : {output_file} '
+    if logger is not None:
+        logger.info(msg)
+    else:
+        print(msg)
+
+    band_value_dict = band_assign_value_dict
+
+    for band_key in band_value_dict.keys():
+        if band_key.lower() in dswx_processed_bands_keys:
+            dswx_product_value = band_value_dict[band_key]
+            wtr[dswx_processed_bands[band_key.lower()] == 1] = \
+                dswx_product_value
+            msg = f'    {band_key.lower()} found {dswx_product_value}'
+            if logger is not None:
+                logger.info(msg)
+            else:
+                print(msg)
+
+    gdal_type = np2gdal_conversion[str(datatype)]
+
+    gdal_ds = driver.Create(output_file,
+                            shape[1], shape[0], 1, gdal_type)
+    gdal_ds.SetGeoTransform(geotransform)
+    gdal_ds.SetProjection(projection)
+
+    gdal_band = gdal_ds.GetRasterBand(1)
+    gdal_band.WriteArray(wtr)
+    gdal_band.SetNoDataValue(band_value_dict['no_data'])
+    gdal_band.SetMetadata(metadata)
+    # set color table and color interpretation
+    if not is_diag:
+        dswx_ctable = get_interpreted_dswx_s1_ctable()
+        gdal_band.SetRasterColorTable(dswx_ctable)
+        gdal_band.SetRasterColorInterpretation(
+            gdal.GCI_PaletteIndex)
+
+    if description is not None:
+        gdal_band.SetDescription(description)
+
+    gdal_band.FlushCache()
+    gdal_band = None
+
+    gdal_ds.FlushCache()
+    gdal_ds = None
+    del gdal_ds  # close the dataset (Python object and pointers)
+
+    _save_as_cog(output_file, scratch_dir)
+
+
+def save_dswx_ni_product(wtr, output_file, geotransform,
+                         projection,
+                         partial,
+                         output_spacing,
+                         scratch_dir='.',
+                         description=None, metadata=None,
+                         is_diag=False, datatype='uint8',
+                         logger=None,
+                         **dswx_processed_bands):
     """Save DSWx product for assigned classes with colortable
 
     Parameters
@@ -1689,3 +1780,195 @@ def check_gdal_raster_s3(path_raster_s3: str, raise_error=True):
         raise RuntimeError(f'GDAL raster "{path_raster_s3}" is not available.')
 
     return is_gdal_file_exist
+
+def _calculate_output_bounds(geotransform,
+                             width,
+                             length,
+                             output_spacing):
+    """
+    Calculate the bounding box coordinates adjusted to the nearest multiple of the specified output spacing.
+
+    Parameters
+    ----------
+    geotransform : tuple
+        GeoTransform tuple from a GDAL dataset, containing six coefficients.
+    width : int
+        The number of pixels in x-direction (width) of the dataset.
+    length : int
+        The number of pixels in y-direction (length) of the dataset.
+    output_spacing : float
+        Desired spacing for the output, which adjusts the bounding box dimensions.
+
+    Returns
+    -------
+    list
+        Adjusted bounding box coordinates [x_min, y_min, x_max, y_max].
+    """
+    x_min = geotransform[0]
+    y_max = geotransform[3]
+    x_max = x_min + width * geotransform[1]
+    y_min = y_max + length * geotransform[5]
+
+    x_diff = x_max - x_min
+    y_diff = y_max - y_min
+
+    if x_diff % output_spacing != 0:
+        x_max = x_min + (x_diff // output_spacing + 1) * output_spacing
+
+    if y_diff % output_spacing != 0:
+        y_min = y_max + (y_diff // output_spacing + 1) * output_spacing
+
+    return [x_min, y_min, x_max, y_max]
+
+
+def _perform_warp_in_memory(input_file,
+                            output_spacing,
+                            output_bounds):
+    """
+    Perform a geospatial warp operation on an input file using GDAL, creating an in-memory output
+    dataset with specified spatial resolution and bounding box.
+
+    Parameters
+    ----------
+    input_file : str
+        Path to the input file to be warped.
+    output_spacing : float
+        The resolution (pixel size) to be applied in the warp operation.
+    output_bounds : list
+        The bounding box coordinates where the output will be clipped.
+
+    Returns
+    -------
+    gdal.Dataset
+        An in-memory GDAL dataset representing the warped output.
+    """
+    input_ds = gdal.Open(input_file)
+    if not input_ds:
+        raise ValueError("Failed to open input dataset.")
+
+    print(f"Input dataset size: {input_ds.RasterXSize}x{input_ds.RasterYSize}")
+    print(f"Input geotransform: {input_ds.GetGeoTransform()}")
+
+    warp_options = gdal.WarpOptions(
+        xRes=output_spacing,
+        yRes=-output_spacing,
+        outputBounds=output_bounds,
+        resampleAlg='nearest',
+        format='MEM'  # Use memory as the output format
+    )
+    # Perform the warp operation
+    output_ds = gdal.Warp('', input_ds, options=warp_options)
+    if not output_ds:
+        raise ValueError("Warp operation failed to produce an output dataset.")
+
+    print(f"Output dataset size: {output_ds.RasterXSize}x{output_ds.RasterYSize}")
+
+    return output_ds.ReadAsArray()
+
+
+def partial_water_product(input_file,
+                          output_spacing,
+                          target_label,
+                          threshold):
+    """
+    Generates a water product from a satellite image, identifying areas
+    of full and partial water based on specified thresholding of aggregated pixel values.
+
+    Parameters
+    ----------
+    input_file : str
+        Path to the input satellite image file.
+    output_file : str
+        Base name for the output file that will be generated.
+    scratch_dir : str
+        Directory to store intermediate and output files.
+    output_spacing : float
+        The pixel spacing for the output file.
+    target_label : int
+        The label value used to identify relevant pixels in the image aggregation.
+    threshold : float
+        Threshold value used to differentiate between full and partial water.
+
+    Returns
+    -------
+    ndarray
+        An array representing the processed image with designated labels
+        for water presence.
+    """
+    meta_info = get_meta_from_tif(input_file)
+    geotransform = meta_info['geotransform']
+
+    # Since the pixel spacing of input and output are different,
+    # the spatial extents should be adjusted to align the grid.
+    output_bounds = _calculate_output_bounds(geotransform,
+                                             meta_info['width'],
+                                             meta_info['length'],
+                                             output_spacing)
+
+    output_array = _perform_warp_in_memory(input_file,
+                                           output_spacing,
+                                           output_bounds)
+    print(np.shape(output_array))
+
+    input_spacing = geotransform[1]
+    # Assumption of this function is that the spatial spacings are integer
+    intermediate_spacing = math.gcd(int(input_spacing),
+                                    int(output_spacing))
+
+    high_res_image = _perform_warp_in_memory(input_file,
+                                             intermediate_spacing,
+                                             output_bounds)
+    print(np.shape(high_res_image))
+    water = _aggregate_10m_to_30m_conv(high_res_image,
+                                       int(output_spacing / intermediate_spacing),
+                                       target_label=target_label,
+                                       normalize_flag=False)
+    full_water = water >= threshold
+    partial_water = (water < threshold) & (water > 0)
+
+    output_array[full_water] = 1
+    output_array[partial_water] = 11
+
+    return output_array
+
+
+def _aggregate_10m_to_30m_conv(image, ratio, target_label, normalize_flag):
+    """
+    Aggregate pixel values in an image to a lower resolution based on
+    a specified target label and convolution with a normalization option.
+    The output is a downsampled image showing the density of the target
+    label within blocks of the original image.
+
+    Parameters
+    ----------
+    image : ndarray
+        The input binary image where the specific label is being targeted.
+    ratio : int
+        The size and downsample factor represented by the kernel size (e.g., 3 for a 3x3 kernel).
+    target_label : int
+        The label in the image to focus the convolution on.
+    normalize_flag : bool
+        A flag to determine whether to normalize the kernel by its area (True) or use a simple
+        summation (False).
+
+    Returns
+    -------
+    aggregated_data : ndarray
+        An aggregated binary image of lower resolution, indicating the density of the target
+        label within each block of the original image.
+    """
+    # Define a 3x3 kernel where all values are 1
+    data = image == target_label
+    if normalize_flag:
+        kernel = np.ones((ratio, ratio), dtype=np.int32) / (ratio ** 2)
+    else:
+        kernel = np.ones((ratio, ratio), dtype=np.int32)
+
+    # Perform the convolution with 'valid' mode to only keep full 3x3 blocks
+    aggregated_data = convolve2d(data, kernel, mode='valid')
+
+    # Since the convolution is done with stride 1,
+    # we need to downsample the result by a factor of ratio
+    aggregated_data = aggregated_data[::ratio, ::ratio]
+
+    return aggregated_data

@@ -336,6 +336,8 @@ def run(cfg):
     margin_km = processing_cfg.ocean_mask.mask_margin_km
     polygon_water = processing_cfg.ocean_mask.mask_polygon_water
 
+    partial_water_flag = processing_cfg.partial_surface_water.enabled
+
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
 
@@ -639,6 +641,35 @@ def run(cfg):
                 layover_shadow_mask=layover_shadow_mask > 0,
                 hand_mask=hand_mask,
                 no_data=no_data_raster)
+
+    if partial_water_flag:
+        new_water_meta = water_meta.copy()
+        new_geotransform = list(new_water_meta['geotransform'])
+        new_geotransform[1] = output_spacing
+        new_geotransform[5] = -1 * output_spacing
+        print(new_geotransform, 'new')
+
+        new_water_meta['geotransform'] = tuple(new_geotransform)
+        partial_open_water = dswx_sar_util.partial_water_product(
+            input_file=full_wtr_water_set_path, 
+            output_spacing=output_spacing,
+            target_label=1,
+            threshold=5)
+
+        dswx_sar_util.save_dswx_product(
+            partial_open_water == 1,
+            full_wtr_water_set_path,
+            geotransform=new_water_meta['geotransform'],
+            projection=new_water_meta['projection'],
+            description='Water classification (WTR)',
+            scratch_dir=scratch_dir,
+            logger=logger,
+            partial_water=partial_open_water == 11,
+            layover_shadow_mask=partial_open_water == band_assign_value_dict['layover_shadow_mask'],
+            hand_mask=partial_open_water==band_assign_value_dict['hand_mask'],
+            inundated_vegetation=partial_open_water==band_assign_value_dict['inundated_vegetation'],
+            no_data=partial_open_water==band_assign_value_dict['no_data'],
+            ocean_mask=partial_open_water==band_assign_value_dict['ocean_mask'],)
 
     # Get list of MGRS tiles overlapped with mosaic RTC image
     mgrs_meta_dict = {}

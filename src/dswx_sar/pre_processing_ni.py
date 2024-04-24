@@ -206,15 +206,11 @@ def run(cfg):
                                       2 * temp_raster_set[1, :, :])
                     output_image_set.append(span)
             else:
-                if mosaic_flag:
-                    intensity_path = \
-                        f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
+                intensity_path = \
+                    f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
 
-                    intensity = dswx_sar_util.get_raster_block(
-                        intensity_path, block_param)
-                else:
-                    intensity = dswx_sar_util.read_geotiff(
-                            ref_filename, band_ind=polind)
+                intensity = dswx_sar_util.get_raster_block(
+                    intensity_path, block_param)
                 # need to replace 0 value in padded area to NaN.
                 intensity[intensity == 0] = np.nan
                 if filter_flag:

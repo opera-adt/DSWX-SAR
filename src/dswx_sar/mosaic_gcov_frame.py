@@ -45,7 +45,13 @@ class RTCReader(DataReader):
             output_dir: str,
             scratch_dir: str,
             mosaic_mode: str,
-            mosaic_prefix: str):
+            mosaic_prefix: str,
+            resamp_required: bool,
+            resamp_method: str,
+            resamp_out_res_x: float,
+            resamp_out_res_y: float,
+    ):
+
         """Read data from input HDF5s in blocks and generate mosaicked output
            Geotiff
 
@@ -62,6 +68,16 @@ class RTCReader(DataReader):
             or 'burst_center'
         mosaic_prefix: str
             Mosaicked output file name prefix
+        resamp_required: bool
+            Indicates whether resampling (downsampling) needs to be performed 
+            on input RTC product in Geotiff.
+        resamp_method: str
+            Set GDAL.Warp() resampling algorithms based on its built-in options
+            Default = gdal.GRA_NearestNeighbour
+        resamp_out_res_x: float
+            User define output x-dimension resolution for resampled Geotiff
+        resamp_out_res_y: float
+            User define output y-dimension resolution for resampled Geotiff
         """
         # Extract polarizations
         pols_rtc = self.extract_nisar_polarization(input_list)
@@ -76,26 +92,50 @@ class RTCReader(DataReader):
         # Collect EPSG
         epsg_array, epsg_same_flag = self.get_nisar_epsg(input_list)
 
-        # To Do: Read and write to geotiff
-        # 1. If EPSG are the same between inputs, then write it to output
-        #    mosaicked Geotiff directly from input HDF5
-        # 2. Otherwise, write all to intermeidate Geotiff first and re-use
-        #    existing functions to reproject data and create mosaicked output
-        #    from intermediate Geotiffs
-
-        # Currently, intermediate Geotiffs are created regardless of EPSG
-        layover_exist, geogrid_in = self.write_rtc_geotiff(
-            input_list,
-            output_dir,
-            scratch_dir,
-            epsg_array,
-            data_path,
-            layover_path,
+        # Write all RTC HDF5 inputs to intermeidate Geotiff first and re-use
+        # existing functions to reproject data and create mosaicked output
+        # from intermediate Geotiffs
+        (
+            geogrid_in,
+            input_gtiff_list,
+            layover_gtiff_list) = self.write_rtc_geotiff(
+                input_list,
+                output_dir,
+                scratch_dir,
+                epsg_array,
+                data_path,
+                layover_path,
             )
 
-        # Mosaicking intermediate input geotiffs
-        nlooks_list = []
+        # Perform resampling:
+        if resamp_required:
+            if len(input_gtiff_list) > 0:
+                for idx, input_geotiff in enumerate(input_gtiff_list):
+                    self.resample_rtc(
+                        input_geotiff,
+                        scratch_dir,
+                        resamp_out_res_x,
+                        resamp_out_res_y,
+                        geogrid_in,
+                        resamp_method,
+                    )
 
+            if len(layover_gtiff_list) > 0:
+                layover_exist = True
+                for idx, layover_geotiff in enumerate(layover_gtiff_list):
+                    self.resample_rtc(
+                        layover_geotiff,
+                        scratch_dir,
+                        resamp_out_res_x,
+                        resamp_out_res_y,
+                        geogrid_in,
+                        resamp_method,
+                    )
+            else:
+                layover_exist = False
+            
+        # Mosaic intermediate geotiffs
+        nlooks_list = []
         self.mosaic_rtc_geotiff(
             input_list,
             data_path,
@@ -108,6 +148,7 @@ class RTCReader(DataReader):
             layover_exist,
         )
 
+    # Class functions
     def write_rtc_geotiff(
             self,
             input_list: list,
@@ -136,17 +177,22 @@ class RTCReader(DataReader):
 
         Returns
         -------
-        layover_exist: bool
-            Boolean which indicates if a layoverShadowMask layer exisits
-            in input RTC
         geogrid_in: DSWXGeogrid object
             A dataclass object  representing the geographical grid
             configuration for an RTC (Radar Terrain Correction) run.
+        output_gtiff_list: list
+            List of RTC Geotiffs derived from input RTC HDF5.
+        layover_gtiff_list: list
+            List of layoverShadow Mask Geotiffs derived from input RTC HDF5.
         """
 
         # Reproject geotiff
         most_freq_epsg = majority_element(epsg_array)
         designated_value = np.float32(500)
+
+        # List of written Geotiffs
+        output_gtiff_list = []
+        layover_gtiff_list = []
 
         # Create intermediate input Geotiffs
         for input_idx, input_rtc in enumerate(input_list):
@@ -164,8 +210,9 @@ class RTCReader(DataReader):
                 data_name = Path(dataset_path).name[:2]
                 dataset = f'HDF5:{input_rtc}:/{dataset_path}'
                 output_gtiff = f'{scratch_dir}/{output_prefix}_{data_name}.tif'
-                h5_ds = gdal.Open(dataset, gdal.GA_ReadOnly)
+                output_gtiff_list = np.append(output_gtiff_list, output_gtiff)
 
+                h5_ds = gdal.Open(dataset, gdal.GA_ReadOnly)
                 num_cols = h5_ds.RasterXSize
                 num_rows = h5_ds.RasterYSize
 
@@ -220,7 +267,7 @@ class RTCReader(DataReader):
                     # Update geogrid
                     geogrid_in.update_geogrid(output_gtiff)
 
-        # Generate Layover Shadow Mask Geotiff
+        # Generate Layover Shadow Mask Intermediate Geotiffs
         for input_idx, input_rtc in enumerate(input_list):
             layover_data = f'HDF5:{input_rtc}:/{layover_path}'
             h5_layover = gdal.Open(layover_data, gdal.GA_ReadOnly)
@@ -229,14 +276,13 @@ class RTCReader(DataReader):
             if h5_layover is None:
                 warnings.warn(f'\nDataset at {layover_data} does not exist or '
                               'cannot be opened.', RuntimeWarning)
-                layover_exist = False
                 break
-            else:
-                layover_exist = True
 
                 output_prefix = self.extract_file_name(input_rtc)
                 output_layover_gtiff = \
                     f'{scratch_dir}/{output_prefix}_layover.tif'
+                layover_gtiff_list = np.append(layover_gtiff_list, output_layover_gtiff)
+
                 num_cols = h5_layover.RasterXSize
                 col_blk_size = self.col_blk_size
 
@@ -275,7 +321,7 @@ class RTCReader(DataReader):
                 else:
                     geogrid_in.update_geogrid(output_layover_gtiff)
 
-        return layover_exist, geogrid_in
+        return geogrid_in, output_gtiff_list, layover_gtiff_list
 
     def mosaic_rtc_geotiff(
         self,
@@ -356,6 +402,63 @@ class RTCReader(DataReader):
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
             )
+
+    def resample_rtc(
+        self,
+        input_geotiff: str,
+        scratch_dir: str,
+        output_res_x: float,
+        output_res_y: float,
+        geogrid_in: DSWXGeogrid,
+        resamp_method: str,
+    ):
+        """Resample input geotfif from their native resolution to desired
+        output resolution
+
+        Parameters
+        ----------
+        input_geotiff: str
+            Input geotiff path to be resampled.
+        scratch_dir: str
+            Directory which stores the temporary files
+        output_res_x: float
+            User define output x-dimension resolution for resampled Geotiff
+        output_res_y: float
+            User define output y-dimension resolution for resampled Geotiff
+        geogrid_in: DSWXGeogrid object
+            A dataclass object  representing the geographical grid
+            configuration for an RTC (Radar Terrain Correction) run.
+        resamp_method: str
+            Set GDAL.Warp() resampling algorithms based on its built-in options
+            Default = gdal.GRA_NearestNeighbour
+        """
+
+        # Check if the file exists
+        if not os.path.exists(input_geotiff):
+            raise FileNotFoundError(f"The file '{input_geotiff}' does not exist.")
+
+        full_path = Path(input_geotiff)
+        output_geotiff = f'{full_path.parent}/{full_path.stem}_resamp.tif'
+
+        ds_input = gdal.Open(input_geotiff)
+        geo_transform = ds_input.GetGeoTransform()
+
+        # Set GDAL Warp options
+        # Resampling method
+        #gdal.GRA_Bilinear, gdal.GRA_NearestNeighbour, gdal.GRA_Cubic, gdal.GRA_Average, etc
+
+        options = gdal.WarpOptions(
+            xRes=output_res_x,
+            yRes=output_res_y,
+            resampleAlg=resamp_method)
+
+        ds_output = gdal.Warp(output_geotiff, ds_input, options=options)
+
+        geogrid_in.update_geogrid(output_geotiff)
+        os.replace(output_geotiff, input_geotiff)
+
+        ds_input = None
+        ds_output = None
 
     def extract_file_name(self, input_rtc):
         """Extract file name identifier from input file name
@@ -741,8 +844,16 @@ def run(cfg):
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix
 
+    resamp_required = mosaic_cfg.resamp_required
+    resamp_method = mosaic_cfg.resamp_method
+    resamp_out_res_x= mosaic_cfg.resamp_out_res_x
+    resamp_out_res_y = mosaic_cfg.resamp_out_res_y
+
     scratch_dir = cfg.groups.product_path_group.scratch_path
     os.makedirs(scratch_dir, exist_ok=True)
+
+    output_dir = cfg.groups.product_path_group.sas_output_path
+    os.makedirs(output_dir, exist_ok=True)
 
     row_blk_size = mosaic_cfg.read_row_blk_size
     col_blk_size = mosaic_cfg.read_col_blk_size
@@ -756,12 +867,15 @@ def run(cfg):
     # Mosaic input RTC into output Geotiff
     reader.process_rtc_hdf5(
         input_list,
-        scratch_dir,
+        output_dir,
         scratch_dir,
         mosaic_mode,
         mosaic_prefix,
+        resamp_required,
+        resamp_method,
+        resamp_out_res_x,
+        resamp_out_res_y,
     )
-
 
 if __name__ == "__main__":
     '''Run mosaic rtc products from command line'''

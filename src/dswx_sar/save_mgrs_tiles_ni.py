@@ -337,6 +337,7 @@ def run(cfg):
     polygon_water = processing_cfg.ocean_mask.mask_polygon_water
 
     partial_water_flag = processing_cfg.partial_surface_water.enabled
+    partial_water_threshold = processing_cfg.partial_surface_water.threshold
 
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
@@ -367,7 +368,7 @@ def run(cfg):
         # date_str = tags['ZERO_DOPPLER_START_TIME']
         platform = 'LSAR'
         track_number = rtc_metadata['TRACK_NUMBER']
-        resolution = 30
+        resolution = int(output_spacing)
         date_str_list.append(rtc_metadata['ZERO_DOPPLER_START_TIME'])
 
     input_date_format = "%Y-%m-%dT%H:%M:%S"
@@ -644,17 +645,21 @@ def run(cfg):
 
     if partial_water_flag:
         new_water_meta = water_meta.copy()
+        # change 20 m to 30 m when counting partial surface water
         new_geotransform = list(new_water_meta['geotransform'])
         new_geotransform[1] = output_spacing
         new_geotransform[5] = -1 * output_spacing
-        print(new_geotransform, 'new')
 
         new_water_meta['geotransform'] = tuple(new_geotransform)
         partial_open_water = dswx_sar_util.partial_water_product(
-            input_file=full_wtr_water_set_path, 
+            input_file=full_wtr_water_set_path,
             output_spacing=output_spacing,
-            target_label=1,
-            threshold=5)
+            scratch_dir=scratch_dir,
+            target_label=1, # only open water
+            threshold=partial_water_threshold)
+        temp_full_wtr_water_set_path = \
+            os.path.join(scratch_dir, 'full_water_binary_WTR_set_temp.tif')
+        os.rename(full_wtr_water_set_path, temp_full_wtr_water_set_path)
 
         dswx_sar_util.save_dswx_product(
             partial_open_water == 1,

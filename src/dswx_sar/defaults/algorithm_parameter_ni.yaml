@@ -27,6 +27,7 @@ runconfig:
         # 
         partial_surface_water:
             enabled: True
+            threshold: 5
 
         hand:
             mask_value: 200

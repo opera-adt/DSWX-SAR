@@ -1722,9 +1722,14 @@ def _calculate_output_bounds(geotransform,
         Adjusted bounding box coordinates [x_min, y_min, x_max, y_max].
     """
     x_min = geotransform[0]
-    y_max = geotransform[3]
-    x_max = x_min + width * geotransform[1]
-    y_min = y_max + length * geotransform[5]
+    x_max = x_min + width * geotransform[1] 
+
+    if geotransform[5] < 0:
+        y_max = geotransform[3]
+        y_min = y_max + length * geotransform[5]
+    else:
+        y_min = geotransform[3]
+        y_max = y_min + length * geotransform[5]
 
     x_diff = x_max - x_min
     y_diff = y_max - y_min
@@ -1732,15 +1737,18 @@ def _calculate_output_bounds(geotransform,
     if x_diff % output_spacing != 0:
         x_max = x_min + (x_diff // output_spacing + 1) * output_spacing
 
+    output_spacing = -1 * np.abs(output_spacing)
     if y_diff % output_spacing != 0:
-        y_min = y_max + (y_diff // output_spacing + 1) * output_spacing
+        y_min = y_max + (y_diff // np.abs(output_spacing) + 1) * output_spacing
 
     return [x_min, y_min, x_max, y_max]
 
 
 def _perform_warp_in_memory(input_file,
                             output_spacing,
-                            output_bounds):
+                            output_bounds,
+                            scratch,
+                            debug=False):
     """
     Perform a geospatial warp operation on an input file using GDAL, creating an in-memory output
     dataset with specified spatial resolution and bounding box.
@@ -1766,25 +1774,47 @@ def _perform_warp_in_memory(input_file,
     print(f"Input dataset size: {input_ds.RasterXSize}x{input_ds.RasterYSize}")
     print(f"Input geotransform: {input_ds.GetGeoTransform()}")
 
-    warp_options = gdal.WarpOptions(
-        xRes=output_spacing,
-        yRes=-output_spacing,
-        outputBounds=output_bounds,
-        resampleAlg='nearest',
-        format='MEM'  # Use memory as the output format
-    )
     # Perform the warp operation
-    output_ds = gdal.Warp('', input_ds, options=warp_options)
+    if debug:
+        warp_options = gdal.WarpOptions(
+            xRes=output_spacing,
+            yRes=-output_spacing,
+            outputBounds=output_bounds,
+            resampleAlg='nearest',
+            format='GTIFF'  # Use memory as the output format
+        )
+        output_ds = gdal.Warp(f'{scratch}/debug_output.tif', input_ds, options=warp_options)
+    else:
+        warp_options = gdal.WarpOptions(
+            xRes=output_spacing,
+            yRes=-output_spacing,
+            outputBounds=output_bounds,
+            resampleAlg='nearest',
+            format='MEM'  # Use memory as the output format
+        )
+        output_ds = gdal.Warp('', input_ds, options=warp_options)
+
     if not output_ds:
         raise ValueError("Warp operation failed to produce an output dataset.")
 
     print(f"Output dataset size: {output_ds.RasterXSize}x{output_ds.RasterYSize}")
 
-    return output_ds.ReadAsArray()
+    num_bands = output_ds.RasterCount
+    if num_bands == 1:
+        return output_ds.GetRasterBand(1).ReadAsArray()  # Only one band
+    else:
+        # Create an empty list to store each band's array
+        band_arrays = []
+        for band in range(1, num_bands + 1):
+            band_data = output_ds.GetRasterBand(band).ReadAsArray()
+            band_arrays.append(band_data)
+        # Stack arrays along a new dimension for multiple bands
+        return np.stack(band_arrays, axis=0)
 
 
 def partial_water_product(input_file,
                           output_spacing,
+                          scratch_dir,
                           target_label,
                           threshold):
     """
@@ -1824,8 +1854,9 @@ def partial_water_product(input_file,
 
     output_array = _perform_warp_in_memory(input_file,
                                            output_spacing,
-                                           output_bounds)
-    print(np.shape(output_array))
+                                           output_bounds,
+                                           scratch=scratch_dir,
+                                           debug=False)
 
     input_spacing = geotransform[1]
     # Assumption of this function is that the spatial spacings are integer
@@ -1834,12 +1865,15 @@ def partial_water_product(input_file,
 
     high_res_image = _perform_warp_in_memory(input_file,
                                              intermediate_spacing,
-                                             output_bounds)
-    print(np.shape(high_res_image))
+                                             output_bounds,
+                                             scratch=scratch_dir,
+                                             debug=False)
+
     water = _aggregate_10m_to_30m_conv(high_res_image,
                                        int(output_spacing / intermediate_spacing),
                                        target_label=target_label,
                                        normalize_flag=False)
+
     full_water = water >= threshold
     partial_water = (water < threshold) & (water > 0)
 
@@ -1882,10 +1916,11 @@ def _aggregate_10m_to_30m_conv(image, ratio, target_label, normalize_flag):
         kernel = np.ones((ratio, ratio), dtype=np.int32)
 
     # Perform the convolution with 'valid' mode to only keep full 3x3 blocks
-    aggregated_data = convolve2d(data, kernel, mode='valid')
+    aggregated_data = convolve2d(data, kernel, mode='same')
 
     # Since the convolution is done with stride 1,
     # we need to downsample the result by a factor of ratio
-    aggregated_data = aggregated_data[::ratio, ::ratio]
+    aggregated_data = aggregated_data[int(ratio/2)::ratio,
+                                      int(ratio/2)::ratio]
 
     return aggregated_data

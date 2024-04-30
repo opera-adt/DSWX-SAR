@@ -70,7 +70,7 @@ runconfig:
             mgrs_collection_database_file:
 
         primary_executable:
-            product_type: dswx_ni
+            product_type: DSWX_NI
 
         product_path_group:
             # Directory where PGE will place results

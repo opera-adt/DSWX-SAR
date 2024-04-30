@@ -42,7 +42,6 @@ class RTCReader(DataReader):
     def process_rtc_hdf5(
             self,
             input_list: list,
-            output_dir: str,
             scratch_dir: str,
             mosaic_mode: str,
             mosaic_prefix: str,
@@ -59,8 +58,6 @@ class RTCReader(DataReader):
         ----------
         input_list: list
             The HDF5 file paths of input RTCs to be mosaicked.
-        output_dir: str
-            Directory which stores the mosaic output Geotiff
         scratch_dir: str
             Directory which stores the temporary files
         mosaic_mode: str
@@ -73,7 +70,7 @@ class RTCReader(DataReader):
             on input RTC product in Geotiff.
         resamp_method: str
             Set GDAL.Warp() resampling algorithms based on its built-in options
-            Default = gdal.GRA_NearestNeighbour
+            Default = 'nearest'
         resamp_out_res_x: float
             User define output x-dimension resolution for resampled Geotiff
         resamp_out_res_y: float
@@ -100,7 +97,6 @@ class RTCReader(DataReader):
             input_gtiff_list,
             layover_gtiff_list) = self.write_rtc_geotiff(
                 input_list,
-                output_dir,
                 scratch_dir,
                 epsg_array,
                 data_path,
@@ -139,7 +135,6 @@ class RTCReader(DataReader):
         self.mosaic_rtc_geotiff(
             input_list,
             data_path,
-            output_dir,
             scratch_dir,
             geogrid_in,
             nlooks_list,
@@ -152,7 +147,6 @@ class RTCReader(DataReader):
     def write_rtc_geotiff(
             self,
             input_list: list,
-            output_dir: str,
             scratch_dir: str,
             epsg_array: np.ndarray,
             data_path: list,
@@ -164,8 +158,6 @@ class RTCReader(DataReader):
         ----------
         input_list: list
             The HDF5 file paths of input RTCs to be mosaicked.
-        output_dir: str
-            Directory which stores the mosaic output Geotiff
         scratch_dir: str
             Directory which stores the temporary files
         epsg_array: array of int
@@ -327,7 +319,6 @@ class RTCReader(DataReader):
         self,
         input_list: list,
         data_path: list,
-        output_dir: str,
         scratch_dir: str,
         geogrid_in: DSWXGeogrid,
         nlooks_list: list,
@@ -343,8 +334,6 @@ class RTCReader(DataReader):
             The HDF5 file paths of input RTCs to be mosaicked.
         data_path: list
             RTC dataset path within the HDF5 input file
-        output_dir: str
-            Directory which stores the mosaic output Geotiff
         scratch_dir: str
             Directory which stores the temporary files
         geogrid_in: DSWXGeogrid object
@@ -371,7 +360,7 @@ class RTCReader(DataReader):
 
             # Mosaic dataset of same polarization into a single Geotiff
             output_mosaic_gtiff = \
-                f'{output_dir}/{mosaic_prefix}_{data_name}.tif'
+                f'{scratch_dir}/{mosaic_prefix}_{data_name}.tif'
             mosaic_single_output_file(
                 input_gtiff_list,
                 nlooks_list,
@@ -391,7 +380,7 @@ class RTCReader(DataReader):
                 layover_gtiff_list = np.append(layover_gtiff_list,
                                                layover_gtiff)
 
-            layover_mosaic_gtiff = f'{output_dir}/{mosaic_prefix}_layover.tif'
+            layover_mosaic_gtiff = f'{scratch_dir}/{mosaic_prefix}_layover.tif'
 
             mosaic_single_output_file(
                 layover_gtiff_list,
@@ -410,7 +399,7 @@ class RTCReader(DataReader):
         output_res_x: float,
         output_res_y: float,
         geogrid_in: DSWXGeogrid,
-        resamp_method: str,
+        resamp_method: str = 'nearest',
     ):
         """Resample input geotfif from their native resolution to desired
         output resolution
@@ -430,7 +419,7 @@ class RTCReader(DataReader):
             configuration for an RTC (Radar Terrain Correction) run.
         resamp_method: str
             Set GDAL.Warp() resampling algorithms based on its built-in options
-            Default = gdal.GRA_NearestNeighbour
+            Default = 'nearest
         """
 
         # Check if the file exists
@@ -852,9 +841,6 @@ def run(cfg):
     scratch_dir = cfg.groups.product_path_group.scratch_path
     os.makedirs(scratch_dir, exist_ok=True)
 
-    output_dir = cfg.groups.product_path_group.sas_output_path
-    os.makedirs(output_dir, exist_ok=True)
-
     row_blk_size = mosaic_cfg.read_row_blk_size
     col_blk_size = mosaic_cfg.read_col_blk_size
 
@@ -867,7 +853,6 @@ def run(cfg):
     # Mosaic input RTC into output Geotiff
     reader.process_rtc_hdf5(
         input_list,
-        output_dir,
         scratch_dir,
         mosaic_mode,
         mosaic_prefix,

@@ -44,7 +44,7 @@ runconfig:
             #   - first : choose one burst without average.
             mosaic_mode: 'first'
             resamp_required: True
-            resamp_method: 'gdal.GRA_NearestNeighbour'
+            resamp_method: 'nearest'
             resamp_out_res_x: 30.0
             resamp_out_res_y: 30.0
             read_row_blk_size: 1000

@@ -1,14 +1,16 @@
 import logging
 import os
+import math
 import shutil
 import tempfile
-import rasterio
 
+import rasterio
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
 from osgeo import gdal, osr, ogr
 from pyproj import Transformer
+from scipy.signal import convolve2d
 
 gdal.DontUseExceptions()
 
@@ -32,6 +34,7 @@ band_assign_value_dict = {
     'water': 1,  # water body
     'bright_water_fill': 2,
     'inundated_vegetation': 3,
+    'partial_water': 4,
     'dark_land_mask': 5,
     'landcover_mask': 6,
     'hand_mask': 250,
@@ -74,6 +77,8 @@ collapse_wtr_classes_dict = {
         band_assign_value_dict['no_data'],
     band_assign_value_dict['ocean_mask']:
         band_assign_value_dict['ocean_mask'],
+    band_assign_value_dict['partial_water']:
+        band_assign_value_dict['water'],
     }
 
 logger = logging.getLogger('dswx_sar')
@@ -103,6 +108,9 @@ def get_interpreted_dswx_s1_ctable():
     # Blue - Water (high confidence)
     dswx_ctable.SetColorEntry(band_assign_value_dict['water'],
                               (0, 0, 255))
+    # Cyan - Partial Water (high confidence)
+    dswx_ctable.SetColorEntry(band_assign_value_dict['partial_water'],
+                              (0, 255, 255))
     # baby blue - bright water
     dswx_ctable.SetColorEntry(band_assign_value_dict['bright_water_fill'],
                               (120, 120, 240))
@@ -1689,3 +1697,229 @@ def check_gdal_raster_s3(path_raster_s3: str, raise_error=True):
         raise RuntimeError(f'GDAL raster "{path_raster_s3}" is not available.')
 
     return is_gdal_file_exist
+
+def _calculate_output_bounds(geotransform,
+                             width,
+                             length,
+                             output_spacing):
+    """
+    Calculate the bounding box coordinates adjusted to the nearest multiple of the specified output spacing.
+
+    Parameters
+    ----------
+    geotransform : tuple
+        GeoTransform tuple from a GDAL dataset, containing six coefficients.
+    width : int
+        The number of pixels in x-direction (width) of the dataset.
+    length : int
+        The number of pixels in y-direction (length) of the dataset.
+    output_spacing : float
+        Desired spacing for the output, which adjusts the bounding box dimensions.
+
+    Returns
+    -------
+    list
+        Adjusted bounding box coordinates [x_min, y_min, x_max, y_max].
+    """
+    x_min = geotransform[0]
+    x_max = x_min + width * geotransform[1] 
+
+    if geotransform[5] < 0:
+        y_max = geotransform[3]
+        y_min = y_max + length * geotransform[5]
+    else:
+        y_min = geotransform[3]
+        y_max = y_min + length * geotransform[5]
+
+    x_diff = x_max - x_min
+    y_diff = y_max - y_min
+
+    if x_diff % output_spacing != 0:
+        x_max = x_min + (x_diff // output_spacing + 1) * output_spacing
+
+    output_spacing = -1 * np.abs(output_spacing)
+    if y_diff % output_spacing != 0:
+        y_min = y_max + (y_diff // np.abs(output_spacing) + 1) * output_spacing
+
+    return [x_min, y_min, x_max, y_max]
+
+
+def _perform_warp_in_memory(input_file,
+                            output_spacing,
+                            output_bounds,
+                            scratch,
+                            debug=False):
+    """
+    Perform a geospatial warp operation on an input file using GDAL, creating an in-memory output
+    dataset with specified spatial resolution and bounding box.
+
+    Parameters
+    ----------
+    input_file : str
+        Path to the input file to be warped.
+    output_spacing : float
+        The resolution (pixel size) to be applied in the warp operation.
+    output_bounds : list
+        The bounding box coordinates where the output will be clipped.
+    scratch : str
+        Path for the scratch directory. The temp file may be saved. 
+    debug : bool
+        Boolean to eanble/disable the debug mode
+    
+    Returns
+    -------
+    gdal.Dataset
+        An in-memory GDAL dataset representing the warped output.
+    """
+    input_ds = gdal.Open(input_file)
+    if not input_ds:
+        raise ValueError("Failed to open input dataset.")
+
+    # Perform the warp operation
+    if debug:
+        warp_options = gdal.WarpOptions(
+            xRes=output_spacing,
+            yRes=-output_spacing,
+            outputBounds=output_bounds,
+            resampleAlg='nearest',
+            format='GTIFF'  # Use memory as the output format
+        )
+        output_ds = gdal.Warp(f'{scratch}/debug_output.tif', input_ds, options=warp_options)
+    else:
+        warp_options = gdal.WarpOptions(
+            xRes=output_spacing,
+            yRes=-output_spacing,
+            outputBounds=output_bounds,
+            resampleAlg='nearest',
+            format='MEM'  # Use memory as the output format
+        )
+        output_ds = gdal.Warp('', input_ds, options=warp_options)
+
+    if not output_ds:
+        raise ValueError("Warp operation failed to produce an output dataset.")
+
+    num_bands = output_ds.RasterCount
+    if num_bands == 1:
+        return output_ds.GetRasterBand(1).ReadAsArray()  # Only one band
+    else:
+        # Create an empty list to store each band's array
+        band_arrays = []
+        for band in range(1, num_bands + 1):
+            band_data = output_ds.GetRasterBand(band).ReadAsArray()
+            band_arrays.append(band_data)
+        # Stack arrays along a new dimension for multiple bands
+        return np.stack(band_arrays, axis=0)
+
+
+def partial_water_product(input_file,
+                          output_spacing,
+                          scratch_dir,
+                          target_label,
+                          threshold):
+    """
+    Generates a water product from a satellite image, identifying areas
+    of full and partial water based on specified thresholding of aggregated pixel values.
+
+    Parameters
+    ----------
+    input_file : str
+        Path to the input satellite image file.
+    output_file : str
+        Base name for the output file that will be generated.
+    scratch_dir : str
+        Directory to store intermediate and output files.
+    output_spacing : float
+        The pixel spacing for the output file.
+    target_label : int
+        The label value used to identify relevant pixels in the image aggregation.
+    threshold : float
+        Threshold value used to differentiate between full and partial water.
+
+    Returns
+    -------
+    ndarray
+        An array representing the processed image with designated labels
+        for water presence.
+    """
+    meta_info = get_meta_from_tif(input_file)
+    geotransform = meta_info['geotransform']
+
+    # Since the pixel spacing of input and output are different,
+    # the spatial extents should be adjusted to align the grid.
+    output_bounds = _calculate_output_bounds(geotransform,
+                                             meta_info['width'],
+                                             meta_info['length'],
+                                             output_spacing)
+
+    output_array = _perform_warp_in_memory(input_file,
+                                           output_spacing,
+                                           output_bounds,
+                                           scratch=scratch_dir,
+                                           debug=False)
+
+    input_spacing = geotransform[1]
+    # Assumption of this function is that the spatial spacings are integer
+    intermediate_spacing = math.gcd(int(input_spacing),
+                                    int(output_spacing))
+
+    high_res_image = _perform_warp_in_memory(input_file,
+                                             intermediate_spacing,
+                                             output_bounds,
+                                             scratch=scratch_dir,
+                                             debug=False)
+
+    water = _aggregate_10m_to_30m_conv(high_res_image,
+                                       int(output_spacing / intermediate_spacing),
+                                       target_label=target_label,
+                                       normalize_flag=False)
+
+    full_water = water >= threshold
+    partial_water = (water < threshold) & (water > 0)
+
+    output_array[full_water] = 1
+    output_array[partial_water] = 11
+
+    return output_array
+
+
+def _aggregate_10m_to_30m_conv(image, ratio, target_label, normalize_flag):
+    """
+    Aggregate pixel values in an image to a lower resolution based on
+    a specified target label and convolution with a normalization option.
+    The output is a downsampled image showing the density of the target
+    label within blocks of the original image.
+
+    Parameters
+    ----------
+    image : ndarray
+        The input binary image where the specific label is being targeted.
+    ratio : int
+        The size and downsample factor represented by the kernel size (e.g., 3 for a 3x3 kernel).
+    target_label : int
+        The label in the image to focus the convolution on.
+    normalize_flag : bool
+        A flag to determine whether to normalize the kernel by its area (True) or use a simple
+        summation (False).
+
+    Returns
+    -------
+    aggregated_data : ndarray
+        An aggregated binary image of lower resolution, indicating the density of the target
+        label within each block of the original image.
+    """
+    # Define a 3x3 kernel where all values are 1
+    data = image == target_label
+    if normalize_flag:
+        kernel = np.ones((ratio, ratio), dtype=np.int32) / (ratio ** 2)
+    else:
+        kernel = np.ones((ratio, ratio), dtype=np.int32)
+
+    # Perform the convolution with 'valid' mode to only keep full 3x3 blocks
+    aggregated_data = convolve2d(data, kernel, mode='same')
+
+    # Since the convolution is done with stride 1,
+    # we need to downsample the result by a factor of ratio
+    aggregated_data = aggregated_data[int(ratio/2)::ratio,
+                                      int(ratio/2)::ratio]
+
+    return aggregated_data

@@ -664,13 +664,15 @@ class RTCReader(DataReader):
                 dswx_meta_mapping['RTC_TRACK_NUMBER']][()]
             abs_orbit_number = src_h5[
                 dswx_meta_mapping['RTC_ABSOLUTE_ORBIT_NUMBER']][()]
-            input_slc_granules = src_h5[
-                dswx_meta_mapping['RTC_INPUT_L1_SLC_GRANULES']][(0)].decode()
-
+            try:
+                input_slc_granules = src_h5[
+                    dswx_meta_mapping['RTC_INPUT_L1_SLC_GRANULES']][(0)].decode()
+            except:
+                print('RTC_INPUT_L1_SLC_GRANULES is not available')
         dswx_metadata_dict = {
             'ORBIT_PASS_DIRECTION': orbit_pass_dir,
             'LOOK_DIRECTION': look_dir,
-            'INPUT_L1_SLC_GRANULES': input_slc_granules,
+            # 'INPUT_L1_SLC_GRANULES': input_slc_granules,
             'PRODUCT_VERSION': prod_ver,
             'ZERO_DOPPLER_START_TIME': zero_dopp_start,
             'ZERO_DOPPLER_END_TIME': zero_dopp_end,

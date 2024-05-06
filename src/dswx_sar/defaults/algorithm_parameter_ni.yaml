@@ -24,6 +24,10 @@ runconfig:
             drought_erosion_pixel: 10
             # number of pixel to apply dilation for flood case
             flood_dilation_pixel: 16
+        # 
+        partial_surface_water:
+            enabled: True
+            threshold: 5
 
         hand:
             mask_value: 200

@@ -21,6 +21,8 @@ from dswx_sar.dswx_runconfig import (_get_parser,
                                      RunConfig,
                                      DSWX_S1_POL_DICT)
 
+from dswx_sar.initial_threshold import jacobian_bimodal, jacobian_trimodal
+
 logger = logging.getLogger('dswx_sar')
 
 
@@ -124,6 +126,8 @@ class BimodalityMetrics:
                                       self.bincenter,
                                       self.prob,
                                       expected,
+                                      jac=jacobian_bimodal,
+                                      method='trf',
                                       bounds=(
                                         (-30, 1e-10, 0,
                                          -30, 1e-10, 0),

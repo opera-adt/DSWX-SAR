@@ -8,8 +8,8 @@ runconfig:
 
         # Polarizations to be used for DSWx-SAR
         # [polarizations] for list of specific frequency(s) e.g. [VV, VH] or [VV]
-        # 'dual-pol', 'co-pol', 'cross-pol' will search the polarizations Input GeoTiff files have. 
-        # For example, 'co-pol' uses ['HH'], ['VV'], or ['HH', 'VV'] by looking at the input data. 
+        # 'dual-pol', 'co-pol', 'cross-pol' will search the polarizations Input GeoTiff files have.
+        # For example, 'co-pol' uses ['HH'], ['VV'], or ['HH', 'VV'] by looking at the input data.
         polarizations: any(list(str(min=2, max=10), min=1, max=4), str(min=4, max=4), null(), required=False)
         # Additional for polarimetric computations to be performed in specific polarization modes (co/cross and co + cross)
         polarimetric_option: any(list(enum('ratio', 'span'), min=1, max=2), enum('ratio', 'span'), null(), required=False)
@@ -24,6 +24,10 @@ runconfig:
 
         hand:
             mask_value: num(required=False)
+
+        partial_surface_water:
+            enabled: bool(required=False)
+            threshold: int(min=0, required=False)
 
         ocean_mask:
             # Flag to apply ocean mask
@@ -43,6 +47,7 @@ runconfig:
             resamp_out_res_y: num(required=False)
             read_row_blk_size: int(min=1, required=False)
             read_col_blk_size: int(min=1, required=False)
+
         # Flag to turn on/off the filtering for RTC image.
         # The enhanced Lee filter is available.
         filter:
@@ -90,12 +95,12 @@ runconfig:
             # estimate single threshold per tile. If True, the trimodal distribution is assumed,
             # the lowest threshold is estimated.
             multi_threshold: bool(required=False)
-            # Flag to adjust threshold where two gaussian distribution is not overlapped. 
+            # Flag to adjust threshold where two gaussian distribution is not overlapped.
             # If 'adjust_if_nonoverlap' is enabled,
             # start to search the alternative threshold when two distributions are not
             # overlapped. The 'low_dist_percentile' is the percentile of
             # the low distribution and 'high_dist_percentile' is the percentile of
-            # the high distribution. Both values should be within range of 0 to 1. 
+            # the high distribution. Both values should be within range of 0 to 1.
             adjust_if_nonoverlap: bool(required=False)
             low_dist_percentile: num(required=False, min=0, max=1)
             high_dist_percentile: num(required=False, min=0, max=1)
@@ -153,8 +158,8 @@ runconfig:
             line_per_block: num(min=1, required=False)
 
         masking_ancillary:
-            # Land covers that behaves like dark lands in DSWx-SAR. 
-            # The elements should be in given landcover file. 
+            # Land covers that behaves like dark lands in DSWx-SAR.
+            # The elements should be in given landcover file.
             # The elements will be masked out during this step.
             land_cover_darkland_list: list(required=False)
             # The elements is considered as the dark land candidates
@@ -173,7 +178,7 @@ runconfig:
             extended_darkland_water_buffer: int(required=False, min=0)
             # Assuming the height of the water/land boundaries has low
             # variation, the standard deviation is estimated along the boundaries
-            # and removed if the std is high. 
+            # and removed if the std is high.
             hand_variation_mask: bool(required=False)
             # pixels with HAND threshold is masked out.
             hand_variation_threshold: num(min=0, max=100, required=False)
@@ -199,7 +204,7 @@ runconfig:
             dual_pol_ratio_threshold: num(min=0, max=30, required=False)
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
-            # Land covers where the inundated vegetation is detected. 
+            # Land covers where the inundated vegetation is detected.
             target_land_cover: list(required=False)
         # If debug mode is true, intermediate product is generated.
         debug_mode: bool(required=False)

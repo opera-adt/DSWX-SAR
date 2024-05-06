@@ -41,6 +41,10 @@ runconfig:
             mosaic_prefix: str(required=False)
             mosaic_cog_enable: bool(required=False)
             mosaic_mode: str(required=False)
+            resamp_required: bool(required=False)
+            resamp_method: str(required=False)
+            resamp_out_res_x: num(required=False)
+            resamp_out_res_y: num(required=False)
             read_row_blk_size: int(min=1, required=False)
             read_col_blk_size: int(min=1, required=False)
 

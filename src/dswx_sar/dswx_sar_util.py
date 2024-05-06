@@ -1761,7 +1761,11 @@ def _perform_warp_in_memory(input_file,
         The resolution (pixel size) to be applied in the warp operation.
     output_bounds : list
         The bounding box coordinates where the output will be clipped.
-
+    scratch : str
+        Path for the scratch directory. The temp file may be saved. 
+    debug : bool
+        Boolean to eanble/disable the debug mode
+    
     Returns
     -------
     gdal.Dataset
@@ -1770,9 +1774,6 @@ def _perform_warp_in_memory(input_file,
     input_ds = gdal.Open(input_file)
     if not input_ds:
         raise ValueError("Failed to open input dataset.")
-
-    print(f"Input dataset size: {input_ds.RasterXSize}x{input_ds.RasterYSize}")
-    print(f"Input geotransform: {input_ds.GetGeoTransform()}")
 
     # Perform the warp operation
     if debug:
@@ -1796,8 +1797,6 @@ def _perform_warp_in_memory(input_file,
 
     if not output_ds:
         raise ValueError("Warp operation failed to produce an output dataset.")
-
-    print(f"Output dataset size: {output_ds.RasterXSize}x{output_ds.RasterYSize}")
 
     num_bands = output_ds.RasterCount
     if num_bands == 1:

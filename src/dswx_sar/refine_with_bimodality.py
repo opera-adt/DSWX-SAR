@@ -913,7 +913,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
 
             # save the water label into file
             water_label_str = os.path.join(
-                outputdir, f'false_water_label_{pol_str}.tif')
+                outputdir, f'false_water_label_{pol_str}_{block_iter}.tif')
             dswx_sar_util.write_raster_block(
                 water_label_str,
                 output_water,
@@ -1038,7 +1038,9 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                         ref_land_portion_image = ref_land_portion_output[
                             index_array_to_image]
                         dswx_sar_util.write_raster_block(
-                            os.path.join(outputdir, f'land_portion_{pol}.tif'),
+                            os.path.join(
+                                outputdir,
+                                f'land_portion_{pol}_{block_iter}.tif'),
                             ref_land_portion_image,
                             block_param,
                             geotransform=meta_info['geotransform'],
@@ -1048,11 +1050,11 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                             scratch_dir=outputdir)
 
                         metric_detail_name = [
-                            f'binary_ahman_{pol}.tif',
-                            f'binary_bhc_{pol}.tif',
-                            f'binary_asurface_ratio_{pol}.tif',
-                            f'binary_bm_coeff_{pol}.tif',
-                            f'binary_bc_coeff_{pol}.tif']
+                            f'binary_ahman_{pol}_{block_iter}.tif',
+                            f'binary_bhc_{pol}_{block_iter}.tif',
+                            f'binary_asurface_ratio_{pol}_{block_iter}.tif',
+                            f'binary_bm_coeff_{pol}_{block_iter}.tif',
+                            f'binary_bc_coeff_{pol}_{block_iter}.tif']
 
                         metric_output = np.insert(metric_output,
                                                   0,
@@ -1502,7 +1504,7 @@ def run(cfg):
         merged_layer_path=bright_water_path,
         lines_per_block=lines_per_block,
         mode='or', cog_flag=True,
-        scratch_dir='.')
+        scratch_dir=outputdir)
 
     fill_gap_bindary_path = \
         fill_gap_water_bimodality_parallel(
@@ -1525,7 +1527,7 @@ def run(cfg):
         lines_per_block=lines_per_block,
         mode='or',
         cog_flag=True,
-        scratch_dir='.')
+        scratch_dir=outputdir)
 
     t_time_end = time.time()
     t_all_elapsed = t_time_end - t_all

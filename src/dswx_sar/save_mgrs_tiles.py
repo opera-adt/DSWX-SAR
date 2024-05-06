@@ -661,13 +661,25 @@ def run(cfg):
     else:
         pol_set1 = pol_list
         pol_set2 = []
-        count_pols = [len(glob.glob(f'{input_dir}/*{pol_candidate}*.tif'))
-                      for pol_candidate in pol_list]
+        count_pols = []
+        for input_dir in input_list:
+            pol_types = DSWX_S1_POL_DICT['DV_POL'] + \
+                        DSWX_S1_POL_DICT['DH_POL']
+            # Initialize count
+            count_pol = 0
+            # Count files for each polarization type
+            for target_pol in pol_types:
+                pol_files = glob.glob(
+                    os.path.join(input_dir, f'*{target_pol}*.tif'))
+                count_pol += len(pol_files)
+            count_pols.append(count_pol)
+        all_match_first = all(count == count_pols[0]
+                              for count in count_pols)
 
         # count_pols is list of number of the available pols.
         # count_pols[0] is always copol because
         # Co-pol proceed before cross-pol.
-        if len(pol_list) > 1 and np.any(count_pols != count_pols[0]):
+        if len(pol_list) > 1 and not all_match_first:
             # get first character from polarization (V or H)
             pol_id = pol_list[0][0]
             pol_mode = f'MIX_DUAL_{pol_id}_SINGLE_{pol_id}_POL'

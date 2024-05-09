@@ -1906,10 +1906,7 @@ def _aggregate_10m_to_30m_conv(image, ratio, normalize_flag):
         label within each block of the original image.
     """
     # Define a 3x3 kernel where all values are 1
-    if normalize_flag:
-        kernel = np.ones((ratio, ratio), dtype=np.int32) / (ratio ** 2)
-    else:
-        kernel = np.ones((ratio, ratio), dtype=np.int32)
+    kernel = np.ones((ratio, ratio), dtype=np.int32)
 
     # Perform the convolution with 'valid' mode to only keep full 3x3 blocks
     aggregated_data = convolve2d(image, kernel, mode='same')
@@ -1918,5 +1915,12 @@ def _aggregate_10m_to_30m_conv(image, ratio, normalize_flag):
     # we need to downsample the result by a factor of ratio
     aggregated_data = aggregated_data[ratio//2::ratio,
                                       ratio//2::ratio]
+    if normalize_flag:
+        valid_area = image > 0
+        pixel_count = convolve2d(valid_area, kernel, mode='same')
+        pixel_count = pixel_count[ratio//2::ratio,
+                                  ratio//2::ratio]
+
+        aggregated_data = aggregated_data /pixel_count
 
     return aggregated_data

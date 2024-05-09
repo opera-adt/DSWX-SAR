@@ -20,9 +20,8 @@ from dswx_sar.mosaic_rtc_burst import (majority_element,
 from dswx_sar.dswx_sar_util import change_epsg_tif
 from dswx_sar.dswx_geogrid import DSWXGeogrid
 from dswx_sar.dswx_ni_runconfig import _get_parser, RunConfig
-from dswx_sar_util import (_calculate_output_bounds,
-                           _perform_warp_in_memory,
-                           _aggregate_10m_to_30m_conv)
+from dswx_sar.dswx_sar_util import (_calculate_output_bounds,
+                                    _aggregate_10m_to_30m_conv)
 
 logger = logging.getLogger('dswx_sar')
 

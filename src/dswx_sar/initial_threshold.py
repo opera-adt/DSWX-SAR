@@ -21,9 +21,9 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      _get_parser)
 
+from dswx_sar.multimodal_jacobian import jacobian_bimodal, jacobian_trimodal
 
 logger = logging.getLogger('dswx_sar')
-
 
 def convert_pow2db(intensity):
     """Convert power to decibels
@@ -954,6 +954,8 @@ def determine_threshold(
                                   intensity_bins,
                                   intensity_counts,
                                   expected,
+                                  jac=jacobian_bimodal,
+                                  method='trf',
                                   bounds=((-30, 0, 0.01,
                                            -30, 0, 0.01),
                                           (5, 5, 0.95,
@@ -1002,6 +1004,8 @@ def determine_threshold(
                                   intensity_bins,
                                   intensity_counts,
                                   expected,
+                                  jac=jacobian_trimodal,
+                                  method='trf',
                                   bounds=((-35, 0, 0.01,
                                            -35, 0, 0.01,
                                            -35, 0, 0.01),

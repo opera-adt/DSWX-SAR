@@ -21,7 +21,7 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
                                      _get_parser)
 
-from dswx_sar.dswx_sar_helper import jacobian_bimodal, jacobian_trimodal
+from dswx_sar.multimodal_jacobian import jacobian_bimodal, jacobian_trimodal
 
 logger = logging.getLogger('dswx_sar')
 

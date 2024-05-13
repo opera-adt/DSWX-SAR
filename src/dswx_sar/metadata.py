@@ -180,15 +180,34 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
         fuzzy_value_cfg = processing_cfg.fuzzy_value
         inundated_vegetation_cfg = processing_cfg.inundated_vegetation
         refine_with_bimodality_cfg = processing_cfg.refine_with_bimodality
+        filter_method = processing_cfg.filter.method 
+        filter_opt = processing_cfg.filter
+        if filter_method == 'lee':
+            filter_option = {'win_size':
+                             filter_opt.lee_filter.window_size}
+        elif filter_method == 'anisotropic_diffusion':
+            filter_option = {'weight':
+                             filter_opt.anisotropic_diffusion.weight}
+        elif filter_method == 'guided_filter':
+            filter_option = {'radius':
+                             filter_opt.guided_filter.radius,
+                             'eps':
+                             filter_opt.guided_filter.eps,
+                             'ddepth':
+                             filter_opt.guided_filter.ddepth}
+        elif filter_method == 'bregman':
+            filter_option = {'lambda':
+                             filter_opt.bregman.lambda_value}
 
         dswx_metadata_dict.update({
             'PROCESSING_INFORMATION_POLARIZATION':
                 processing_cfg.polarizations,
-            'PROCESSING_INFORMATION_FILTER': 'Enhanced Lee filter',
+            'PROCESSING_INFORMATION_FILTER':
+                processing_cfg.filter.method,
             'PROCESSING_INFORMATION_FILTER_ENABLED':
                 processing_cfg.filter.enabled,
-            'PROCESSING_INFORMATION_FILTER_WINDOW_SIZE':
-                processing_cfg.filter.window_size,
+            'PROCESSING_INFORMATION_FILTER_OPTION':
+                filter_option,
 
             'PROCESSING_INFORMATION_THRESHOLDING':
                 threshold_mapping.get(initial_threshold_cfg.threshold_method),

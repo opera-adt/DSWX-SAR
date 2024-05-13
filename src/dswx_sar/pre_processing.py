@@ -608,8 +608,9 @@ def run(cfg):
     co_pol = processing_cfg.copol
     cross_pol = processing_cfg.crosspol
 
-    filter_size = processing_cfg.filter.window_size
+    filter_options = processing_cfg.filter
     filter_flag = processing_cfg.filter.enabled
+    filter_method = processing_cfg.filter.method
     line_per_block = processing_cfg.filter.line_per_block
 
     mosaic_prefix = processing_cfg.mosaic.mosaic_prefix
@@ -733,7 +734,7 @@ def run(cfg):
                 )
 
     # apply SAR filtering
-    pad_shape = (filter_size, 0)
+    pad_shape = (filter_options.block_pad, 0)
     block_params = dswx_sar_util.block_param_generator(
         lines_per_block=line_per_block,
         data_shape=(im_meta['length'],
@@ -787,9 +788,28 @@ def run(cfg):
                 # need to replace 0 value in padded area to NaN.
                 intensity[intensity == 0] = np.nan
                 if filter_flag:
-                    filtered_intensity = filter_SAR.lee_enhanced_filter(
-                                    intensity,
-                                    win_size=filter_size)
+                    if filter_method == 'lee':
+                        filtering_method = filter_SAR.lee_enhanced_filter
+                        filter_option = {'win_size':
+                                         filter_options.lee_filter.window_size}
+                    elif filter_method == 'anisotropic_diffusion':
+                        filtering_method = filter_SAR.anisotropic_diffusion
+                        filter_option = {'weight':
+                                         filter_options.anisotropic_diffusion.weight}
+                    elif filter_method == 'guided_filter':
+                        filtering_method = filter_SAR.guided_filter
+                        filter_option = {'radius':
+                                         filter_options.guided_filter.radius,
+                                         'eps':
+                                         filter_options.guided_filter.eps,
+                                         'ddepth':
+                                         filter_options.guided_filter.ddepth}
+                    elif filter_method == 'bregman':
+                        filtering_method = filter_SAR.tv_bregman
+                        filter_option = {'lambda':
+                                         filter_options.bregman.lambda_value}
+                    filtered_intensity = filtering_method(
+                                    intensity, **filter_option)
                 else:
                     filtered_intensity = intensity
 

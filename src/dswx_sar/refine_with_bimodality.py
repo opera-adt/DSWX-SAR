@@ -698,8 +698,12 @@ def process_dark_land_component(args):
             bimodality_array_i = True
     else:
         # if the water body candiates are too small,
-        # we don't compute bimodality and remove it.
-        bimodality_array_i = False
+        # we compare the ref_land_portion, which is binary image of the land.
+        # If target area is only land, the area is deleted.
+        if ref_land_portion == 1:
+            bimodality_array_i = False
+        else:
+            bimodality_array_i = True
 
     return i, bimodality_array_i, ref_land_portion, metric_output_i
 
@@ -940,9 +944,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
 
                 # Check if the component touches the boundary
                 if bbox_y != 0 and \
-                   (bbox_y + bbox_h) != block_param.block_length and \
-                   size >= minimum_pixel:
-
+                   (bbox_y + bbox_h) != block_param.block_length:
                     margin = int((np.sqrt(2) - 1.2) * np.sqrt(size))
                     margin = max(margin, 1)
 
@@ -990,7 +992,6 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                                   block_param.read_start_line,
                                   block_param.block_length)
                                  for i in component_data.keys()]
-
                     with Parallel(n_jobs=number_workers) as parallel:
                         results = parallel(
                             delayed(process_dark_land_component)(args)

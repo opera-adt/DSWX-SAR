@@ -1867,8 +1867,8 @@ def partial_water_product(input_file,
                                              output_bounds,
                                              scratch=scratch_dir,
                                              debug=False)
-
-    water = _aggregate_10m_to_30m_conv(high_res_image,
+    target_high_binary = high_res_image == target_label
+    water = _aggregate_10m_to_30m_conv(target_high_binary,
                                        int(output_spacing / intermediate_spacing),
                                        target_label=target_label,
                                        normalize_flag=False)
@@ -1882,7 +1882,7 @@ def partial_water_product(input_file,
     return output_array
 
 
-def _aggregate_10m_to_30m_conv(image, ratio, target_label, normalize_flag):
+def _aggregate_10m_to_30m_conv(image, ratio, normalize_flag):
     """
     Aggregate pixel values in an image to a lower resolution based on
     a specified target label and convolution with a normalization option.
@@ -1895,8 +1895,6 @@ def _aggregate_10m_to_30m_conv(image, ratio, target_label, normalize_flag):
         The input binary image where the specific label is being targeted.
     ratio : int
         The size and downsample factor represented by the kernel size (e.g., 3 for a 3x3 kernel).
-    target_label : int
-        The label in the image to focus the convolution on.
     normalize_flag : bool
         A flag to determine whether to normalize the kernel by its area (True) or use a simple
         summation (False).
@@ -1908,18 +1906,21 @@ def _aggregate_10m_to_30m_conv(image, ratio, target_label, normalize_flag):
         label within each block of the original image.
     """
     # Define a 3x3 kernel where all values are 1
-    data = image == target_label
-    if normalize_flag:
-        kernel = np.ones((ratio, ratio), dtype=np.int32) / (ratio ** 2)
-    else:
-        kernel = np.ones((ratio, ratio), dtype=np.int32)
+    kernel = np.ones((ratio, ratio), dtype=np.int32)
 
     # Perform the convolution with 'valid' mode to only keep full 3x3 blocks
-    aggregated_data = convolve2d(data, kernel, mode='same')
+    aggregated_data = convolve2d(image, kernel, mode='same')
 
     # Since the convolution is done with stride 1,
     # we need to downsample the result by a factor of ratio
-    aggregated_data = aggregated_data[int(ratio/2)::ratio,
-                                      int(ratio/2)::ratio]
+    aggregated_data = aggregated_data[ratio//2::ratio,
+                                      ratio//2::ratio]
+    if normalize_flag:
+        valid_area = image > 0
+        pixel_count = convolve2d(valid_area, kernel, mode='same')
+        pixel_count = pixel_count[ratio//2::ratio,
+                                  ratio//2::ratio]
+
+        aggregated_data = aggregated_data /pixel_count
 
     return aggregated_data

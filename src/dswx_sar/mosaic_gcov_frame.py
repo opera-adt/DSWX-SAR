@@ -14,13 +14,14 @@ import rasterio
 from rasterio.transform import Affine
 from rasterio.windows import Window
 from typing import Any
-
+import math
 from dswx_sar.mosaic_rtc_burst import (majority_element,
                                        mosaic_single_output_file)
 from dswx_sar.dswx_sar_util import change_epsg_tif
 from dswx_sar.dswx_geogrid import DSWXGeogrid
 from dswx_sar.dswx_ni_runconfig import _get_parser, RunConfig
-
+from dswx_sar.dswx_sar_util import (_calculate_output_bounds,
+                                    _aggregate_10m_to_30m_conv)
 
 logger = logging.getLogger('dswx_sar')
 
@@ -45,10 +46,9 @@ class RTCReader(DataReader):
             scratch_dir: str,
             mosaic_mode: str,
             mosaic_prefix: str,
-            resamp_required: bool,
             resamp_method: str,
-            resamp_out_res_x: float,
-            resamp_out_res_y: float,
+            resamp_out_res: float,
+            resamp_required: bool,
     ):
 
         """Read data from input HDF5s in blocks and generate mosaicked output
@@ -71,10 +71,8 @@ class RTCReader(DataReader):
         resamp_method: str
             Set GDAL.Warp() resampling algorithms based on its built-in options
             Default = 'nearest'
-        resamp_out_res_x: float
-            User define output x-dimension resolution for resampled Geotiff
-        resamp_out_res_y: float
-            User define output y-dimension resolution for resampled Geotiff
+        resamp_out_res: float
+            User define output resolution for resampled Geotiff
         """
         # Extract polarizations
         pols_rtc = self.extract_nisar_polarization(input_list)
@@ -103,34 +101,44 @@ class RTCReader(DataReader):
                 layover_path,
             )
 
-        # Perform resampling:
+        # Choose Resampling methods
         if resamp_required:
-            if len(input_gtiff_list) > 0:
-                for idx, input_geotiff in enumerate(input_gtiff_list):
-                    self.resample_rtc(
-                        input_geotiff,
-                        scratch_dir,
-                        resamp_out_res_x,
-                        resamp_out_res_y,
-                        geogrid_in,
-                        resamp_method,
-                    )
-
+            # Apply multi-look technique
+            if resamp_method == 'multilook':
+                if len(input_gtiff_list) > 0:
+                    for idx, input_geotiff in enumerate(input_gtiff_list):
+                        self.multi_look_average(
+                            input_geotiff,
+                            scratch_dir,
+                            resamp_out_res,
+                            geogrid_in,
+                        )
+            else:
+                # Apply resampling using GDAL.Warp() based on
+                # resampling methods
+                if len(input_gtiff_list) > 0:
+                    for idx, input_geotiff in enumerate(input_gtiff_list):
+                        self.resample_rtc(
+			    input_geotiff,
+			    scratch_dir,
+			    resamp_out_res,
+			    geogrid_in,
+			    resamp_method,
+		        )
             if len(layover_gtiff_list) > 0:
                 layover_exist = True
                 for idx, layover_geotiff in enumerate(layover_gtiff_list):
                     self.resample_rtc(
-                        layover_geotiff,
-                        scratch_dir,
-                        resamp_out_res_x,
-                        resamp_out_res_y,
-                        geogrid_in,
-                        resamp_method,
-                    )
+			layover_geotiff,
+			scratch_dir,
+			resamp_out_res,
+			geogrid_in,
+			'nearest',
+		    )
             else:
                 layover_exist = False
             
-        # Mosaic intermediate geotiffs
+	# Mosaic intermediate geotiffs
         nlooks_list = []
         self.mosaic_rtc_geotiff(
             input_list,
@@ -141,7 +149,7 @@ class RTCReader(DataReader):
             mosaic_mode,
             mosaic_prefix,
             layover_exist,
-        )
+	)
 
     # Class functions
     def write_rtc_geotiff(
@@ -396,8 +404,7 @@ class RTCReader(DataReader):
         self,
         input_geotiff: str,
         scratch_dir: str,
-        output_res_x: float,
-        output_res_y: float,
+        output_res: float,
         geogrid_in: DSWXGeogrid,
         resamp_method: str = 'nearest',
     ):
@@ -410,10 +417,8 @@ class RTCReader(DataReader):
             Input geotiff path to be resampled.
         scratch_dir: str
             Directory which stores the temporary files
-        output_res_x: float
-            User define output x-dimension resolution for resampled Geotiff
-        output_res_y: float
-            User define output y-dimension resolution for resampled Geotiff
+        output_res: float
+            User define output resolution for resampled Geotiff
         geogrid_in: DSWXGeogrid object
             A dataclass object  representing the geographical grid
             configuration for an RTC (Radar Terrain Correction) run.
@@ -430,24 +435,196 @@ class RTCReader(DataReader):
         output_geotiff = f'{full_path.parent}/{full_path.stem}_resamp.tif'
 
         ds_input = gdal.Open(input_geotiff)
-        geo_transform = ds_input.GetGeoTransform()
+        geotransform = ds_input.GetGeoTransform()
 
         # Set GDAL Warp options
         # Resampling method
         #gdal.GRA_Bilinear, gdal.GRA_NearestNeighbour, gdal.GRA_Cubic, gdal.GRA_Average, etc
 
         options = gdal.WarpOptions(
-            xRes=output_res_x,
-            yRes=output_res_y,
+            xRes=output_res,
+            yRes=output_res,
             resampleAlg=resamp_method)
 
         ds_output = gdal.Warp(output_geotiff, ds_input, options=options)
 
+        # Update Geogrid in output Geotiff and replace the input Geotiff with it
         geogrid_in.update_geogrid(output_geotiff)
         os.replace(output_geotiff, input_geotiff)
 
         ds_input = None
         ds_output = None
+
+
+    def multi_look_average(
+        self,
+        input_geotiff: str,
+        scratch_dir: str,
+        output_res: float,
+        geogrid_in: DSWXGeogrid,
+    ):
+        """Apply upsampling and multi-look pixel averaging on input geotfif 
+        to obtain Geotiff with desired output resolution
+
+        Parameters
+        ----------
+        input_geotiff: str
+            Input geotiff path to be resampled.
+        scratch_dir: str
+            Directory which stores the temporary files
+        output_res: float
+            User define output resolution for multi-looked Geotiff
+        geogrid_in: DSWXGeogrid object
+            A dataclass object  representing the geographical grid
+            configuration for an RTC (Radar Terrain Correction) run.
+        """
+
+        ds_input = gdal.Open(input_geotiff)
+        geotransform_input = ds_input.GetGeoTransform()
+
+        input_width = ds_input.RasterXSize
+        input_length = ds_input.RasterYSize
+
+        input_res_x = np.abs(geotransform_input[1])
+        input_res_y = np.abs(geotransform_input[5])
+
+        if input_res_x != input_res_y:
+            raise ValueError(
+                "x and y resolutions of the input must be the same."
+            )
+        
+        full_path = Path(input_geotiff)
+        output_geotiff = f'{full_path.parent}/{full_path.stem}_multi_look.tif'
+
+        # Multi-look parameters
+        interm_upsamp_res = math.gcd(int(input_res_x), int(output_res))
+        downsamp_ratio = output_res // interm_upsamp_res  # ratio = 3
+        normalized_flag = True
+
+        if input_res_x == 20:
+            # Perform upsampling to 10 meter resolution
+            # Compute upsampled data output bounds
+            upsamp_bounds = _calculate_output_bounds(
+                geotransform_input,
+                input_width,
+                input_length,
+                interm_upsamp_res, 
+            )
+
+            # Perform GDAL.warp() in memory for upsampled data 
+            warp_options = gdal.WarpOptions(
+                xRes=interm_upsamp_res,
+                yRes=-interm_upsamp_res,
+                outputBounds=upsamp_bounds,
+                resampleAlg='nearest',
+                format='MEM'  # Use memory as the output format
+            )
+
+            ds_upsamp = gdal.Warp('', ds_input, options=warp_options)
+            data_upsamp = ds_upsamp.GetRasterBand(1).ReadAsArray()
+            geotransform_upsamp = ds_upsamp.GetGeoTransform()
+            projection_upsamp = ds_upsamp.GetProjection()
+
+            # Aggregate pixel values in a image to lower resolution to achieve
+            # multi-looking effect
+            multi_look_output = _aggregate_10m_to_30m_conv(
+                data_upsamp,
+                downsamp_ratio,
+                normalized_flag,
+            ) 
+
+            # Write multi-look averaged data to output geotiff
+            self.write_array_to_geotiff(
+                ds_upsamp,
+                multi_look_output,
+                upsamp_bounds,
+                output_res,
+                output_geotiff,
+            )    
+        elif input_res_x == 10:
+            # Directly average 10m resolution input to 30m resolution output
+            ds_array = ds_input.GetRasterBand(1).ReadAsArray()
+            multi_look_output = _aggregate_10m_to_30m_conv(
+                ds_array,
+                downsamp_ratio,
+                normalized_flag,
+            ) 
+            # Write to output geotiff
+            self.write_array_to_geotiff(
+                ds_input,
+                multi_look_output,
+                upsamp_bounds,
+                output_res,
+                output_geotiff,
+            )    
+        else:
+            raise ValueError("Input RTC are expected to have only 10m or 20m resolutions.")
+
+
+        # Update Geogrid in output Geotiff and replace the input Geotiff with it
+        geogrid_in.update_geogrid(output_geotiff)
+        os.replace(output_geotiff, input_geotiff)
+
+
+    def write_array_to_geotiff(
+        self,
+        ds_input,
+        output_data,
+        output_bounds,
+        output_res,
+        output_geotiff,
+    ):
+        """Create output geotiff using gdal.CreateCopy()
+
+        Parameters
+        ----------
+        ds_input: gdal dataset
+            input dataset opened by GDAL
+        output_data: numpy.ndarray
+            output_data to be written into output geotiff
+        output_bounds: list
+            The bounding box coordinates where the output will be clipped.
+        output_res: float
+            User define output resolution for resampled Geotiff
+        downsamp_ratio: int
+            downsampling factor for dataset in the input geotiff
+        output_geotiff: str
+            Output geotiff to be created.
+        """
+
+        # Update Geotransformation
+        geotransform_input = ds_input.GetGeoTransform()
+        geotransform_output = (
+            geotransform_input[0],                        
+            output_res,
+            geotransform_input[2],                        
+            geotransform_input[3],                        
+            geotransform_input[4],                        
+            output_res,
+        )  
+
+        # Calculate the output raster size
+        output_y_size, output_x_size = output_data.shape
+
+        driver = gdal.GetDriverByName('GTiff')
+        ds_output = driver.Create(
+            output_geotiff, 
+            output_x_size, 
+            output_y_size, 
+            ds_input.RasterCount, 
+            gdal.GDT_Float32
+        )
+
+        # Set Geotransform and Projection
+        ds_output.SetGeoTransform(geotransform_output)
+        ds_output.SetProjection(ds_input.GetProjection())
+
+        # Write output data to raster
+        ds_output.GetRasterBand(1).WriteArray(output_data)
+
+        ds_input = None
+        ds_output = None
+
 
     def extract_file_name(self, input_rtc):
         """Extract file name identifier from input file name
@@ -582,17 +759,17 @@ class RTCReader(DataReader):
         return epsg_array, epsg_same_flag
 
     def read_write_rtc(
-            self,
-            h5_ds: Dataset,
-            output_gtiff,
-            num_rows: int,
-            num_cols: int,
-            row_blk_size: int,
-            col_blk_size: int,
-            designated_value: np.float32,
-            geotransform: Affine,
-            crs: str,
-            dswx_metadata_dict: dict):
+        self,
+        h5_ds: Dataset,
+        output_gtiff,
+        num_rows: int,
+        num_cols: int,
+        row_blk_size: int,
+        col_blk_size: int,
+        designated_value: np.float32,
+        geotransform: Affine,
+        crs: str,
+        dswx_metadata_dict: dict):
         """Read an level-2 RTC prodcut in HDF5 format and writ it out in
         GeoTiff format in data blocks defined by row_blk_size and col_blk_size.
 
@@ -602,13 +779,13 @@ class RTCReader(DataReader):
             GDAL dataset object to be processed
         output_gtiff: str
         Output Geotiff file path and name
-        num_rows: int
+            num_rows: int
         The number of rows (height) of the output Geotiff.
-        num_cols: int
+            num_cols: int
         The number of columns (width) of the output Geotiff.
-        row_blk_size: int
+            row_blk_size: int
         The number of rows to read each time from the dataset.
-        col_blk_size: int
+            col_blk_size: int
         The number of columns to read each time from the dataset
         designated_value: np.float32
             Identify Inf in the dataset and replace them with
@@ -636,11 +813,9 @@ class RTCReader(DataReader):
             transform=geotransform,
             compress='DEFLATE',
         ) as dst:
-            for idx_y, slice_row in enumerate(slice_gen(num_rows,
-                                                        row_blk_size)):
+            for idx_y, slice_row in enumerate(slice_gen(num_rows, row_blk_size)):
                 row_slice_size = slice_row.stop - slice_row.start
-                for idx_x, slice_col in enumerate(slice_gen(num_cols,
-                                                            col_blk_size)):
+                for idx_x, slice_col in enumerate(slice_gen(num_cols, col_blk_size)):
                     col_slice_size = slice_col.stop - slice_col.start
 
                     ds_blk = h5_ds.ReadAsArray(
@@ -831,14 +1006,14 @@ def run(cfg):
 
     input_list = cfg.groups.input_file_group.input_file_path
 
+    print(f'{input_list = }')
     mosaic_cfg = processing_cfg.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix
 
     resamp_required = mosaic_cfg.resamp_required
     resamp_method = mosaic_cfg.resamp_method
-    resamp_out_res_x= mosaic_cfg.resamp_out_res_x
-    resamp_out_res_y = mosaic_cfg.resamp_out_res_y
+    resamp_out_res = mosaic_cfg.resamp_out_res
 
     scratch_dir = cfg.groups.product_path_group.scratch_path
     os.makedirs(scratch_dir, exist_ok=True)
@@ -858,10 +1033,9 @@ def run(cfg):
         scratch_dir,
         mosaic_mode,
         mosaic_prefix,
-        resamp_required,
         resamp_method,
-        resamp_out_res_x,
-        resamp_out_res_y,
+        resamp_out_res,
+        resamp_required,
     )
 
 if __name__ == "__main__":

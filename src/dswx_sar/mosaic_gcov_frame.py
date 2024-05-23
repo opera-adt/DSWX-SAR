@@ -113,17 +113,6 @@ class RTCReader(DataReader):
                             resamp_out_res,
                             geogrid_in,
                         )
-                if len(layover_gtiff_list) > 0:
-                    layover_exist = True
-                    for idx, layover_geotiff in enumerate(layover_gtiff_list):
-                        self.multi_look_average(
-                            layover_geotiff,
-                            scratch_dir,
-                            resamp_out_res,
-                            geogrid_in,
-                        )
-                else:
-                    layover_exist = False
             else:
                 # Apply resampling using GDAL.Warp() based on
                 # resampling methods
@@ -136,18 +125,18 @@ class RTCReader(DataReader):
 			    geogrid_in,
 			    resamp_method,
 		        )
-                if len(layover_gtiff_list) > 0:
-                    layover_exist = True
-                    for idx, layover_geotiff in enumerate(layover_gtiff_list):
-                        self.resample_rtc(
-			    layover_geotiff,
-			    scratch_dir,
-			    resamp_out_res,
-			    geogrid_in,
-			    resamp_method,
-		        )
-                else:
-                    layover_exist = False
+            if len(layover_gtiff_list) > 0:
+                layover_exist = True
+                for idx, layover_geotiff in enumerate(layover_gtiff_list):
+                    self.resample_rtc(
+			layover_geotiff,
+			scratch_dir,
+			resamp_out_res,
+			geogrid_in,
+			'nearest',
+		    )
+            else:
+                layover_exist = False
             
 	# Mosaic intermediate geotiffs
         nlooks_list = []
@@ -550,7 +539,6 @@ class RTCReader(DataReader):
                 multi_look_output,
                 upsamp_bounds,
                 output_res,
-                downsamp_ratio,
                 output_geotiff,
             )    
         elif input_res_x == 10:
@@ -567,7 +555,6 @@ class RTCReader(DataReader):
                 multi_look_output,
                 upsamp_bounds,
                 output_res,
-                downsamp_ratio,
                 output_geotiff,
             )    
         else:
@@ -585,7 +572,6 @@ class RTCReader(DataReader):
         output_data,
         output_bounds,
         output_res,
-        downsamp_ratio,
         output_geotiff,
     ):
         """Create output geotiff using gdal.CreateCopy()
@@ -606,28 +592,28 @@ class RTCReader(DataReader):
             Output geotiff to be created.
         """
 
-        # Generate warp_options
-        warp_options = gdal.WarpOptions(
-            xRes=output_res,
-            yRes=-output_res,
-            outputBounds=output_bounds,
-            resampleAlg='nearest',
-            format='GTIFF'  # Use memory as the output format
-        )
-
-        # Write to output geotiff
-        ds_output = gdal.Warp(f'{output_geotiff}', ds_input, options=warp_options)
-
         # Update Geotransformation
         geotransform_input = ds_input.GetGeoTransform()
         geotransform_output = (
             geotransform_input[0],                        
-            geotransform_input[1] * downsamp_ratio,       # increase pixel width
+            output_res,
             geotransform_input[2],                        
             geotransform_input[3],                        
             geotransform_input[4],                        
-            geotransform_input[5] * downsamp_ratio,       # increase pixel height
+            output_res,
         )  
+
+        # Calculate the output raster size
+        output_y_size, output_x_size = output_data.shape
+
+        driver = gdal.GetDriverByName('GTiff')
+        ds_output = driver.Create(
+            output_geotiff, 
+            output_x_size, 
+            output_y_size, 
+            ds_input.RasterCount, 
+            gdal.GDT_Float32
+        )
 
         # Set Geotransform and Projection
         ds_output.SetGeoTransform(geotransform_output)
@@ -773,17 +759,17 @@ class RTCReader(DataReader):
         return epsg_array, epsg_same_flag
 
     def read_write_rtc(
-            self,
-            h5_ds: Dataset,
-            output_gtiff,
-            num_rows: int,
-            num_cols: int,
-            row_blk_size: int,
-            col_blk_size: int,
-            designated_value: np.float32,
-            geotransform: Affine,
-            crs: str,
-            dswx_metadata_dict: dict):
+        self,
+        h5_ds: Dataset,
+        output_gtiff,
+        num_rows: int,
+        num_cols: int,
+        row_blk_size: int,
+        col_blk_size: int,
+        designated_value: np.float32,
+        geotransform: Affine,
+        crs: str,
+        dswx_metadata_dict: dict):
         """Read an level-2 RTC prodcut in HDF5 format and writ it out in
         GeoTiff format in data blocks defined by row_blk_size and col_blk_size.
 
@@ -793,13 +779,13 @@ class RTCReader(DataReader):
             GDAL dataset object to be processed
         output_gtiff: str
         Output Geotiff file path and name
-        num_rows: int
+            num_rows: int
         The number of rows (height) of the output Geotiff.
-        num_cols: int
+            num_cols: int
         The number of columns (width) of the output Geotiff.
-        row_blk_size: int
+            row_blk_size: int
         The number of rows to read each time from the dataset.
-        col_blk_size: int
+            col_blk_size: int
         The number of columns to read each time from the dataset
         designated_value: np.float32
             Identify Inf in the dataset and replace them with
@@ -827,11 +813,9 @@ class RTCReader(DataReader):
             transform=geotransform,
             compress='DEFLATE',
         ) as dst:
-            for idx_y, slice_row in enumerate(slice_gen(num_rows,
-                                                        row_blk_size)):
+            for idx_y, slice_row in enumerate(slice_gen(num_rows, row_blk_size)):
                 row_slice_size = slice_row.stop - slice_row.start
-                for idx_x, slice_col in enumerate(slice_gen(num_cols,
-                                                            col_blk_size)):
+                for idx_x, slice_col in enumerate(slice_gen(num_cols, col_blk_size)):
                     col_slice_size = slice_col.stop - slice_col.start
 
                     ds_blk = h5_ds.ReadAsArray(
@@ -1022,6 +1006,7 @@ def run(cfg):
 
     input_list = cfg.groups.input_file_group.input_file_path
 
+    print(f'{input_list = }')
     mosaic_cfg = processing_cfg.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix

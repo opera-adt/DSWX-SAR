@@ -182,7 +182,7 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
         refine_with_bimodality_cfg = processing_cfg.refine_with_bimodality
 
         dswx_metadata_dict.update({
-            'PROCESSING_INFORMATION_POLARIZATION':
+            'POLARIZATION':
                 processing_cfg.polarizations,
             'PROCESSING_INFORMATION_FILTER': 'Enhanced Lee filter',
             'PROCESSING_INFORMATION_FILTER_ENABLED':

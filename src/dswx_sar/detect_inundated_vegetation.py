@@ -103,24 +103,20 @@ def run(cfg):
 
         if filter_method == 'lee':
             filtering_method = filter_SAR.lee_enhanced_filter
-            filter_option = {'win_size':
-                                filter_options.lee_filter.window_size}
+            filter_option = vars(filter_options.lee_filter)
+
         elif filter_method == 'anisotropic_diffusion':
             filtering_method = filter_SAR.anisotropic_diffusion
-            filter_option = {'weight':
-                                filter_options.anisotropic_diffusion.weight}
+            filter_option = vars(filter_options.anisotropic_diffusion)
+
         elif filter_method == 'guided_filter':
             filtering_method = filter_SAR.guided_filter
-            filter_option = {'radius':
-                                filter_options.guided_filter.radius,
-                             'eps':
-                                filter_options.guided_filter.eps,
-                             'ddepth':
-                                filter_options.guided_filter.ddepth}
+            filter_option = vars(filter_options.guided_filter)
+
         elif filter_method == 'bregman':
             filtering_method = filter_SAR.tv_bregman
-            filter_option = {'lambda':
-                                filter_options.bregman.lambda_value}
+            filter_option = vars(filter_options.bregman)
+
         filt_ratio = filtering_method(
                         rtc_ratio, **filter_option)
         filt_ratio_db = 10 * np.log10(filt_ratio +

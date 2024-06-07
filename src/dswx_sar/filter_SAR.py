@@ -126,7 +126,7 @@ def lee_enhanced_filter(img, k=K_DEFAULT, cu=CU_DEFAULT,
         filtered intensity image.
     """
     print('>> lee_enhanced_filter', kwargs)
-    win_size = kwargs.get('win_size', -1)
+    win_size = kwargs.get('window_size', 3)
 
     # we process the entire img as float64 to avoid type overflow error
     img = np.float64(img)
@@ -137,63 +137,8 @@ def lee_enhanced_filter(img, k=K_DEFAULT, cu=CU_DEFAULT,
 
 
 def fill_nan_value(data):
-    mask = np.isnan(data) | np.isinf(data) | np.isinf(-data)
-    data[mask] = -15
-    return data
-
-
-def find_largest_nan_polygon(data):
-    """
-    Identifies contiguous NaN regions and finds the largest one.
-
-    :param data: 2D numpy array with NaNs.
-    :return: The label of the largest NaN region and an array where each
-             contiguous NaN region is labeled with a unique integer.
-    """
-    # Identify NaNs and invert, because ndimage.label labels non-zero regions
-    nan_mask = np.isnan(data)
-    labeled_regions, num_features = ndimage.label(~nan_mask)
-
-    # Count the occurrences of each label (excluding the background, which is 0)
-    label_sizes = np.bincount(labeled_regions.ravel())[1:]  # Exclude label 0
-
-    # Find the label of the largest NaN region
-    largest_label = np.argmax(label_sizes) + 1  # +1 because we excluded label 0 earlier
-
-    return largest_label, labeled_regions
-
-
-def interpolate_except_largest_nan_region(data):
-    """
-    Interpolates to fill NaN values for areas not covered by the largest contiguous NaN region.
-
-    :param data: 2D numpy array with NaNs.
-    :return: 2D numpy array with NaNs filled, except for the largest NaN region.
-    """
-    nan_mask = np.isnan(data)
-    largest_label, labeled_regions = find_largest_nan_polygon(data)
-
-    # Mask for the largest NaN region, which we'll exclude from filling
-    largest_nan_mask = (labeled_regions == largest_label)
-
-    # Find indices of NaNs that are not in the largest NaN region
-    fill_indices = np.where(nan_mask & ~largest_nan_mask)
-
-    # Coordinates of points for interpolation (excluding largest NaN region and non-NaN)
-    points = np.column_stack((np.where(~nan_mask & ~largest_nan_mask)))
-    values = data[~nan_mask & ~largest_nan_mask]
-
-    # Coordinates where we want to interpolate (excluding largest NaN region)
-    xi = np.column_stack(fill_indices)
-
-    if xi.size > 0 and values.size > 0:  # Ensure there are points to interpolate
-        # Perform interpolation
-        interpolated_values = griddata(points, values, xi, method='nearest')
-
-        # Insert interpolated values back into the original data array
-        data[fill_indices] = interpolated_values
-    else:
-        data = -30
+    mask = np.isnan(data) | np.isinf(data)
+    data[mask] = -30
     return data
 
 
@@ -212,6 +157,11 @@ def anisotropic_diffusion(img, **kwargs):
     -------
     filter_im: numpy.ndarray
         filtered intensity image.
+
+    NOTE: A. Chambolle, An algorithm for total variation minimization
+    and applications, Journal of Mathematical Imaging and Vision,
+    Springer, 2004, 20, 89-97.
+    https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.denoise_tv_chambolle
     """
     print('anisotropic_diffusion', kwargs)
     weight = kwargs.get('weight', 1)
@@ -225,13 +175,12 @@ def anisotropic_diffusion(img, **kwargs):
     # Vectorize conditional replacements using masks
     filtered_img[mask] = np.nan  # Preserve original NaN positions
     # zero_or_negative_mask = filtered_img <= 0
-    infinite_mask = np.isinf(filtered_img) | np.isinf(-filtered_img)
+    infinite_mask = np.isinf(filtered_img)
 
     # Directly use img values where filtered_img fails conditions
     # filtered_img[zero_or_negative_mask] = img[zero_or_negative_mask]
     filtered_img[infinite_mask] = img[infinite_mask]
     return 10 ** (filtered_img / 10)
-    # return filtered_img
 
 
 def guided_filter(img, **kwargs):
@@ -267,6 +216,11 @@ def guided_filter(img, **kwargs):
         A 2D or 3D array of the same shape as 'img', containing the filtered
         image. NaN values and zero or negative values are handled
         specifically as described in the notes below.
+
+    NOTE: He, Kaiming, Jian Sun, and Xiaoou Tang. "Guided image filtering."
+    IEEE transactions on pattern analysis and machine intelligence 35.6 (2012)
+    : 1397-1409.
+    https://docs.opencv.org/4.x/de/d73/classcv_1_1ximgproc_1_1GuidedFilter.html
     """
     radius = kwargs.get('radius', 1)
     eps = kwargs.get('eps', 3)
@@ -288,7 +242,7 @@ def guided_filter(img, **kwargs):
     # Vectorize conditional replacements using masks
     filtered_img[mask] = np.nan  # Preserve original NaN positions
     zero_or_negative_mask = filtered_img <= 0
-    infinite_mask = np.isinf(filtered_img) | np.isinf(-filtered_img)
+    infinite_mask = np.isinf(filtered_img)
 
     # Directly use img values where filtered_img fails conditions
     filtered_img[zero_or_negative_mask] = img[zero_or_negative_mask]
@@ -322,8 +276,12 @@ def tv_bregman(X: np.ndarray, **kwargs) -> np.ndarray:
     -------
     np.ndarray
         A 2D array of the same shape as X, containing the denoised results.
+
+    NOTE:Tom Goldstein and Stanley Osher, “The Split Bregman Method For L1
+    Regularized Problems”, https://ww3.math.ucla.edu/camreport/cam08-29.pdf
+    https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.denoise_tv_bregman
     """
-    lamb = kwargs.get('lambda', -1)
+    lamb = kwargs.get('lambda_value', -1)
     print('bregman', kwargs)
     X_db = np.log10(X, out=np.full(X.shape, np.nan), where=(~np.isnan(X)))
     X_db[np.isnan(X)] = -30

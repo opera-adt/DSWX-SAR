@@ -954,8 +954,8 @@ def determine_threshold(
                                   intensity_bins,
                                   intensity_counts,
                                   expected,
-                                  bounds=((-30, 0, 0.01,
-                                           -30, 0, 0.01),
+                                  bounds=((-30, 0.001, 0.01,
+                                           -30, 0.001, 0.01),
                                           (5, 5, 0.95,
                                            5, 5, 0.95)))
             if params[0] > params[3]:
@@ -1002,9 +1002,9 @@ def determine_threshold(
                                   intensity_bins,
                                   intensity_counts,
                                   expected,
-                                  bounds=((-35, 0, 0.01,
-                                           -35, 0, 0.01,
-                                           -35, 0, 0.01),
+                                  bounds=((-35, 0.001, 0.01,
+                                           -35, 0.001, 0.01,
+                                           -35, 0.001, 0.01),
                                           (5, 10, 0.95,
                                            5, 10, 0.95,
                                            5, 10, 0.95)))

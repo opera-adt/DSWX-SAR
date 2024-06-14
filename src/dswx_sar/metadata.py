@@ -180,15 +180,34 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
         fuzzy_value_cfg = processing_cfg.fuzzy_value
         inundated_vegetation_cfg = processing_cfg.inundated_vegetation
         refine_with_bimodality_cfg = processing_cfg.refine_with_bimodality
+        filter_method = processing_cfg.filter.method 
+        filter_opt = processing_cfg.filter
+        if filter_method == 'lee':
+            filter_option = {'win_size':
+                             filter_opt.lee_filter.window_size}
+        elif filter_method == 'anisotropic_diffusion':
+            filter_option = {'weight':
+                             filter_opt.anisotropic_diffusion.weight}
+        elif filter_method == 'guided_filter':
+            filter_option = {'radius':
+                             filter_opt.guided_filter.radius,
+                             'eps':
+                             filter_opt.guided_filter.eps,
+                             'ddepth':
+                             filter_opt.guided_filter.ddepth}
+        elif filter_method == 'bregman':
+            filter_option = {'lambda':
+                             filter_opt.bregman.lambda_value}
 
         dswx_metadata_dict.update({
             'PROCESSING_INFORMATION_POLARIZATION':
                 processing_cfg.polarizations,
-            'PROCESSING_INFORMATION_FILTER': 'Enhanced Lee filter',
+            'PROCESSING_INFORMATION_FILTER':
+                processing_cfg.filter.method,
             'PROCESSING_INFORMATION_FILTER_ENABLED':
                 processing_cfg.filter.enabled,
-            'PROCESSING_INFORMATION_FILTER_WINDOW_SIZE':
-                processing_cfg.filter.window_size,
+            'PROCESSING_INFORMATION_FILTER_OPTION':
+                filter_option,
 
             'PROCESSING_INFORMATION_THRESHOLDING':
                 threshold_mapping.get(initial_threshold_cfg.threshold_method),
@@ -283,7 +302,7 @@ def compute_spatial_coverage(data_array):
     return round(valid_pixels / total_pixels * 100, 4)
 
 
-def compute_layover_shadow_coverage(data_array, spatial_coverage):
+def compute_layover_shadow_coverage(data_array):
     """
     Compute the layover-shadow coverage.
 
@@ -291,8 +310,6 @@ def compute_layover_shadow_coverage(data_array, spatial_coverage):
     ----------
     data_array : np.array
         The 2D numpy array representation of the GeoTIFF.
-    spatial_coverage : float
-        Spatial coverage as a percentage.
 
     Returns
     -------
@@ -301,12 +318,16 @@ def compute_layover_shadow_coverage(data_array, spatial_coverage):
     """
     layover_shadow_pixels = np.sum(
         data_array == band_assign_value_dict['layover_shadow_mask'])
+    total_pixels = data_array.size
+    invalid_pixels = np.sum(
+        data_array == band_assign_value_dict['no_data'])
+    valid_pixels = total_pixels - invalid_pixels
 
-    if spatial_coverage > 0:
+    if valid_pixels > 0:
         return round(layover_shadow_pixels /
-                     (spatial_coverage * data_array.size), 4)
+                     valid_pixels * 100, 4)
     else:
-        return np.nan
+        return 0.0
 
 
 def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
@@ -326,7 +347,7 @@ def _populate_statics_metadata_datasets(dswx_metadata_dict, dswx_geotiff):
 
         spatial_cov = compute_spatial_coverage(dswx_data)
         layover_shadow_cov = compute_layover_shadow_coverage(
-            dswx_data, spatial_cov)
+            dswx_data)
 
         dswx_metadata_dict['SPATIAL_COVERAGE'] = spatial_cov
         dswx_metadata_dict['LAYOVER_SHADOW_COVERAGE'] = layover_shadow_cov

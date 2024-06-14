@@ -69,7 +69,7 @@ runconfig:
             # according to proper file naming conventions.
             sas_output_path: str()
 
-            product_version: num(required=False)
+            product_version: str(required=False)
 
             # DSWx-S1 product format (default is 'COG')
             output_imagery_format: enum('GTiff', 'COG', required=False)

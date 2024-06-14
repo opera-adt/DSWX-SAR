@@ -38,8 +38,9 @@ def run(cfg):
     inundated_vege_cross_pol_min = inundated_vege_cfg.cross_pol_min
     inundated_vege_target = inundated_vege_cfg.target_land_cover
 
-    filter_size = processing_cfg.filter.window_size
     line_per_block = inundated_vege_cfg.line_per_block
+    filter_options = processing_cfg.filter
+    filter_method = processing_cfg.filter.method
 
     # Currently, inundated vegetation for C-band is available for
     # Herbanceous wetland area
@@ -83,7 +84,7 @@ def run(cfg):
 
     im_meta = dswx_sar_util.get_meta_from_tif(rtc_dual_path)
 
-    pad_shape = (filter_size, 0)
+    pad_shape = (filter_options.block_pad, 0)
     block_params = dswx_sar_util.block_param_generator(
         lines_per_block=line_per_block,
         data_shape=(im_meta['length'],
@@ -100,10 +101,24 @@ def run(cfg):
             np.squeeze(rtc_dual[copol_ind, :, :]),
             np.squeeze(rtc_dual[crosspol_ind, :, :]))
 
-        filt_ratio = filter_SAR.lee_enhanced_filter(
-            rtc_ratio,
-            win_size=filter_size)
+        if filter_method == 'lee':
+            filtering_method = filter_SAR.lee_enhanced_filter
+            filter_option = vars(filter_options.lee_filter)
 
+        elif filter_method == 'anisotropic_diffusion':
+            filtering_method = filter_SAR.anisotropic_diffusion
+            filter_option = vars(filter_options.anisotropic_diffusion)
+
+        elif filter_method == 'guided_filter':
+            filtering_method = filter_SAR.guided_filter
+            filter_option = vars(filter_options.guided_filter)
+
+        elif filter_method == 'bregman':
+            filtering_method = filter_SAR.tv_bregman
+            filter_option = vars(filter_options.bregman)
+
+        filt_ratio = filtering_method(
+                        rtc_ratio, **filter_option)
         filt_ratio_db = 10 * np.log10(filt_ratio +
                                       dswx_sar_util.Constants.negligible_value)
         cross_db = 10 * np.log10(

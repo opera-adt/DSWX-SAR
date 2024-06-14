@@ -954,8 +954,8 @@ def determine_threshold(
                                   intensity_bins,
                                   intensity_counts,
                                   expected,
-                                  bounds=((-30, 0, 0.01,
-                                           -30, 0, 0.01),
+                                  bounds=((-30, 0.001, 0.01,
+                                           -30, 0.001, 0.01),
                                           (5, 5, 0.95,
                                            5, 5, 0.95)))
             if params[0] > params[3]:
@@ -996,18 +996,18 @@ def determine_threshold(
                         (dividers[0]+dividers[1])/2, .5, 0.1)
             # curve_fit fits the trimodal distributions
             # All distributions are assumed to be in the bound
-            # -35 to 5 dB, with standard deviation of 0 - 5[dB]
+            # -35 to 5 dB, with standard deviation of 0 - 10[dB]
             # and amplitudes of 0.01 to 0.95.
             params, _ = curve_fit(trimodal,
                                   intensity_bins,
                                   intensity_counts,
                                   expected,
-                                  bounds=((-35, 0, 0.01,
-                                           -35, 0, 0.01,
-                                           -35, 0, 0.01),
-                                          (5, 5, 0.95,
-                                           5, 5, 0.95,
-                                           5, 5, 0.95)))
+                                  bounds=((-35, 0.001, 0.01,
+                                           -35, 0.001, 0.01,
+                                           -35, 0.001, 0.01),
+                                          (5, 10, 0.95,
+                                           5, 10, 0.95,
+                                           5, 10, 0.95)))
 
             # re-sort the order of estimated modes using amplitudes
             first_setind = 0
@@ -1437,6 +1437,12 @@ def fill_threshold_with_gdal(threshold_array,
                     f"-outsize {cols} {rows} -ot Float32"
 
             os.system(gdal_grid_str)
+        elif len(z_arr_tau_valid) == 1:
+            dswx_sar_util.create_geotiff_with_one_value(
+                tif_file_str,
+                shape=[rows, cols],
+                filled_value=z_arr_tau_valid[0])
+
         else:
             logger.info('threshold array is empty')
 

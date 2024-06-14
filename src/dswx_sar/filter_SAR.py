@@ -158,7 +158,9 @@ def anisotropic_diffusion(img, **kwargs):
     filter_im: numpy.ndarray
         filtered intensity image.
 
-    NOTE: A. Chambolle, An algorithm for total variation minimization
+    Notes
+    -----
+    A. Chambolle, An algorithm for total variation minimization
     and applications, Journal of Mathematical Imaging and Vision,
     Springer, 2004, 20, 89-97.
     https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.denoise_tv_chambolle

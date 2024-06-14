@@ -700,10 +700,7 @@ def process_dark_land_component(args):
         # if the water body candiates are too small,
         # we compare the ref_land_portion, which is binary image of the land.
         # If target area is only land, the area is deleted.
-        if ref_land_portion == 1:
-            bimodality_array_i = False
-        else:
-            bimodality_array_i = True
+        bimodality_array_i = ref_land_portion != 1
 
     return i, bimodality_array_i, ref_land_portion, metric_output_i
 

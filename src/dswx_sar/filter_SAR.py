@@ -217,7 +217,9 @@ def guided_filter(img, **kwargs):
         image. NaN values and zero or negative values are handled
         specifically as described in the notes below.
 
-    NOTE: He, Kaiming, Jian Sun, and Xiaoou Tang. "Guided image filtering."
+   Notes
+   -----
+   He, Kaiming, Jian Sun, and Xiaoou Tang. "Guided image filtering."
     IEEE transactions on pattern analysis and machine intelligence 35.6 (2012)
     : 1397-1409.
     https://docs.opencv.org/4.x/de/d73/classcv_1_1ximgproc_1_1GuidedFilter.html

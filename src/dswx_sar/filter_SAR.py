@@ -277,7 +277,9 @@ def tv_bregman(X: np.ndarray, **kwargs) -> np.ndarray:
     np.ndarray
         A 2D array of the same shape as X, containing the denoised results.
 
-    NOTE:Tom Goldstein and Stanley Osher, “The Split Bregman Method For L1
+    Notes
+    -----
+    Tom Goldstein and Stanley Osher, “The Split Bregman Method For L1
     Regularized Problems”, https://ww3.math.ucla.edu/camreport/cam08-29.pdf
     https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.denoise_tv_bregman
     """

@@ -48,8 +48,19 @@ runconfig:
         # The enhanced Lee filter is available.
         filter:
             enabled: True
+            method: bregman
+            block_pad: 300
+            lee_filter:
+                window_size: 3
+            guided_filter:
+                radius: 1
+                eps: 3
+                ddepth: -1
+            bregman:
+                lambda_value: 20
+            anisotropic_diffusion:
+                weight: 1
             # Window size for filtering.
-            window_size: 5
             line_per_block: 1000
 
         initial_threshold:

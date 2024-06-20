@@ -200,7 +200,7 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
                              filter_opt.bregman.lambda_value}
 
         dswx_metadata_dict.update({
-            'PROCESSING_INFORMATION_POLARIZATION':
+            'POLARIZATION':
                 processing_cfg.polarizations,
             'PROCESSING_INFORMATION_FILTER':
                 processing_cfg.filter.method,

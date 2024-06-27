@@ -204,7 +204,7 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
 
         if inundated_vegetation_cfg.target_area_file_type == 'WorldCover':
             inundated_vege_target_class = \
-                inundated_vegetation_cfg.target_worldcover_land_cover
+                inundated_vegetation_cfg.target_worldcover_class
         elif inundated_vegetation_cfg.target_area_file_type == 'GLAD':
             inundated_vege_target_class = \
                 inundated_vegetation_cfg.target_glad_class

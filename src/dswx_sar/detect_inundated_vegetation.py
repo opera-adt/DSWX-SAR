@@ -53,7 +53,7 @@ def run(cfg):
     inundated_vege_cross_pol_min = inundated_vege_cfg.cross_pol_min
 
     target_file_type = inundated_vege_cfg.target_area_file_type
-    target_worldcover_land_cover = inundated_vege_cfg.target_worldcover_land_cover
+    target_worldcover_class = inundated_vege_cfg.target_worldcover_class
     target_glad_class = inundated_vege_cfg.target_glad_class
 
     line_per_block = inundated_vege_cfg.line_per_block
@@ -161,11 +161,10 @@ def run(cfg):
         target_cross_pol = cross_db > inundated_vege_cross_pol_min
         if target_file_type == 'WorldCover':
             target_inundated_vege_class = mask_obj.get_mask(
-                mask_label=target_worldcover_land_cover,
+                mask_label=target_worldcover_class,
                 block_param=block_param)
         elif target_file_type == 'GLAD':
             inundated_vege_target = parse_ranges(target_glad_class)
-            print(inundated_vege_target)
             target_inundated_vege_class = mask_obj.get_mask(
                 mask_label=inundated_vege_target,
                 block_param=block_param)

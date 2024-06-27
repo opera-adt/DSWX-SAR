@@ -209,7 +209,7 @@ runconfig:
             cross_pol_min: -26
             line_per_block: 300
             target_area_file_type: 'auto'
-            target_worldcover_land_cover: ['Herbaceous wetland']
+            target_worldcover_class: ['Herbaceous wetland']
             target_glad_class: ['112-124', '200-207', '19-24', '125-148']
             filter:
                 enabled: True

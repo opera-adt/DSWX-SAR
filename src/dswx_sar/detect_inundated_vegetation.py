@@ -14,6 +14,21 @@ from dswx_sar.masking_with_ancillary import FillMaskLandCover
 logger = logging.getLogger('dswx_sar')
 
 
+def parse_ranges(ranges):
+    """
+    Parse a list of ranges in the format "start-end" and single numbers.
+    Return a list of integers.
+    """
+    result = []
+    for item in ranges:
+        if '-' in item:
+            start, end = map(int, item.split('-'))
+            result.extend(range(start, end + 1))
+        else:
+            result.append(int(item))
+    return result
+
+
 def run(cfg):
 
     logger.info('Start inundated vegetation mapping')
@@ -36,16 +51,32 @@ def run(cfg):
     inundated_vege_ratio_threshold = \
         inundated_vege_cfg.dual_pol_ratio_threshold
     inundated_vege_cross_pol_min = inundated_vege_cfg.cross_pol_min
-    inundated_vege_target = inundated_vege_cfg.target_land_cover
+
+    target_file_type = inundated_vege_cfg.target_area_file_type
+    target_worldcover_land_cover = inundated_vege_cfg.target_worldcover_land_cover
+    target_glad_class = inundated_vege_cfg.target_glad_class
 
     line_per_block = inundated_vege_cfg.line_per_block
-    filter_options = processing_cfg.filter
-    filter_method = processing_cfg.filter.method
+    filter_options = inundated_vege_cfg.filter
+    filter_method = inundated_vege_cfg.filter.method
+
+    interp_glad_path_str = os.path.join(outputdir, 'interpolated_glad.tif')
+    interp_worldcover_path_str = os.path.join(outputdir,
+                                              'interpolated_landcover.tif')
+
+    if (target_file_type == 'auto') and os.path.exists(interp_glad_path_str):
+        target_file_type = 'GLAD'
+    else:
+        target_file_type = 'WorldCover'
 
     # Currently, inundated vegetation for C-band is available for
     # Herbanceous wetland area
-    landcover_path_str = os.path.join(outputdir, 'interpolated_landcover.tif')
-    mask_obj = FillMaskLandCover(landcover_path_str)
+    if target_file_type == 'WorldCover':
+        landcover_path_str = interp_worldcover_path_str
+    else:
+        landcover_path_str = interp_glad_path_str
+
+    mask_obj = FillMaskLandCover(landcover_path_str, target_file_type)
     inundated_vege_path = \
         f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
 
@@ -128,10 +159,16 @@ def run(cfg):
         output_data = np.zeros(filt_ratio.shape, dtype='uint8')
 
         target_cross_pol = cross_db > inundated_vege_cross_pol_min
-
-        target_inundated_vege_class = mask_obj.get_mask(
-            mask_label=inundated_vege_target,
-            block_param=block_param)
+        if target_file_type == 'WorldCover':
+            target_inundated_vege_class = mask_obj.get_mask(
+                mask_label=target_worldcover_land_cover,
+                block_param=block_param)
+        elif target_file_type == 'GLAD':
+            inundated_vege_target = parse_ranges(target_glad_class)
+            print(inundated_vege_target)
+            target_inundated_vege_class = mask_obj.get_mask(
+                mask_label=inundated_vege_target,
+                block_param=block_param)
 
         inundated_vegetation = (
             filt_ratio_db > inundated_vege_ratio_threshold) & \

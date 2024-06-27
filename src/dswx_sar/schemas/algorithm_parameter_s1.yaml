@@ -204,7 +204,25 @@ runconfig:
             dual_pol_ratio_threshold: num(min=0, max=30, required=False)
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
+            target_area_file_type: enum('WorldCover', 'GLAD', 'auto')
             # Land covers where the inundated vegetation is detected. 
-            target_land_cover: list(required=False)
+            target_worldcover_land_cover: list(required=False)
+            target_glad_class: list(required=False)
+            filter:
+                enabled: bool(required=False)
+                method: str(required=False)
+                line_per_block: num(min=1, required=False)
+                block_pad: num(min=1, required=False)
+                lee_filter:
+                    window_size: num(min=1, required=False)
+                guided_filter:
+                    radius: num(min=1, required=False)
+                    eps: num(required=False)
+                    ddepth: num(required=False)
+                bregman:
+                    lambda_value: num(required=False)
+                anisotropic_diffusion:
+                    weight: num(required=False)
+
         # If debug mode is true, intermediate product is generated.
         debug_mode: bool(required=False)

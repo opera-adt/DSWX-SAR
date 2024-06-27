@@ -50,7 +50,7 @@ def get_label_landcover_esa_10():
 
 
 class FillMaskLandCover:
-    def __init__(self, landcover_file_path):
+    def __init__(self, landcover_file_path, type):
         '''Initialize FillMaskLandCover
 
         Parameters
@@ -61,6 +61,7 @@ class FillMaskLandCover:
         self.landcover_file_path = landcover_file_path
         if not os.path.isfile(self.landcover_file_path):
             raise OSError(f"{self.landcover_file_path} is not found")
+        self.type = type
 
     def open_landcover(self):
         '''Open landcover map
@@ -92,13 +93,18 @@ class FillMaskLandCover:
             landcover = dswx_sar_util.get_raster_block(
                 self.landcover_file_path,
                 block_param)
-
-        landcover_label = get_label_landcover_esa_10()
-        landcover_binary = np.zeros(landcover.shape, dtype=bool)
-        for label_name in mask_label:
-            logger.info(f'Land Cover: {label_name} is extracted.')
-            temp = landcover == landcover_label[f"{label_name}"]
-            landcover_binary[temp] = True
+        if self.type == 'WorldCover':
+            landcover_label = get_label_landcover_esa_10()
+            landcover_binary = np.zeros(landcover.shape, dtype=bool)
+            for label_name in mask_label:
+                logger.info(f'Land Cover: {label_name} is extracted.')
+                temp = landcover == landcover_label[f"{label_name}"]
+                landcover_binary[temp] = True
+        elif self.type == 'GLAD':
+            landcover_binary = np.zeros(landcover.shape, dtype=bool)
+            for label_name in mask_label:
+                temp = landcover == label_name
+                landcover_binary[temp] = True
 
         return landcover_binary
 
@@ -753,7 +759,7 @@ def extend_land_cover(landcover_path,
         Updated binary land cover array with the extended target land cover.
     """
     logger.info('Extending land cover....')
-    mask_obj = FillMaskLandCover(landcover_path)
+    mask_obj = FillMaskLandCover(landcover_path, 'WorldCover')
 
     mask_excluded_candidate = mask_obj.get_mask(
         mask_label=target_landcover)
@@ -1149,7 +1155,7 @@ def run(cfg):
     landcover_path = os.path.join(outputdir, 'interpolated_landcover.tif')
 
     # Identify dark land candidate areas from landcover
-    mask_obj = FillMaskLandCover(landcover_path)
+    mask_obj = FillMaskLandCover(landcover_path, 'WorldCover')
     mask_excluded_landcover = mask_obj.get_mask(
         mask_label=landcover_masking_list)
     del mask_obj

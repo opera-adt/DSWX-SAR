@@ -24,7 +24,7 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_sar_util import (band_assign_value_dict,
                                     _create_ocean_mask)
 from dswx_sar.dswx_runconfig import RunConfig, _get_parser, DSWX_S1_POL_DICT
-from dswx_sar.metadata import (create_dswx_sar_metadata,
+from dswx_sar.metadata import (create_dswx_s1_metadata,
                                collect_burst_id,
                                _populate_statics_metadata_datasets)
 
@@ -958,7 +958,7 @@ def run(cfg):
 
             # Metadata
             if overlapped_burst:
-                dswx_metadata_dict = create_dswx_sar_metadata(
+                dswx_metadata_dict = create_dswx_s1_metadata(
                     cfg,
                     overlapped_burst,
                     product_version=product_version,

@@ -595,6 +595,7 @@ def run(cfg):
     landcover_file = dynamic_data_cfg.worldcover_file
     dem_file = dynamic_data_cfg.dem_file
     hand_file = dynamic_data_cfg.hand_file
+    glad_file = dynamic_data_cfg.glad_classification_file
 
     ref_water_max = processing_cfg.reference_water.max_value
     ref_water_no_data = processing_cfg.reference_water.no_data_value
@@ -660,6 +661,7 @@ def run(cfg):
         'hand': 'interpolated_hand.tif',
         'landcover': 'interpolated_landcover.tif',
         'reference_water': 'interpolated_wbd.tif',
+        'glad_classification': 'interpolated_glad.tif',
     }
 
     input_ancillary_filename_set = {
@@ -667,6 +669,7 @@ def run(cfg):
         'hand': hand_file,
         'landcover': landcover_file,
         'reference_water': wbd_file,
+        'glad_classification': glad_file,
     }
 
     landcover_label = get_label_landcover_esa_10()
@@ -675,6 +678,10 @@ def run(cfg):
         input_anc_path = input_ancillary_filename_set[anc_type]
         ancillary_path = Path(
             os.path.join(scratch_dir, anc_filename))
+
+        # GLAD classification map is optional.
+        if input_anc_path is None and anc_type == 'glad_classification':
+            continue
 
         # Check if input ancillary data is valid.
         if not os.path.isfile(input_anc_path) and \
@@ -803,7 +810,6 @@ def run(cfg):
                     elif filter_method == 'bregman':
                         filtering_method = filter_SAR.tv_bregman
                         filter_option = vars(filter_options.bregman)
-                    print(filter_option)
                     filtered_intensity = filtering_method(
                                                 intensity, **filter_option)
                 else:

@@ -326,11 +326,15 @@ def validate_group_dict(group_cfg: dict) -> None:
                     'dynamic_ancillary_file_group']['reference_water_file']
     hand_path = group_cfg[
                     'dynamic_ancillary_file_group']['hand_file']
+    glad_path = group_cfg[
+                    'dynamic_ancillary_file_group']['glad_classification_file']
     ancillary_file_paths = [dem_path, landcover_path,
-                            ref_water_path, hand_path]
+                            ref_water_path, hand_path,
+                            glad_path]
 
     for path in ancillary_file_paths:
-        check_file_path(path)
+        if path is not None:
+            check_file_path(path)
 
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions

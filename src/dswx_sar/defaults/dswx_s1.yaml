@@ -26,6 +26,12 @@ runconfig:
             # ESA WorldCover map description
             worldcover_file_description:
 
+            # GLAD classification map file
+            glad_classification_file:
+
+            # GLAD classification map file description
+            glad_classification_file_description:
+
             # Reference water body map (Required)
             # e.g., Pekel's water occurrence or seasonality map
             reference_water_file:

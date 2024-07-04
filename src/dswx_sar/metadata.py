@@ -202,10 +202,12 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
             filter_option = {'lambda':
                              filter_opt.bregman.lambda_value}
 
+        # Three options are possible. 'WorldCover', 'GLAD', 'auto'
+        # Currently, GLAD will be used for 'auto'.
         if inundated_vegetation_cfg.target_area_file_type == 'WorldCover':
             inundated_vege_target_class = \
                 inundated_vegetation_cfg.target_worldcover_class
-        elif inundated_vegetation_cfg.target_area_file_type == 'GLAD':
+        else:
             inundated_vege_target_class = \
                 inundated_vegetation_cfg.target_glad_class
 

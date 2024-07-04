@@ -710,6 +710,8 @@ def run(cfg):
 
     if total_inundated_vege_flag:
         prefix_dict['inundated_veg'] = 'temp_inundated_vegetation'
+        prefix_dict['inundated_veg_target'] = 'temp_target_area'
+        prefix_dict['inundated_veg_high_ratio'] = 'temp_high_dualpol_ratio'
 
     paths = {}
     for key, prefix in prefix_dict.items():
@@ -775,6 +777,10 @@ def run(cfg):
     if total_inundated_vege_flag:
         inundated_vegetation = dswx_sar_util.read_geotiff(
             paths['inundated_veg'])
+        inundated_vege_target_area = dswx_sar_util.read_geotiff(
+            paths['inundated_veg_target'])
+        inundated_vege_high_ratio = dswx_sar_util.read_geotiff(
+            paths['inundated_veg_high_ratio'])
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
@@ -809,7 +815,7 @@ def run(cfg):
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
         bright_water_mask = (landcover_map == 0) & (water_map == 1)
-
+        wetland = inundated_vege_target_area == 1
         # Open water/inundated vegetation
         # layover shadow mask/hand mask/no_data
         # will be saved in WTR product
@@ -859,10 +865,18 @@ def run(cfg):
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
+            inundated_vegetation=(inundated_vege_high_ratio == 1) &
+                (wetland == 0) & (water_map == 0),
+            wetland_nonwater=(water_map == 0) & wetland,
+            wetland_water=(water_map == 1) & wetland,
+            wetland_bright_water_fill=bright_water_mask & wetland,
+            wetland_inundated_veg=(inundated_vegetation == 2) &
+                wetland,
+            wetland_dark_land_mask=dark_land_mask & wetland,
+            wetland_landcover_mask=landcover_mask & wetland,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             ocean_mask=ocean_mask,
-            inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
             )
 

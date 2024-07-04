@@ -64,10 +64,12 @@ def run(cfg):
     interp_worldcover_path_str = os.path.join(outputdir,
                                               'interpolated_landcover.tif')
 
-    if (target_file_type == 'auto') and os.path.exists(interp_glad_path_str):
-        target_file_type = 'GLAD'
-    else:
-        target_file_type = 'WorldCover'
+    if (target_file_type == 'auto'):
+        if os.path.exists(interp_glad_path_str):
+            target_file_type = 'GLAD'
+        else:
+            target_file_type = 'WorldCover'
+    logger.info(f'Vegetation area is extracted from {target_file_type}.')
 
     # Currently, inundated vegetation for C-band is available for
     # Herbanceous wetland area
@@ -75,10 +77,15 @@ def run(cfg):
         landcover_path_str = interp_worldcover_path_str
     else:
         landcover_path_str = interp_glad_path_str
-
+        sup_mask_obj = FillMaskLandCover(interp_worldcover_path_str,
+                                         'WorldCover')
     mask_obj = FillMaskLandCover(landcover_path_str, target_file_type)
     inundated_vege_path = \
         f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
+    target_area_path = \
+        f"{outputdir}/temp_target_area_{pol_all_str}.tif"
+    high_ratio_path = \
+        f"{outputdir}/temp_high_dualpol_ratio_{pol_all_str}.tif"
 
     dual_pol_flag = False
     if (('HH' in pol_list) and ('HV' in pol_list)) or \
@@ -168,17 +175,50 @@ def run(cfg):
             target_inundated_vege_class = mask_obj.get_mask(
                 mask_label=inundated_vege_target,
                 block_param=block_param)
+            
+            # GLAD has no-data values for small island and polar regions
+            # such Green land. The WorldCover will be alternatively used
+            # for the no-data areas. 
+            glad_no_data = mask_obj.get_mask(
+                mask_label=[255],
+                block_param=block_param)
+            logger.info(f'GLAD has {np.sum(glad_no_data)} no data')
+            target_replace_class = sup_mask_obj.get_mask(
+                mask_label=target_worldcover_class,
+                block_param=block_param)
+            target_inundated_vege_class[glad_no_data] = \
+                target_replace_class[glad_no_data]
 
-        inundated_vegetation = (
-            filt_ratio_db > inundated_vege_ratio_threshold) & \
-            target_cross_pol & \
+        all_inundated_cand = \
+            (filt_ratio_db > inundated_vege_ratio_threshold) & \
+            target_cross_pol
+        inundated_vegetation = all_inundated_cand & \
             target_inundated_vege_class
-
         output_data[inundated_vegetation] = 2
 
         dswx_sar_util.write_raster_block(
             out_raster=inundated_vege_path,
             data=output_data,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='byte',
+            cog_flag=True,
+            scratch_dir=outputdir)
+
+        dswx_sar_util.write_raster_block(
+            out_raster=target_area_path,
+            data=target_inundated_vege_class,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='byte',
+            cog_flag=True,
+            scratch_dir=outputdir)
+
+        dswx_sar_util.write_raster_block(
+            out_raster=high_ratio_path,
+            data=all_inundated_cand,
             block_param=block_param,
             geotransform=im_meta['geotransform'],
             projection=im_meta['projection'],

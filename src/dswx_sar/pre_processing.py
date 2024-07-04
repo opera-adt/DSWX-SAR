@@ -324,7 +324,6 @@ class AncillaryRelocation:
         file_min_x, file_dx, _, file_max_y, _, file_dy = file_geotransform
 
         file_width = gdal_ds.GetRasterBand(1).XSize
-        file_length = gdal_ds.GetRasterBand(1).YSize
 
         del gdal_ds
         file_srs = osr.SpatialReference()
@@ -371,7 +370,6 @@ class AncillaryRelocation:
         logger.info('    tile crosses the antimeridian')
 
         file_max_x = file_min_x + file_width * file_dx
-        file_min_y = file_max_y + file_length * file_dy
 
         # Crop input at the two sides of the antimeridian:
         # left side: use tile bbox with file_max_x from input
@@ -693,6 +691,8 @@ def run(cfg):
             no_data = ref_water_no_data
         elif anc_type in ['landcover']:
             no_data = landcover_label['No_data']
+        elif anc_type in ['glad_classification']:
+            no_data = 255
         else:
             no_data = np.nan
 
@@ -801,7 +801,8 @@ def run(cfg):
 
                     elif filter_method == 'anisotropic_diffusion':
                         filtering_method = filter_SAR.anisotropic_diffusion
-                        filter_option = vars(filter_options.anisotropic_diffusion)
+                        filter_option = vars(
+                            filter_options.anisotropic_diffusion)
 
                     elif filter_method == 'guided_filter':
                         filtering_method = filter_SAR.guided_filter

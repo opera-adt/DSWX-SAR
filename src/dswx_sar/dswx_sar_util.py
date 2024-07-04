@@ -34,6 +34,12 @@ band_assign_value_dict = {
     'inundated_vegetation': 3,
     'dark_land_mask': 5,
     'landcover_mask': 6,
+    'wetland_nonwater': 10,
+    'wetland_water': 11,
+    'wetland_bright_water_fill': 12,
+    'wetland_inundated_veg': 13,
+    'wetland_dark_land_mask': 15,
+    'wetland_landcover_mask': 16,
     'hand_mask': 250,
     'layover_shadow_mask': 251,
     'ocean_mask': 254,
@@ -96,6 +102,7 @@ def get_interpreted_dswx_s1_ctable():
     # create color table
     dswx_ctable = gdal.ColorTable()
 
+    # Non-target areas for Inundated Vegetation
     # set color for each value
     # White - Not water
     dswx_ctable.SetColorEntry(band_assign_value_dict['nonwater'],
@@ -124,9 +131,25 @@ def get_interpreted_dswx_s1_ctable():
     # Green - Inundated vegetation
     dswx_ctable.SetColorEntry(band_assign_value_dict['inundated_vegetation'],
                               (0, 255, 0))
-    # Black - Not observed (out of Boundary)
-    dswx_ctable.SetColorEntry(band_assign_value_dict['no_data'],
-                              (0, 0, 0, 255))
+
+    # Green + gray (Medium Sea Green) - non-wetland_Inundated vegetation
+    dswx_ctable.SetColorEntry(band_assign_value_dict['wetland_inundated_veg'],
+                              (50, 177, 50))
+    # Target areas for Inundated Vegetation
+    dswx_ctable.SetColorEntry(band_assign_value_dict['wetland_nonwater'],
+                              (0, 100, 0))
+    # Blue - Water (high confidence)
+    dswx_ctable.SetColorEntry(band_assign_value_dict['wetland_water'],
+                              (0, 50, 127))
+    # Steel Teal - bright water
+    dswx_ctable.SetColorEntry(band_assign_value_dict['wetland_bright_water_fill'],
+                              (60, 110, 120))
+    # Sepia - dark land
+    dswx_ctable.SetColorEntry(band_assign_value_dict['wetland_dark_land_mask'],
+                              (120, 60, 20))
+    # Olive Drab
+    dswx_ctable.SetColorEntry(band_assign_value_dict['wetland_landcover_mask'],
+                              (100, 150, 25))
 
     return dswx_ctable
 
@@ -255,7 +278,7 @@ def save_dswx_product(wtr, output_file, geotransform,
     sorted_band_keys = sorted(
         band_value_dict.keys(),
         key=lambda x: x.lower() == 'inundated_vegetation')
-
+    print(sorted_band_keys)
     for band_key in sorted_band_keys:
         if band_key.lower() in dswx_processed_bands_keys:
             dswx_product_value = band_value_dict[band_key]

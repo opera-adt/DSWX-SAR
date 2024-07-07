@@ -727,7 +727,9 @@ def run(cfg):
                 extra_args = {'nodata_value': -1}
             else:
                 extra_args = {'nodata_value': 0}
-            if not inundated_vege_mosaic_flag and key == 'inundated_veg':
+            if not inundated_vege_mosaic_flag and \
+                key in ['inundated_veg', 'inundated_veg_target',
+                        'inundated_veg_high_ratio']:
                 dual_pol_vege_string = '_'.join(pol_set1)
                 paths[key] = os.path.join(
                     scratch_dir, f'{prefix}_{dual_pol_vege_string}.tif')
@@ -787,6 +789,9 @@ def run(cfg):
         logger.info('Inudated vegetation file was found.')
     else:
         inundated_vegetation = None
+        inundated_vege_target_area = None
+        inundated_vege_high_ratio = None
+        inundated_vegetation_mask = None
         logger.warning('Inudated vegetation file was disabled.')
 
     # 5) create ocean mask

@@ -189,6 +189,9 @@ def run(cfg):
             target_inundated_vege_class[glad_no_data] = \
                 target_replace_class[glad_no_data]
 
+        no_data = np.isnan(filt_ratio)
+        target_inundated_vege_class[no_data] = 0
+
         all_inundated_cand = \
             (filt_ratio_db > inundated_vege_ratio_threshold) & \
             target_cross_pol

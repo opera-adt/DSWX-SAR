@@ -17,7 +17,26 @@ logger = logging.getLogger('dswx_sar')
 def parse_ranges(ranges):
     """
     Parse a list of ranges in the format "start-end" and single numbers.
-    Return a list of integers.
+
+    Parameters
+    ----------
+    ranges : list of str
+        A list of strings where each string is either a single number or a
+        range in the format "start-end".
+
+    Returns
+    -------
+    result : list of int
+        A list of integers that includes all numbers in the specified ranges
+        and single numbers.
+
+    Examples
+    --------
+    >>> parse_ranges(["1-3", "5", "7-9"])
+    [1, 2, 3, 5, 7, 8, 9]
+
+    >>> parse_ranges(["10", "12-15", "18"])
+    [10, 12, 13, 14, 15, 18]
     """
     result = []
     for item in ranges:
@@ -175,10 +194,10 @@ def run(cfg):
             target_inundated_vege_class = mask_obj.get_mask(
                 mask_label=inundated_vege_target,
                 block_param=block_param)
-            
+
             # GLAD has no-data values for small island and polar regions
             # such Green land. The WorldCover will be alternatively used
-            # for the no-data areas. 
+            # for the no-data areas.
             glad_no_data = mask_obj.get_mask(
                 mask_label=[255],
                 block_param=block_param)

@@ -14,7 +14,7 @@ runconfig:
         # Additional for polarimetric computations to be performed in specific polarization modes (co/cross and co + cross)
         polarimetric_option: any(list(enum('ratio', 'span'), min=1, max=2), enum('ratio', 'span'), null(), required=False)
 
-        # Specifiy the max_value for permanent water and no_data_value for invalid pixels
+        # Specify the max_value for permanent water and no_data_value for invalid pixels
         reference_water:
             max_value: num(required=False)
             no_data_value: num(required=False)

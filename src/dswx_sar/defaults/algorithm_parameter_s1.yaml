@@ -14,7 +14,7 @@ runconfig:
         # e.g. ['ratio', 'span']
         polarimetric_option:
 
-        # Specifiy the max_value for permanent water and no_data_value for invalid pixels
+        # Specify the max_value for permanent water and no_data_value for invalid pixels
         reference_water:
             max_value: 100
             no_data_value: 255
@@ -54,11 +54,19 @@ runconfig:
                 window_size: 3
             guided_filter:
                 radius: 1
+                # Regularization parameter in Guided Filter to smooth within
+                # a radius. Default is 3.
                 eps: 3
+                # The depth of the output image.
                 ddepth: -1
             bregman:
+                # The regularization parameter for TV Bregman denoising.
+                # It controls the amount of smoothing. Higher values
+                # produce more smoothed results.
                 lambda_value: 20
             anisotropic_diffusion:
+                # Denoising weight. The greater the weight, the more 
+                # denoising (at the expense of fidelity to image).
                 weight: 1
             # Window size for filtering.
             line_per_block: 1000

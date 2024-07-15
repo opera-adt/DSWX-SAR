@@ -14,7 +14,7 @@ runconfig:
         # e.g. ['ratio', 'span'] 
         polarimetric_option:
 
-        # Specifiy the max_value for permanent water and no_data_value for invalid pixels
+        # Specify the max_value for permanent water and no_data_value for invalid pixels
         reference_water:
             max_value: 100
             no_data_value: 255

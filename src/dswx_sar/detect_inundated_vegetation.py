@@ -83,7 +83,7 @@ def run(cfg):
     interp_worldcover_path_str = os.path.join(scratch_dir,
                                               'interpolated_landcover.tif')
 
-    if (target_file_type == 'auto'):
+    if target_file_type == 'auto':
         if os.path.exists(interp_glad_path_str):
             target_file_type = 'GLAD'
         else:
@@ -91,7 +91,7 @@ def run(cfg):
     logger.info(f'Vegetation area is extracted from {target_file_type}.')
 
     # Currently, inundated vegetation for C-band is available for
-    # Herbanceous wetland area
+    # Potential wetland area from Land cover maps
     if target_file_type == 'WorldCover':
         landcover_path_str = interp_worldcover_path_str
     else:

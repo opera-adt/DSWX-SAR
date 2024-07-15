@@ -32,14 +32,15 @@ band_assign_value_dict = {
     'water': 1,  # water body
     'bright_water_fill': 2,
     'inundated_vegetation': 3,
-    'dark_land_mask': 5,
-    'landcover_mask': 6,
-    'wetland_nonwater': 10,
-    'wetland_water': 11,
-    'wetland_bright_water_fill': 12,
-    'wetland_inundated_veg': 13,
-    'wetland_dark_land_mask': 15,
-    'wetland_landcover_mask': 16,
+    'inundated_vegetation_conf': 5,
+    'dark_land_mask': 6,
+    'landcover_mask': 7,
+    'wetland_nonwater': 30,
+    'wetland_water': 31,
+    'wetland_bright_water_fill': 32,
+    'wetland_inundated_veg': 35,
+    'wetland_dark_land_mask': 36,
+    'wetland_landcover_mask': 37,
     'hand_mask': 250,
     'layover_shadow_mask': 251,
     'ocean_mask': 254,
@@ -130,6 +131,8 @@ def get_interpreted_dswx_s1_ctable():
                               (128, 128, 128))
     # Green - Inundated vegetation
     dswx_ctable.SetColorEntry(band_assign_value_dict['inundated_vegetation'],
+                              (0, 255, 0))
+    dswx_ctable.SetColorEntry(band_assign_value_dict['inundated_vegetation_conf'],
                               (0, 255, 0))
 
     # Green + gray (Medium Sea Green) - non-wetland_Inundated vegetation

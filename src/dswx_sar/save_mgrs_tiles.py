@@ -804,8 +804,6 @@ def run(cfg):
                 glad_valid = np.nansum(inundated_vege_target_area == 1)
                 # If some pixels are extracted from WorldCover,
                 # IV source is GLAD/WorldCover
-                print('worldcover', worldcover_valid)
-                print('glad_valid', glad_valid)
                 if worldcover_valid > 0 and glad_valid > 0:
                     inundated_vege_cfg.target_area_file_type = 'GLAD/WorldCover'
                 # If the GLAD is provided but all pixels come from 'WorldCover'
@@ -813,16 +811,17 @@ def run(cfg):
                 # IV source is WorldCover
                 elif worldcover_valid > 0 and glad_valid == 0:
                     inundated_vege_cfg.target_area_file_type = 'WorldCover'
-                print(inundated_vege_cfg.target_area_file_type)
             else:
                 inundated_vege_cfg.target_area_file_type = 'WorldCover'
-        
+        logger.info('Inundated vegetation areas are defined from  '
+                    f'{inundated_vege_cfg.target_area_file_type}.')
+
     else:
         inundated_vegetation = None
         inundated_vege_target_area = None
         inundated_vege_high_ratio = None
         inundated_vegetation_mask = None
-        logger.warning('Inundated vegetation file was disabled.')
+        logger.info('Inundated vegetation file was disabled.')
 
     # 5) create ocean mask
     if ocean_mask_enabled:
@@ -900,7 +899,7 @@ def run(cfg):
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
-            inundated_vegetation=(inundated_vege_high_ratio == 1) &
+            inundated_vegetation_conf=(inundated_vege_high_ratio == 1) &
                 (wetland == 0) & (water_map == 0),
             wetland_nonwater=(water_map == 0) & wetland,
             wetland_water=(water_map == 1) & wetland,

@@ -24,7 +24,7 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_sar_util import (band_assign_value_dict,
                                     _create_ocean_mask)
 from dswx_sar.dswx_runconfig import RunConfig, _get_parser, DSWX_S1_POL_DICT
-from dswx_sar.metadata import (create_dswx_sar_metadata,
+from dswx_sar.metadata import (create_dswx_s1_metadata,
                                collect_burst_id,
                                _populate_statics_metadata_datasets)
 
@@ -37,7 +37,7 @@ def merge_pol_layers(list_layers,
                      scratch_dir='.'):
     """
     Merge multiple GeoTIFF files into a single file using rasterio.
-    This function is used to merge the GeoTIFF with different polarizaitons.
+    This function is used to merge the GeoTIFF with different polarizations.
 
     Parameters
     ----------
@@ -564,6 +564,9 @@ def run(cfg):
     mgrs_collection_db_path = \
         static_ancillary_file_group_cfg.mgrs_collection_database_file
 
+    # Inundated vegetation
+    inundated_vege_cfg = processing_cfg.inundated_vegetation
+
     # Browse image options
     browser_image_cfg = cfg.groups.browse_image_group
     browse_image_flag = browser_image_cfg.save_browse
@@ -625,14 +628,14 @@ def run(cfg):
     platform_str = platform[0] + platform.split('-')[-1]
     resolution_str = str(int(resolution))
 
-    if processing_cfg.inundated_vegetation.enabled == 'auto':
+    if inundated_vege_cfg.enabled == 'auto':
         if cross_pol and co_pol:
             total_inundated_vege_flag = True
         else:
             total_inundated_vege_flag = False
     else:
         total_inundated_vege_flag = \
-            processing_cfg.inundated_vegetation.enabled
+            inundated_vege_cfg.enabled
 
     inundated_vege_mosaic_flag = False
     # Set merge_layer_flag and merge_pol_list based on pol_mode
@@ -710,6 +713,8 @@ def run(cfg):
 
     if total_inundated_vege_flag:
         prefix_dict['inundated_veg'] = 'temp_inundated_vegetation'
+        prefix_dict['inundated_veg_target'] = 'temp_target_area'
+        prefix_dict['inundated_veg_high_ratio'] = 'temp_high_dualpol_ratio'
 
     paths = {}
     for key, prefix in prefix_dict.items():
@@ -725,7 +730,9 @@ def run(cfg):
                 extra_args = {'nodata_value': -1}
             else:
                 extra_args = {'nodata_value': 0}
-            if not inundated_vege_mosaic_flag and key == 'inundated_veg':
+            if not inundated_vege_mosaic_flag and \
+                key in ['inundated_veg', 'inundated_veg_target',
+                        'inundated_veg_high_ratio']:
                 dual_pol_vege_string = '_'.join(pol_set1)
                 paths[key] = os.path.join(
                     scratch_dir, f'{prefix}_{dual_pol_vege_string}.tif')
@@ -775,13 +782,46 @@ def run(cfg):
     if total_inundated_vege_flag:
         inundated_vegetation = dswx_sar_util.read_geotiff(
             paths['inundated_veg'])
+        inundated_vege_target_area = dswx_sar_util.read_geotiff(
+            paths['inundated_veg_target'])
+        inundated_vege_high_ratio = dswx_sar_util.read_geotiff(
+            paths['inundated_veg_high_ratio'])
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
-        logger.info('Inudated vegetation file was found.')
+        logger.info('Inundated vegetation file was found.')
+        iv_target_file_type = inundated_vege_cfg.target_area_file_type
+        if (iv_target_file_type == 'auto'):
+            # if target_file_type is auto and GLAD is provided,
+            # GLAD is the source of inundated vegetation mapping
+            interp_glad_path_str = os.path.join(
+                scratch_dir,'interpolated_glad.tif')
+
+            if os.path.exists(interp_glad_path_str):
+                inundated_vege_cfg.target_area_file_type = 'GLAD'
+
+                worldcover_valid = np.nansum(inundated_vege_target_area == 2)
+                glad_valid = np.nansum(inundated_vege_target_area == 1)
+                # If some pixels are extracted from WorldCover,
+                # IV source is GLAD/WorldCover
+                if worldcover_valid > 0 and glad_valid > 0:
+                    inundated_vege_cfg.target_area_file_type = 'GLAD/WorldCover'
+                # If the GLAD is provided but all pixels come from 'WorldCover'
+                # due to the no-data of GLAD, 
+                # IV source is WorldCover
+                elif worldcover_valid > 0 and glad_valid == 0:
+                    inundated_vege_cfg.target_area_file_type = 'WorldCover'
+            else:
+                inundated_vege_cfg.target_area_file_type = 'WorldCover'
+        logger.info('Inundated vegetation areas are defined from  '
+                    f'{inundated_vege_cfg.target_area_file_type}.')
+
     else:
         inundated_vegetation = None
-        logger.warning('Inudated vegetation file was disabled.')
+        inundated_vege_target_area = None
+        inundated_vege_high_ratio = None
+        inundated_vegetation_mask = None
+        logger.info('Inundated vegetation file was disabled.')
 
     # 5) create ocean mask
     if ocean_mask_enabled:
@@ -809,7 +849,7 @@ def run(cfg):
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
         bright_water_mask = (landcover_map == 0) & (water_map == 1)
-
+        wetland = inundated_vege_target_area == 1
         # Open water/inundated vegetation
         # layover shadow mask/hand mask/no_data
         # will be saved in WTR product
@@ -859,10 +899,17 @@ def run(cfg):
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
+            inundated_vegetation_conf=(inundated_vege_high_ratio == 1) &
+                (wetland == 0) & (water_map == 0),
+            wetland_nonwater=(water_map == 0) & wetland,
+            wetland_water=(water_map == 1) & wetland,
+            wetland_bright_water_fill=bright_water_mask & wetland,
+            wetland_inundated_veg=(inundated_vegetation == 2) & wetland,
+            wetland_dark_land_mask=dark_land_mask & wetland,
+            wetland_landcover_mask=landcover_mask & wetland,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             ocean_mask=ocean_mask,
-            inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
             )
 
@@ -958,7 +1005,7 @@ def run(cfg):
 
             # Metadata
             if overlapped_burst:
-                dswx_metadata_dict = create_dswx_sar_metadata(
+                dswx_metadata_dict = create_dswx_s1_metadata(
                     cfg,
                     overlapped_burst,
                     product_version=product_version,

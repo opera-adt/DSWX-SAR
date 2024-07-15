@@ -143,8 +143,11 @@ def _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg):
         'INPUT_SHORELINE_SOURCE': ('shoreline_shapefile',
                                    'shoreline_shapefile_description'),
         'INPUT_REFERENCE_WATER_SOURCE': ('reference_water_file',
-                                         'reference_water_file_description')
-    }
+                                         'reference_water_file_description'),
+        'INPUT_GLAD_CLASSIFICATION_SOURCE':
+            ('glad_classification_file',
+             'glad_classification_file_description')
+        }
 
     for meta_key, (file_attr, desc_attr) in source_map.items():
         description = getattr(ancillary_cfg, desc_attr, None)
@@ -173,14 +176,14 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
         threshold_mapping = {
             'otsu': 'OTSU',
             'ki': 'Kittler-Illingworth',
-            'rg': 'Region-growning based threshold'
+            'rg': 'Region-growing based threshold'
         }
         initial_threshold_cfg = processing_cfg.initial_threshold
         masking_ancillary_cfg = processing_cfg.masking_ancillary
         fuzzy_value_cfg = processing_cfg.fuzzy_value
         inundated_vegetation_cfg = processing_cfg.inundated_vegetation
         refine_with_bimodality_cfg = processing_cfg.refine_with_bimodality
-        filter_method = processing_cfg.filter.method 
+        filter_method = processing_cfg.filter.method
         filter_opt = processing_cfg.filter
         if filter_method == 'lee':
             filter_option = {'win_size':
@@ -198,6 +201,15 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
         elif filter_method == 'bregman':
             filter_option = {'lambda':
                              filter_opt.bregman.lambda_value}
+
+        # Three options are possible. 'WorldCover', 'GLAD', 'auto'
+        # Currently, GLAD will be used for 'auto'.
+        if inundated_vegetation_cfg.target_area_file_type == 'WorldCover':
+            inundated_vege_target_class = \
+                inundated_vegetation_cfg.target_worldcover_class
+        else:
+            inundated_vege_target_class = \
+                inundated_vegetation_cfg.target_glad_class
 
         dswx_metadata_dict.update({
             'PROCESSING_INFORMATION_POLARIZATION':
@@ -269,9 +281,12 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
                 inundated_vegetation_cfg.dual_pol_ratio_min,
             'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_THRESHOLD':
                 inundated_vegetation_cfg.dual_pol_ratio_threshold,
-            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_CROSS_POL_MIN':
-                inundated_vegetation_cfg.cross_pol_min
-
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_AREA_DATA_TYPE':
+                inundated_vegetation_cfg.target_area_file_type,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_TARGET_CLASS':
+                inundated_vege_target_class,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_FILTER':
+                inundated_vegetation_cfg.filter.method
         })
     except AttributeError as e:
         print(f"Attribute error occurred: {e}")
@@ -459,7 +474,7 @@ def collect_burst_id(rtc_dirs, pol):
     return list(set(burst_id_list))
 
 
-def create_dswx_sar_metadata(cfg,
+def create_dswx_s1_metadata(cfg,
                              rtc_dirs,
                              product_version=None,
                              extra_meta_data=None):

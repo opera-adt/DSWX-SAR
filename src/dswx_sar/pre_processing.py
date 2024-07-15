@@ -324,7 +324,6 @@ class AncillaryRelocation:
         file_min_x, file_dx, _, file_max_y, _, file_dy = file_geotransform
 
         file_width = gdal_ds.GetRasterBand(1).XSize
-        file_length = gdal_ds.GetRasterBand(1).YSize
 
         del gdal_ds
         file_srs = osr.SpatialReference()
@@ -371,7 +370,6 @@ class AncillaryRelocation:
         logger.info('    tile crosses the antimeridian')
 
         file_max_x = file_min_x + file_width * file_dx
-        file_min_y = file_max_y + file_length * file_dy
 
         # Crop input at the two sides of the antimeridian:
         # left side: use tile bbox with file_max_x from input
@@ -595,6 +593,7 @@ def run(cfg):
     landcover_file = dynamic_data_cfg.worldcover_file
     dem_file = dynamic_data_cfg.dem_file
     hand_file = dynamic_data_cfg.hand_file
+    glad_file = dynamic_data_cfg.glad_classification_file
 
     ref_water_max = processing_cfg.reference_water.max_value
     ref_water_no_data = processing_cfg.reference_water.no_data_value
@@ -660,6 +659,7 @@ def run(cfg):
         'hand': 'interpolated_hand.tif',
         'landcover': 'interpolated_landcover.tif',
         'reference_water': 'interpolated_wbd.tif',
+        'glad_classification': 'interpolated_glad.tif',
     }
 
     input_ancillary_filename_set = {
@@ -667,6 +667,7 @@ def run(cfg):
         'hand': hand_file,
         'landcover': landcover_file,
         'reference_water': wbd_file,
+        'glad_classification': glad_file,
     }
 
     landcover_label = get_label_landcover_esa_10()
@@ -675,6 +676,11 @@ def run(cfg):
         input_anc_path = input_ancillary_filename_set[anc_type]
         ancillary_path = Path(
             os.path.join(scratch_dir, anc_filename))
+
+        # GLAD classification map is optional.
+        if input_anc_path is None and anc_type == 'glad_classification':
+            logger.info(f'{anc_type} file is not provided.')
+            continue
 
         # Check if input ancillary data is valid.
         if not os.path.isfile(input_anc_path) and \
@@ -686,6 +692,8 @@ def run(cfg):
             no_data = ref_water_no_data
         elif anc_type in ['landcover']:
             no_data = landcover_label['No_data']
+        elif anc_type in ['glad_classification']:
+            no_data = 255
         else:
             no_data = np.nan
 
@@ -794,7 +802,8 @@ def run(cfg):
 
                     elif filter_method == 'anisotropic_diffusion':
                         filtering_method = filter_SAR.anisotropic_diffusion
-                        filter_option = vars(filter_options.anisotropic_diffusion)
+                        filter_option = vars(
+                            filter_options.anisotropic_diffusion)
 
                     elif filter_method == 'guided_filter':
                         filtering_method = filter_SAR.guided_filter
@@ -803,7 +812,6 @@ def run(cfg):
                     elif filter_method == 'bregman':
                         filtering_method = filter_SAR.tv_bregman
                         filter_option = vars(filter_options.bregman)
-                    print(filter_option)
                     filtered_intensity = filtering_method(
                                                 intensity, **filter_option)
                 else:

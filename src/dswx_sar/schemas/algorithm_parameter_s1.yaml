@@ -47,12 +47,21 @@ runconfig:
             lee_filter:
                 window_size: num(min=1, required=False)
             guided_filter:
+                # Radius of the kernel used in the Guided Filter.
                 radius: num(min=1, required=False)
+                # Regularization parameter in Guided Filter to smooth within
+                # a radius. Default is 3.
                 eps: num(required=False)
+                # The depth of the output image.
                 ddepth: num(required=False)
             bregman:
+                # The regularization parameter for TV Bregman denoising.
+                # It controls the amount of smoothing. Higher values
+                # produce more smoothed results.
                 lambda_value: num(required=False)
             anisotropic_diffusion:
+                # Denoising weight. The greater the weight, the more 
+                # denoising (at the expense of fidelity to image).
                 weight: num(required=False)
 
         initial_threshold:

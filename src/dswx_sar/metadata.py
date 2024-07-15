@@ -176,14 +176,14 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
         threshold_mapping = {
             'otsu': 'OTSU',
             'ki': 'Kittler-Illingworth',
-            'rg': 'Region-growning based threshold'
+            'rg': 'Region-growing based threshold'
         }
         initial_threshold_cfg = processing_cfg.initial_threshold
         masking_ancillary_cfg = processing_cfg.masking_ancillary
         fuzzy_value_cfg = processing_cfg.fuzzy_value
         inundated_vegetation_cfg = processing_cfg.inundated_vegetation
         refine_with_bimodality_cfg = processing_cfg.refine_with_bimodality
-        filter_method = processing_cfg.filter.method 
+        filter_method = processing_cfg.filter.method
         filter_opt = processing_cfg.filter
         if filter_method == 'lee':
             filter_option = {'win_size':

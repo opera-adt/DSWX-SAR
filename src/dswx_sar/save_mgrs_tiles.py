@@ -37,7 +37,7 @@ def merge_pol_layers(list_layers,
                      scratch_dir='.'):
     """
     Merge multiple GeoTIFF files into a single file using rasterio.
-    This function is used to merge the GeoTIFF with different polarizaitons.
+    This function is used to merge the GeoTIFF with different polarizations.
 
     Parameters
     ----------
@@ -564,6 +564,9 @@ def run(cfg):
     mgrs_collection_db_path = \
         static_ancillary_file_group_cfg.mgrs_collection_database_file
 
+    # Inundated vegetation
+    inundated_vege_cfg = processing_cfg.inundated_vegetation
+
     # Browse image options
     browser_image_cfg = cfg.groups.browse_image_group
     browse_image_flag = browser_image_cfg.save_browse
@@ -625,14 +628,14 @@ def run(cfg):
     platform_str = platform[0] + platform.split('-')[-1]
     resolution_str = str(int(resolution))
 
-    if processing_cfg.inundated_vegetation.enabled == 'auto':
+    if inundated_vege_cfg.enabled == 'auto':
         if cross_pol and co_pol:
             total_inundated_vege_flag = True
         else:
             total_inundated_vege_flag = False
     else:
         total_inundated_vege_flag = \
-            processing_cfg.inundated_vegetation.enabled
+            inundated_vege_cfg.enabled
 
     inundated_vege_mosaic_flag = False
     # Set merge_layer_flag and merge_pol_list based on pol_mode
@@ -786,13 +789,40 @@ def run(cfg):
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
-        logger.info('Inudated vegetation file was found.')
+        logger.info('Inundated vegetation file was found.')
+        iv_target_file_type = inundated_vege_cfg.target_area_file_type
+        if (iv_target_file_type == 'auto'):
+            # if target_file_type is auto and GLAD is provided,
+            # GLAD is the source of inundated vegetation mapping
+            interp_glad_path_str = os.path.join(
+                scratch_dir,'interpolated_glad.tif')
+
+            if os.path.exists(interp_glad_path_str):
+                inundated_vege_cfg.target_area_file_type = 'GLAD'
+
+                worldcover_valid = np.nansum(inundated_vege_target_area == 2)
+                glad_valid = np.nansum(inundated_vege_target_area == 1)
+                # If some pixels are extracted from WorldCover,
+                # IV source is GLAD/WorldCover
+                print('worldcover', worldcover_valid)
+                print('glad_valid', glad_valid)
+                if worldcover_valid > 0 and glad_valid > 0:
+                    inundated_vege_cfg.target_area_file_type = 'GLAD/WorldCover'
+                # If the GLAD is provided but all pixels come from 'WorldCover'
+                # due to the no-data of GLAD, 
+                # IV source is WorldCover
+                elif worldcover_valid > 0 and glad_valid == 0:
+                    inundated_vege_cfg.target_area_file_type = 'WorldCover'
+                print(inundated_vege_cfg.target_area_file_type)
+            else:
+                inundated_vege_cfg.target_area_file_type = 'WorldCover'
+        
     else:
         inundated_vegetation = None
         inundated_vege_target_area = None
         inundated_vege_high_ratio = None
         inundated_vegetation_mask = None
-        logger.warning('Inudated vegetation file was disabled.')
+        logger.warning('Inundated vegetation file was disabled.')
 
     # 5) create ocean mask
     if ocean_mask_enabled:
@@ -875,8 +905,7 @@ def run(cfg):
             wetland_nonwater=(water_map == 0) & wetland,
             wetland_water=(water_map == 1) & wetland,
             wetland_bright_water_fill=bright_water_mask & wetland,
-            wetland_inundated_veg=(inundated_vegetation == 2) &
-                wetland,
+            wetland_inundated_veg=(inundated_vegetation == 2) & wetland,
             wetland_dark_land_mask=dark_land_mask & wetland,
             wetland_landcover_mask=landcover_mask & wetland,
             layover_shadow_mask=layover_shadow_mask > 0,

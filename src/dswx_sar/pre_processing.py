@@ -679,6 +679,7 @@ def run(cfg):
 
         # GLAD classification map is optional.
         if input_anc_path is None and anc_type == 'glad_classification':
+            logger.info(f'{anc_type} file is not provided.')
             continue
 
         # Check if input ancillary data is valid.

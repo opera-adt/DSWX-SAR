@@ -212,7 +212,7 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
                 inundated_vegetation_cfg.target_glad_class
 
         dswx_metadata_dict.update({
-            'PROCESSING_INFORMATION_POLARIZATION':
+            'POLARIZATION':
                 processing_cfg.polarizations,
             'PROCESSING_INFORMATION_FILTER':
                 processing_cfg.filter.method,

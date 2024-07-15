@@ -14,6 +14,40 @@ from dswx_sar.masking_with_ancillary import FillMaskLandCover
 logger = logging.getLogger('dswx_sar')
 
 
+def parse_ranges(ranges):
+    """
+    Parse a list of ranges in the format "start-end" and single numbers.
+
+    Parameters
+    ----------
+    ranges : list of str
+        A list of strings where each string is either a single number or a
+        range in the format "start-end".
+
+    Returns
+    -------
+    result : list of int
+        A list of integers that includes all numbers in the specified ranges
+        and single numbers.
+
+    Examples
+    --------
+    >>> parse_ranges(["1-3", "5", "7-9"])
+    [1, 2, 3, 5, 7, 8, 9]
+
+    >>> parse_ranges(["10", "12-15", "18"])
+    [10, 12, 13, 14, 15, 18]
+    """
+    result = []
+    for item in ranges:
+        if '-' in item:
+            start, end = map(int, item.split('-'))
+            result.extend(range(start, end + 1))
+        else:
+            result.append(int(item))
+    return result
+
+
 def run(cfg):
 
     logger.info('Start inundated vegetation mapping')
@@ -21,7 +55,7 @@ def run(cfg):
     t_all = time.time()
 
     processing_cfg = cfg.groups.processing
-    outputdir = cfg.groups.product_path_group.scratch_path
+    scratch_dir = cfg.groups.product_path_group.scratch_path
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
 
@@ -36,18 +70,41 @@ def run(cfg):
     inundated_vege_ratio_threshold = \
         inundated_vege_cfg.dual_pol_ratio_threshold
     inundated_vege_cross_pol_min = inundated_vege_cfg.cross_pol_min
-    inundated_vege_target = inundated_vege_cfg.target_land_cover
+
+    target_file_type = inundated_vege_cfg.target_area_file_type
+    target_worldcover_class = inundated_vege_cfg.target_worldcover_class
+    target_glad_class = inundated_vege_cfg.target_glad_class
 
     line_per_block = inundated_vege_cfg.line_per_block
-    filter_options = processing_cfg.filter
-    filter_method = processing_cfg.filter.method
+    filter_options = inundated_vege_cfg.filter
+    filter_method = inundated_vege_cfg.filter.method
+
+    interp_glad_path_str = os.path.join(scratch_dir, 'interpolated_glad.tif')
+    interp_worldcover_path_str = os.path.join(scratch_dir,
+                                              'interpolated_landcover.tif')
+
+    if target_file_type == 'auto':
+        if os.path.exists(interp_glad_path_str):
+            target_file_type = 'GLAD'
+        else:
+            target_file_type = 'WorldCover'
+    logger.info(f'Vegetation area is extracted from {target_file_type}.')
 
     # Currently, inundated vegetation for C-band is available for
-    # Herbanceous wetland area
-    landcover_path_str = os.path.join(outputdir, 'interpolated_landcover.tif')
-    mask_obj = FillMaskLandCover(landcover_path_str)
+    # Potential wetland area from Land cover maps
+    if target_file_type == 'WorldCover':
+        landcover_path_str = interp_worldcover_path_str
+    else:
+        landcover_path_str = interp_glad_path_str
+        sup_mask_obj = FillMaskLandCover(interp_worldcover_path_str,
+                                         'WorldCover')
+    mask_obj = FillMaskLandCover(landcover_path_str, target_file_type)
     inundated_vege_path = \
-        f"{outputdir}/temp_inundated_vegetation_{pol_all_str}.tif"
+        f"{scratch_dir}/temp_inundated_vegetation_{pol_all_str}.tif"
+    target_area_path = \
+        f"{scratch_dir}/temp_target_area_{pol_all_str}.tif"
+    high_ratio_path = \
+        f"{scratch_dir}/temp_high_dualpol_ratio_{pol_all_str}.tif"
 
     dual_pol_flag = False
     if (('HH' in pol_list) and ('HV' in pol_list)) or \
@@ -72,7 +129,7 @@ def run(cfg):
         elif pol in ['HV', 'VH']:
             crosspol_ind = polind
 
-    rtc_dual_path = f"{outputdir}/filtered_image_{pol_all_str}.tif"
+    rtc_dual_path = f"{scratch_dir}/filtered_image_{pol_all_str}.tif"
     if not os.path.isfile(rtc_dual_path):
         err_str = f'{rtc_dual_path} is not found.'
         raise FileExistsError(err_str)
@@ -128,16 +185,38 @@ def run(cfg):
         output_data = np.zeros(filt_ratio.shape, dtype='uint8')
 
         target_cross_pol = cross_db > inundated_vege_cross_pol_min
+        if target_file_type == 'WorldCover':
+            target_inundated_vege_class = mask_obj.get_mask(
+                mask_label=target_worldcover_class,
+                block_param=block_param)
+        elif target_file_type == 'GLAD':
+            inundated_vege_target = parse_ranges(target_glad_class)
+            target_inundated_vege_class = mask_obj.get_mask(
+                mask_label=inundated_vege_target,
+                block_param=block_param)
 
-        target_inundated_vege_class = mask_obj.get_mask(
-            mask_label=inundated_vege_target,
-            block_param=block_param)
+            # GLAD has no-data values for small island and polar regions
+            # such as Greenland. The WorldCover will be alternatively used
+            # for the no-data areas.
+            glad_no_data = mask_obj.get_mask(
+                mask_label=[255],
+                block_param=block_param)
+            logger.info(f'GLAD has {np.sum(glad_no_data)} no data')
+            target_replace_class = sup_mask_obj.get_mask(
+                mask_label=target_worldcover_class,
+                block_param=block_param)
+            target_inundated_vege_class[
+                glad_no_data & target_replace_class] = 2
+                # target_replace_class[glad_no_data]
 
-        inundated_vegetation = (
-            filt_ratio_db > inundated_vege_ratio_threshold) & \
-            target_cross_pol & \
+        no_data = np.isnan(filt_ratio)
+        target_inundated_vege_class[no_data] = 0
+
+        all_inundated_cand = \
+            (filt_ratio_db > inundated_vege_ratio_threshold) & \
+            target_cross_pol
+        inundated_vegetation = all_inundated_cand & \
             target_inundated_vege_class
-
         output_data[inundated_vegetation] = 2
 
         dswx_sar_util.write_raster_block(
@@ -148,21 +227,41 @@ def run(cfg):
             projection=im_meta['projection'],
             datatype='byte',
             cog_flag=True,
-            scratch_dir=outputdir)
+            scratch_dir=scratch_dir)
+
+        dswx_sar_util.write_raster_block(
+            out_raster=target_area_path,
+            data=target_inundated_vege_class,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='byte',
+            cog_flag=True,
+            scratch_dir=scratch_dir)
+
+        dswx_sar_util.write_raster_block(
+            out_raster=high_ratio_path,
+            data=all_inundated_cand,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='byte',
+            cog_flag=True,
+            scratch_dir=scratch_dir)
 
         if processing_cfg.debug_mode:
             dswx_sar_util.write_raster_block(
                 out_raster=os.path.join(
-                    outputdir, f'intensity_db_ratio_{pol_all_str}.tif'),
+                    scratch_dir, f'intensity_db_ratio_{pol_all_str}.tif'),
                 data=filt_ratio_db,
                 block_param=block_param,
                 geotransform=im_meta['geotransform'],
                 projection=im_meta['projection'],
                 datatype='float32',
                 cog_flag=True,
-                scratch_dir=outputdir)
+                scratch_dir=scratch_dir)
 
-    dswx_sar_util._save_as_cog(inundated_vege_path, outputdir)
+    dswx_sar_util._save_as_cog(inundated_vege_path, scratch_dir)
 
     t_time_end = time.time()
 

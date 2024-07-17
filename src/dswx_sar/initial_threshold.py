@@ -117,7 +117,7 @@ class TileSelection:
                              numstep+1),
             density=True)
 
-        bincenter = ((intensity_bins[:-1] + intensity_bins[1:]) / 2)
+        bincenter = (intensity_bins[:-1] + intensity_bins[1:]) / 2
         intensity_db_variance = np.nanstd(intensity_db)**2
 
         intensity_bins_step = intensity_bins[2] - intensity_bins[1]
@@ -268,7 +268,7 @@ class TileSelection:
                            water_mask,
                            win_size=200,
                            selection_methods=['combined'],
-                           mininum_tile=20,
+                           minimum_tile=20,
                            minimum_pixel_number=40):
         '''Select the tile candidates containing water and non-water
         from aid of water body layer based on the selection method
@@ -369,7 +369,7 @@ class TileSelection:
             # both water bodies and lands from the reference water map.
             # if 0.0 < water_coverage < 1 and 0.0 < land_coverage < 1:
             if water_area_flag:
-                while (num_detected_box_sum <= mininum_tile) and \
+                while (num_detected_box_sum <= minimum_tile) and \
                         (win_size >= minimum_pixel_number):
 
                     subrun += 1
@@ -489,7 +489,7 @@ class TileSelection:
                                 selected_tile_chini.append(False)
                                 selected_tile_bimodality.append(False)
 
-                            # keep coordiates for the searching window.
+                            # keep coordinates for the searching window.
                             coordinate.append(
                                 [ind_subtile,
                                  x_start, x_end,
@@ -524,7 +524,7 @@ class TileSelection:
                                 selected_tile_bimodality)
                         num_detected_box = np.sum(detected_box_array)
 
-                    if num_detected_box_sum <= mininum_tile:
+                    if num_detected_box_sum <= minimum_tile:
                         # try tile-selection with smaller win size
                         win_size = int(win_size * 0.5)
                         num_pixel_max = win_size * win_size / 3
@@ -1581,7 +1581,7 @@ def fill_threshold_with_distance(threshold_array,
         for block in range(0, nblocks):
             row_start = block * lines_per_block
 
-            if (row_start + lines_per_block > rows):
+            if row_start + lines_per_block > rows:
                 block_rows = rows - row_start
             else:
                 block_rows = lines_per_block

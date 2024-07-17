@@ -96,13 +96,13 @@ def get_bounding_box_from_mgrs_tile_db(
     Returns
     -------
     minx: float
-        Minimum x cooridate (UTM) for the given MGRS tile
+        Minimum x coordinate (UTM) for the given MGRS tile
     maxx: float
-        Maximum x cooridate (UTM) for the given MGRS tile
+        Maximum x coordinate (UTM) for the given MGRS tile
     miny: float
-        Minimum y cooridate (UTM) for the given MGRS tile
+        Minimum y coordinate (UTM) for the given MGRS tile
     maxy: float
-        Maximum y cooridate (UTM) for the given MGRS tile
+        Maximum y coordinate (UTM) for the given MGRS tile
     epsg: int
         EPSG code
     """
@@ -135,13 +135,13 @@ def get_bounding_box_from_mgrs_tile(mgrs_tile_name):
     Returns
     -------
     minx: float
-        Minimum x cooridate (UTM) for the given MGRS tile
+        Minimum x coordinate (UTM) for the given MGRS tile
     maxx: float
-        Maximum x cooridate (UTM) for the given MGRS tile
+        Maximum x coordinate (UTM) for the given MGRS tile
     miny: float
-        Minimum y cooridate (UTM) for the given MGRS tile
+        Minimum y coordinate (UTM) for the given MGRS tile
     maxy: float
-        Maximum y cooridate (UTM) for the given MGRS tile
+        Maximum y coordinate (UTM) for the given MGRS tile
     epsg: int
         EPSG code
     """
@@ -744,7 +744,7 @@ def run(cfg):
                                  **extra_args)
 
     # metadata for final product
-    # e.g. geotransform, projection, length, width, utmzon, epsg
+    # e.g. geotransform, projection, length, width, utmzone, epsg
     water_meta = dswx_sar_util.get_meta_from_tif(paths['final_water'])
 
     # repackage the water map
@@ -793,7 +793,7 @@ def run(cfg):
         inundated_vegetation[inundated_vegetation_mask] = 1
         logger.info('Inundated vegetation file was found.')
         iv_target_file_type = inundated_vege_cfg.target_area_file_type
-        if (iv_target_file_type == 'auto'):
+        if iv_target_file_type == 'auto':
             # if target_file_type is auto and GLAD is provided,
             # GLAD is the source of inundated vegetation mapping
             interp_glad_path_str = os.path.join(
@@ -809,7 +809,7 @@ def run(cfg):
                 if worldcover_valid > 0 and glad_valid > 0:
                     inundated_vege_cfg.target_area_file_type = 'GLAD/WorldCover'
                 # If the GLAD is provided but all pixels come from 'WorldCover'
-                # due to the no-data of GLAD, 
+                # due to the no-data of GLAD,
                 # IV source is WorldCover
                 elif worldcover_valid > 0 and glad_valid == 0:
                     inundated_vege_cfg.target_area_file_type = 'WorldCover'

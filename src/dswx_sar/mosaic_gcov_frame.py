@@ -78,7 +78,7 @@ class RTCReader(DataReader):
         # To Do: Read and write to geotiff
         # 1. If EPSG are the same between inputs, then write it to output
         #    mosaicked Geotiff directly from input HDF5
-        # 2. Otherwise, write all to intermeidate Geotiff first and re-use
+        # 2. Otherwise, write all to intermediate Geotiff first and re-use
         #    existing functions to reproject data and create mosaicked output
         #    from intermediate Geotiffs
 
@@ -136,7 +136,7 @@ class RTCReader(DataReader):
         Returns
         -------
         layover_exist: bool
-            Boolean which indicates if a layoverShadowMask layer exisits
+            Boolean which indicates if a layoverShadowMask layer exists
             in input RTC
         geogrid_in: DSWXGeogrid object
             A dataclass object  representing the geographical grid
@@ -196,7 +196,7 @@ class RTCReader(DataReader):
                         f'{scratch_dir}/{input_prefix}_{data_name}.tif'
                     temp_gtiff = \
                         f'{scratch_dir}/{input_prefix}_temp_{data_name}.tif'
-    
+
                     # Change EPSG
                     change_epsg_tif(
                         input_tif=input_gtiff,
@@ -312,7 +312,7 @@ class RTCReader(DataReader):
             Mosaicked output file name prefix
         layover_exist: bool
             Boolean which indicates if a layoverShadowMask layer
-            exisits in input RTC
+            exists in input RTC
         """
         for idx, dataset_path in enumerate(data_path):
             data_name = Path(dataset_path).name[:2]
@@ -461,8 +461,8 @@ class RTCReader(DataReader):
     def get_nisar_epsg(self, input_list):
         """extract data from RTC Geo information and store it as a dictionary
 
-        paremeters:
-        -----------
+        parameters
+        ----------
         input_list: list
             The HDF5 file paths of input RTCs to be mosaicked.
 
@@ -500,11 +500,11 @@ class RTCReader(DataReader):
             geotransform: Affine,
             crs: str,
             dswx_metadata_dict: dict):
-        """Read an level-2 RTC prodcut in HDF5 format and writ it out in
+        """Read an level-2 RTC product in HDF5 format and writ it out in
         GeoTiff format in data blocks defined by row_blk_size and col_blk_size.
 
         Parameters
-        ------------
+        ----------
         h5_ds: GDAL Dataset
             GDAL dataset object to be processed
         output_gtiff: str
@@ -521,7 +521,7 @@ class RTCReader(DataReader):
             Identify Inf in the dataset and replace them with
             a designated value
         geotransform: Affine Transformation object
-            Transformation matrix which maps pixcel locations in (row, col)
+            Transformation matrix which maps pixel locations in (row, col)
             coordinates to (x, y) spatial positions.
         crs: str
             Coordinate Reference System object in EPSG representation
@@ -578,15 +578,15 @@ class RTCReader(DataReader):
     def read_geodata_hdf5(self, input_rtc):
         """extract data from RTC Geo information and store it as a dictionary
 
-        paremeters:
-        -----------
+        parameters
+        ----------
         input_rtc: str
             The HDF5 RTC input file path
 
         Returns
         -------
         geotransform: Affine Transformation object
-            Transformation matrix which maps pixcel locations in (row, col)
+            Transformation matrix which maps pixel locations in (row, col)
             coordinates to (x, y) spatial positions.
         crs: str
             Coordinate Reference System object in EPSG representation

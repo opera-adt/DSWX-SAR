@@ -198,7 +198,7 @@ class BimodalityMetrics:
             Amplitude of the second Gaussian.
 
         Returns
-        ----------
+        -------
         float or array-like
             The value(s) of the Gaussian function at x.
         """
@@ -212,8 +212,8 @@ class BimodalityMetrics:
         which is a measure of bimodality,
         based on the first and second distributions of the input histogram.
 
-        Returns:
-        ----------
+        Returns
+        -------
             float: The computed Ashman coefficient.
 
         """
@@ -252,7 +252,8 @@ class BimodalityMetrics:
 
         Returns:
         ----------
-            float: The computed Surface Ratio coefficient.
+            surface_ratio_coeff: float
+                The computed Surface Ratio coefficient.
         """
         area_first = np.sum(self.simul_first)
         area_second = np.sum(self.simul_second)
@@ -267,9 +268,10 @@ class BimodalityMetrics:
         which is a measure of bimodality,
         based on the skewness and kurtosis of the input data.
 
-        Returns:
-        ----------
-            float: The computed BC coefficient.
+        Returns
+        -------
+            bc_coeff: float
+                The computed BC coefficient.
       """
         sample_size = len(self.int_db)
         skewness_sq = stats.skew(self.int_db,
@@ -295,9 +297,10 @@ class BimodalityMetrics:
         coefficient based on the mean values and
         probabilities of the two modes.
 
-        Returns:
-        ----------
-            float: The computed bimodality coefficient.
+        Returns
+        -------
+            sigma_b: float
+                The computed bimodality coefficient.
         """
         try:
             local_left_ind = np.argmax(self.simul_first)
@@ -400,7 +403,7 @@ class BimodalityMetrics:
                 bimodal_metrics = (int(ashman_bool) +
                                    int(bm_coeff_bool) +
                                    int(bc_coeff_bool))
-                # If more than two metric satisficed are higher than threshold
+                # If more than two metric satisfied are higher than threshold
                 # or ashman coefficient is higher than 3
                 # and surface ratio is higher than threshold
                 bool_set = [(bimodal_metrics >= 2) or
@@ -479,7 +482,7 @@ def estimate_bimodality(array,
 
     bincenter = (bins[:-1] + bins[1:]) / 2
 
-    # smooth histogram by appling gaussian filter
+    # smooth histogram by applying gaussian filter
     counts_smooth = scipy.signal.convolve(counts,
                                           [0.2261, 0.5478, 0.2261],
                                           'same')
@@ -580,7 +583,7 @@ def process_dark_land_component(args):
             - water_label_block: np.ndarray
                 numpy array of the labeled water elements raster dataset.
             - thresholds: list
-                List of the thresholds to determine bimiodality.
+                List of the thresholds to determine bimodality.
             - minimum_pixel (int): minimum number of pixels to accept
               as water bodies.
             - debug_mode: boolean

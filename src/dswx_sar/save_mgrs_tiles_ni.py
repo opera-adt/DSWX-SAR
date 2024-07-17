@@ -69,7 +69,7 @@ def crop_and_save_mgrs_tile_spacing(
     output_format : str
         Output file format (i.e., COG, GeoTIFF)
     metadata : dict
-        Dictionry for metadata
+        Dictionary for metadata
     cog_compression: str
         Compression method for COG
     cog_nbits: int
@@ -354,13 +354,13 @@ def run(cfg):
 
     logger.info(f'Number of frames to process: {num_input_path}')
     date_str_list = []
-    rtc_readar = mosaic_gcov_frame.RTCReader(row_blk_size=200,
+    rtc_reader = mosaic_gcov_frame.RTCReader(row_blk_size=200,
                                              col_blk_size=200)
 
     for input_h5 in input_list:
         # Find HDF5 metadata
 
-        rtc_metadata = rtc_readar.read_metadata_hdf5(input_h5)
+        rtc_metadata = rtc_reader.read_metadata_hdf5(input_h5)
         # tags = src.tags(0)
         # date_str = tags['ZERO_DOPPLER_START_TIME']
         platform = 'LSAR'
@@ -518,10 +518,10 @@ def run(cfg):
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
-        logger.info('Inudated vegetation file was found.')
+        logger.info('Inundated vegetation file was found.')
     else:
         inundated_vegetation = None
-        logger.warning('Inudated vegetation file was disabled.')
+        logger.warning('Inundated vegetation file was disabled.')
 
     # 5) create ocean mask
     if ocean_mask_enabled:

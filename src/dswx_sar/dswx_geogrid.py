@@ -144,4 +144,3 @@ class DSWXGeogrid:
 
         self.epsg = new_geogrid.epsg \
             if not np.isnan(new_geogrid.epsg) else self.epsg
-

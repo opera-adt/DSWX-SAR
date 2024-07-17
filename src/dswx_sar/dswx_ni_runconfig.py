@@ -307,7 +307,7 @@ def check_polarizations(pol_list, input_dir_list):
             pol_mode = pol_mode_name
 
     if pol_mode is None:
-        err_msg = 'unable to identify polarzation mode.'
+        err_msg = 'unable to identify polarization mode.'
         logger.warning(err_msg)
     return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
 

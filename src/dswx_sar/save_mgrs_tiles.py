@@ -633,6 +633,9 @@ def run(cfg):
             total_inundated_vege_flag = True
         else:
             total_inundated_vege_flag = False
+        # update the IV flag
+        inundated_vege_cfg.enabled = total_inundated_vege_flag
+
     else:
         total_inundated_vege_flag = \
             inundated_vege_cfg.enabled
@@ -711,7 +714,6 @@ def run(cfg):
         if len(pol_set1) == 2 and len(pol_set2) == 2:
             inundated_vege_mosaic_flag = True
 
-    if total_inundated_vege_flag:
         prefix_dict['inundated_veg'] = 'temp_inundated_vegetation'
         prefix_dict['inundated_veg_target'] = 'temp_target_area'
         prefix_dict['inundated_veg_high_ratio'] = 'temp_high_dualpol_ratio'
@@ -821,6 +823,8 @@ def run(cfg):
         inundated_vege_target_area = None
         inundated_vege_high_ratio = None
         inundated_vegetation_mask = None
+        inundated_vege_cfg.target_area_file_type = None
+
         logger.info('Inundated vegetation file was disabled.')
 
     # 5) create ocean mask

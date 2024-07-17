@@ -233,6 +233,9 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
                 initial_threshold_cfg.tile_selection_bimodality,
             'PROCESSING_INFORMATION_THRESHOLD_TWELE':
                 initial_threshold_cfg.tile_selection_twele,
+            'PROCESSING_INFORMATION_THRESHOLD_BOUNDS':
+                [initial_threshold_cfg.threshold_bounds.co_pol,
+                 initial_threshold_cfg.threshold_bounds.cross_pol],
 
             'PROCESSING_INFORMATION_REGION_GROWING_INITIAL_SEED':
                 processing_cfg.region_growing.initial_threshold,
@@ -281,6 +284,8 @@ def _populate_processing_metadata_datasets(dswx_metadata_dict, cfg):
                 inundated_vegetation_cfg.dual_pol_ratio_min,
             'PROCESSING_INFORMATION_INUNDATED_VEGETATION_DUAL_POL_RATIO_THRESHOLD':
                 inundated_vegetation_cfg.dual_pol_ratio_threshold,
+            'PROCESSING_INFORMATION_INUNDATED_VEGETATION_CROSS_POL_MIN':
+                inundated_vegetation_cfg.cross_pol_min,
             'PROCESSING_INFORMATION_INUNDATED_VEGETATION_AREA_DATA_TYPE':
                 inundated_vegetation_cfg.target_area_file_type,
             'PROCESSING_INFORMATION_INUNDATED_VEGETATION_TARGET_CLASS':

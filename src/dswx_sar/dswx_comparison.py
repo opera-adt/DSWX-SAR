@@ -82,7 +82,7 @@ def _compare_dswx_sar_metadata(metadata_1, metadata_2):
         metadata_error_message = (
             f'* input 1 metadata has {len(metadata_1.keys())} entries'
             f' whereas input 2 metadata has {len(metadata_2.keys())} entries.')
-        
+
         set_1_m_2 = set(metadata_1.keys()) - set(metadata_2.keys())
         if len(set_1_m_2) > 0:
             metadata_error_message += (' Input 1 metadata has extra entries'

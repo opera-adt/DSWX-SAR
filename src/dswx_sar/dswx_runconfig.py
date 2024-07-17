@@ -19,10 +19,10 @@ WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 
 # Potential polarization scenarios for DSWx-S1
 # NOTE: DO NOT CHANGE THE ORDER of the items in the dictionary below.
-# There are more modes such as 'MIX_DUAL_V_SINGLE_V' and 
+# There are more modes such as 'MIX_DUAL_V_SINGLE_V' and
 # 'MIX_DUAL_H_SINGLE_H' describing the dual_polarization and
-# single polarization with same polarization. This mode will be 
-# deteremine by counting the available bursts. 
+# single polarization with same polarization. This mode will be
+# determined by counting the available bursts.
 DSWX_S1_POL_DICT = {
     'CO_POL': ['HH', 'VV'],
     'CROSS_POL': ['HV', 'VH'],
@@ -305,7 +305,7 @@ def check_polarizations(pol_list, input_dir_list):
             pol_mode = pol_mode_name
 
     if pol_mode is None:
-        err_msg = 'unable to identify polarzation mode.'
+        err_msg = 'unable to identify polarization mode.'
         logger.warning(err_msg)
     return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
 

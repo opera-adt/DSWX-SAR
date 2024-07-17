@@ -154,7 +154,7 @@ runconfig:
             # The elements will be masked out during this step.
             land_cover_darkland_list: list(required=False)
             # The elements is considered as the dark land candidates
-            # where these elemtns are spatially connected to the dark land.
+            # where these elements are spatially connected to the dark land.
             land_cover_darkland_extension_list: list(required=False)
             land_cover_water_label: list(required=False)
             # VV and VH threshold values for dark land candidates

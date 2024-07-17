@@ -49,7 +49,7 @@ def validate_gtiff(geotiff_path, value_list):
        it suggests that all pixels in the file might have the same value.
 
     Parameters
-    -----------
+    ----------
     geotiff_path : str
         The file path to the GeoTIFF file to be checked.
     value_list : List[float]
@@ -126,7 +126,7 @@ class AncillaryRelocation:
         Parameters
         ----------
         ancillary_file_name : str
-            file name of ancilary data
+            file name of ancillary data
         relocated_file_str : str
             file name of output
         method : str

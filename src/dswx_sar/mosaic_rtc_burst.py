@@ -83,8 +83,8 @@ def save_h5_metadata_to_tif(h5_meta_path,
                             epsg_output):
     '''
     extract data from RTC metadata and store it as geotiff
-    paremeters:
-    -----------
+    parameters
+    ----------
     h5_meta_path: str
         the path to the rtc metadata
     data_path: str
@@ -151,7 +151,7 @@ def requires_reprojection(geogrid_mosaic,
     Check if the reprojection is required to mosaic input raster
 
     Parameters
-    -----------
+    ----------
     geogrid_mosaic: isce3.product.GeoGridParameters
         Mosaic geogrid
     rtc_image: str
@@ -673,8 +673,8 @@ def mosaic_multiple_output_files(
     '''
     Mosaic RTC images saving each mosaicked band into a separate file
 
-    Paremeters:
-    -----------
+    Parameters
+    ----------
         list_rtc_images: list
             List of the path to the rtc geobursts
         list_nlooks: list
@@ -695,7 +695,6 @@ def mosaic_multiple_output_files(
             appended to this list
         verbose : bool
             Flag to enable/disable the verbose mode
-
     '''
     mosaic_dict = compute_mosaic_array(
         list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=scratch_dir,
@@ -775,8 +774,8 @@ def run(cfg):
             logger.info('Mosaic is enabled for burst RTCs ')
             mosaic_flag = True
         else:
-            logger.info('Singple input directories is found.')
-            logger.info('Mosaic is diabled for single burst RTC ')
+            logger.info('Single input directory is found.')
+            logger.info('Mosaic is disabled for single burst RTC ')
             mosaic_flag = True
     else:
         if num_input_path == 1:
@@ -820,7 +819,7 @@ def run(cfg):
             # find HDF5 metadata
             layover_path = glob.glob(f'{input_dir}/*mask.tif')
             temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
-            # If both `*_mask.tif` and `*.h5` exists in RTC-S1 burst product 
+            # If both `*_mask.tif` and `*.h5` exists in RTC-S1 burst product
             # directory:
             # The metadata in `*_mask.tif` has priority over HDF5 file.
             if len(layover_path) > 0:
@@ -866,7 +865,7 @@ def run(cfg):
                 logger.warning('mask layer is not found!')
 
         # Check if metadata have common values on
-        # poliarzation /track number/ direction fields
+        # polarization /track number/ direction fields
         output_dir_mosaic_raster = scratch_path
 
         # Mosaic sub-bursts imagery
@@ -897,7 +896,7 @@ def run(cfg):
                             rtc_burst_imagery_list.append(rtc_path_input)
                             geogrid_in.update_geogrid(rtc_path_input)
                     else:
-                        print(f'polarzation {pol} is not found in {input_dir}')
+                        print(f'polarization {pol} is not found in {input_dir}')
                 nlooks_list = []
 
                 if len(rtc_burst_imagery_list) > 0:

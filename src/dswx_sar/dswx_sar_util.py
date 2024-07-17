@@ -51,7 +51,7 @@ band_assign_value_dict = {
 Internally, DSWx-S1 has 2 water classes;
     1. low-backscattering water
     2. high-backscattering water
-There classes are collapesed into water class when
+There classes are collapsed into water class when
 WTR layers converts to BWTR.
 
 Low-backscattering land (dark land) is captured from
@@ -477,7 +477,7 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
 
     # Get pixel dimensions
     pixel_x_spacing = metadata['geotransform'][1]
-    pixel_y_sapcing = metadata['geotransform'][5]
+    pixel_y_spacing = metadata['geotransform'][5]
 
     # Get the number of rows and columns
     cols = metadata['width']
@@ -485,7 +485,7 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
 
     # Calculate coordinates of the lower right corner
     x_max = x_min + (cols * pixel_x_spacing)
-    y_min = y_max + (rows * pixel_y_sapcing)
+    y_min = y_max + (rows * pixel_y_spacing)
 
     corners = [
         (x_min, y_max),  # Top-left
@@ -499,7 +499,7 @@ def change_epsg_tif(input_tif, output_tif, epsg_output,
         metadata['epsg'],
         epsg_output,
         x_snap=pixel_x_spacing,
-        y_snap=pixel_y_sapcing)
+        y_snap=pixel_y_spacing)
 
     x_coords, y_coords = zip(*corner_output)
     x_min_output, x_max_output = min(x_coords), max(x_coords)
@@ -1120,7 +1120,7 @@ def merge_binary_layers(layer_list, value_list, merged_layer_path,
     cog_flag : bool, optional
         Write to COG if True. Defaults to True.
     scratch_dir : str, optional
-        Path to scrath dir. Defaults to '.'.
+        Path to scratch dir. Defaults to '.'.
 
     Returns
     -------
@@ -1182,7 +1182,7 @@ def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     pol: str
         specific polarization added to the file name
     immin: float
-        mininum dB value for displaying intensity
+        minimum dB value for displaying intensity
     immax: float
         maximum dB value for displaying intensity
     """

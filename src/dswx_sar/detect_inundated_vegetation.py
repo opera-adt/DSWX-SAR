@@ -205,6 +205,8 @@ def run(cfg):
             target_replace_class = sup_mask_obj.get_mask(
                 mask_label=target_worldcover_class,
                 block_param=block_param)
+            target_inundated_vege_class = np.array(target_inundated_vege_class,
+                                                   dtype='int8')
             target_inundated_vege_class[
                 glad_no_data & target_replace_class] = 2
                 # target_replace_class[glad_no_data]
@@ -216,7 +218,7 @@ def run(cfg):
             (filt_ratio_db > inundated_vege_ratio_threshold) & \
             target_cross_pol
         inundated_vegetation = all_inundated_cand & \
-            target_inundated_vege_class
+            (target_inundated_vege_class > 0)
         output_data[inundated_vegetation] = 2
 
         dswx_sar_util.write_raster_block(

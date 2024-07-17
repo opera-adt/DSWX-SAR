@@ -57,7 +57,7 @@ def compute_window_mean_std(arr, winsize):
     mean = masked_convolve2d(arr_masked, window, mode='same')
     c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
 
-    var = (c2 - mean * mean)
+    var = c2 - mean * mean
 
     # The negative number in sqrt is replaced
     # with the negligibly small number to avoid numpy warning message.

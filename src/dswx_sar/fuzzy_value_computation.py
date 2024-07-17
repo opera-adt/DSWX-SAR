@@ -252,7 +252,7 @@ def compute_fuzzy_value(intensity,
         workflows i.e.twele or opera_dswx_s1
     fuzzy_option : dict
         fuzzy options to compute the fuzzy values containing
-        fllowing key:value parameters
+        following key:value parameters
             'hand_threshold': HAND value to mask out
             'slope_min': minimum value for z membership function for slope
             'slope_max': maximum value for z membership function for slope
@@ -291,7 +291,7 @@ def compute_fuzzy_value(intensity,
         s-membership for reference water
     copol_only : numpy.ndarray
        binary image showing the area where
-       ony co-polization is used.
+       ony co-polarization is used.
     '''
     _, rows, cols = intensity.shape
 
@@ -377,7 +377,7 @@ def compute_fuzzy_value(intensity,
             change_ind = co_pol_ind
 
         # Cross-polarization intensity is replaced with co- (or span-) pol
-        # where water varation is high and areas are dark/flat.
+        # where water variation is high and areas are dark/flat.
         intensity_z_set[cross_pol_ind][high_frequent_water] = \
             intensity_z_set[change_ind][high_frequent_water]
         intensity_z_set[cross_pol_ind][landcover_flat_area] = \

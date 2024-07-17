@@ -131,7 +131,7 @@ def extract_bbox_with_buffer(
     sizes :  np.ndarray
         Sizes of the connected components.
     label_image : np.ndarray
-        2 dimensional lebel array for each binary object
+        2 dimensional label array for each binary object
     """
     rows, cols = binary.shape
 
@@ -515,7 +515,7 @@ def split_extended_water_parallel(
 
 
 def compute_spatial_coverage_from_ancillary_parallel(
-        flase_water_binary_path: str,
+        false_water_binary_path: str,
         reference_water_path: str,
         mask_landcover_path: str,
         output_file_path: str,
@@ -530,7 +530,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
 
     Parameters
     ----------
-    flase_water_binary_path : str
+    false_water_binary_path : str
         Path to the binary water mask GeoTIFF file.
     reference_water_path : str
         Path to the reference water GeoTIFF file.
@@ -555,8 +555,8 @@ def compute_spatial_coverage_from_ancillary_parallel(
         Saves the computed water mask indicating water areas in the
         specified output file path.
     """
-    water_mask = dswx_sar_util.read_geotiff(flase_water_binary_path)
-    meta_info = dswx_sar_util.get_meta_from_tif(flase_water_binary_path)
+    water_mask = dswx_sar_util.read_geotiff(false_water_binary_path)
+    meta_info = dswx_sar_util.get_meta_from_tif(false_water_binary_path)
 
     # Extract bounding boxes with buffer
     coord_list, sizes, label_image = extract_bbox_with_buffer(
@@ -611,7 +611,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
                   water_label_str, ref_land_tif_str)
                  for i in range(len(sizes))]
 
-    # Output consists of index and 2D image consisting of True/Flase.
+    # Output consists of index and 2D image consisting of True/False.
     # True represents the land and False represents not-land.
     results = Parallel(n_jobs=number_workers)(
         delayed(compute_spatial_coverage)(args)
@@ -997,7 +997,7 @@ def hand_filter_along_boundary(
             scratch_dir=scratch_dir,
             datatype='float32')
         hand_binary_path = os.path.join(
-            scratch_dir, "landcover_hand_bindary.tif")
+            scratch_dir, "landcover_hand_binary.tif")
         dswx_sar_util.save_dswx_product(
             hand_filtered_binary,
             hand_binary_path,
@@ -1164,7 +1164,7 @@ def run(cfg):
     # spatially connected with `mask_excluded_landcover` are added.
     if extended_landcover_flag:
         logger.info('Extending landcover enabled.')
-        rg_excluded_area = (interp_wbd > dry_water_area_threshold)
+        rg_excluded_area = interp_wbd > dry_water_area_threshold
 
         mask_excluded_landcover = extend_land_cover(
             landcover_path=landcover_path,
@@ -1187,7 +1187,7 @@ def run(cfg):
         projection=water_meta['projection'],
         scratch_dir=outputdir)
 
-    # 2) Create intial mask binary
+    # 2) Create initial mask binary
     # mask_excluded indicates the areas satisfying all conditions which are
     # 1: `dry_water_area_threshold` of water occurrence over 37 year (Pekel)
     # 2: specified landcovers (bare ground, sparse vegetation, urban, moss...)
@@ -1259,14 +1259,14 @@ def run(cfg):
         cog_flag=True,
         scratch_dir=outputdir)
 
-    adjacent_false_positive_bindary_path = \
+    adjacent_false_positive_binary_path = \
         os.path.join(outputdir, 'false_positive_connected_water.tif')
 
     compute_spatial_coverage_from_ancillary_parallel(
-            flase_water_binary_path=false_water_candidate_path,
+            false_water_binary_path=false_water_candidate_path,
             reference_water_path=interp_wbd_str,
             mask_landcover_path=mask_excluded_landcover_path,
-            output_file_path=adjacent_false_positive_bindary_path,
+            output_file_path=adjacent_false_positive_binary_path,
             outputdir=outputdir,
             water_max_value=ref_water_max,
             number_workers=number_workers,
@@ -1282,7 +1282,7 @@ def run(cfg):
              os.path.join(outputdir, f"refine_landcover_binary_{pol_str}.tif")
 
     dswx_sar_util.merge_binary_layers(
-        layer_list=[adjacent_false_positive_bindary_path,
+        layer_list=[adjacent_false_positive_binary_path,
                     darkland_cand_path,
                     water_map_tif_str],
         value_list=[0, 0, 1],

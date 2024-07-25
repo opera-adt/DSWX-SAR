@@ -1870,7 +1870,6 @@ def partial_water_product(input_file,
     target_high_binary = high_res_image == target_label
     water = _aggregate_10m_to_30m_conv(target_high_binary,
                                        int(output_spacing / intermediate_spacing),
-                                       target_label=target_label,
                                        normalize_flag=False)
 
     full_water = water >= threshold

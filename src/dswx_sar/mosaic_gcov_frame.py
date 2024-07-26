@@ -137,19 +137,23 @@ class RTCReader(DataReader):
 		    )
             else:
                 layover_exist = False
-            
-	# Mosaic intermediate geotiffs
-        nlooks_list = []
-        self.mosaic_rtc_geotiff(
-            input_list,
-            data_path,
-            scratch_dir,
-            geogrid_in,
-            nlooks_list,
-            mosaic_mode,
-            mosaic_prefix,
-            layover_exist,
-	)
+        else:    
+            if len(layover_gtiff_list) > 0:
+                layover_exist = True
+	        # Mosaic intermediate geotiffs
+                nlooks_list = []
+                self.mosaic_rtc_geotiff(
+                    input_list,
+                    data_path,
+                    scratch_dir,
+                    geogrid_in,
+                    nlooks_list,
+                    mosaic_mode,
+                    mosaic_prefix,
+                    layover_exist,
+	        )    
+            else:
+                layover_exist = False
 
     # Class functions
     def write_rtc_geotiff(
@@ -159,7 +163,7 @@ class RTCReader(DataReader):
             epsg_array: np.ndarray,
             data_path: list,
             layover_path: list,
-            ):
+    ):
         """ Create intermediate Geotiffs from a list of input RTCs
 
         Parameters
@@ -939,7 +943,6 @@ class RTCReader(DataReader):
         dswx_metadata_dict = {
             'ORBIT_PASS_DIRECTION': orbit_pass_dir,
             'LOOK_DIRECTION': look_dir,
-            # 'INPUT_L1_SLC_GRANULES': input_slc_granules,
             'PRODUCT_VERSION': prod_ver,
             'ZERO_DOPPLER_START_TIME': zero_dopp_start,
             'ZERO_DOPPLER_END_TIME': zero_dopp_end,
@@ -1006,7 +1009,6 @@ def run(cfg):
 
     input_list = cfg.groups.input_file_group.input_file_path
 
-    print(f'{input_list = }')
     mosaic_cfg = processing_cfg.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix

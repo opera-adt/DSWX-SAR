@@ -147,7 +147,7 @@ def read_write_gcov(
         Affine.scale(geo_dict['xres'],geo_dict['yres'])
 
     # Coordinate Reference System
-    crs = f'EPSG:{geo_dict['epsg']}'
+    crs = f"EPSG:{geo_dict['epsg']}"
 
     # Read input RTC product in blocks and write it out in geotiff format in blocks
     # using rasterio
@@ -218,11 +218,11 @@ def read_rtc_geo(
     """
 
     with h5py.File(input_file, 'r') as src_h5:
-        xmin = src_h5[f'{group}/{geodata['xcoord']}'][:][0]
-        ymin = src_h5[f'{group}/{geodata['ycoord']}'][:][0]
-        xres = src_h5[f'{group}/{geodata['xposting']}'][()]
-        yres = src_h5[f'{group}/{geodata['yposting']}'][()]
-        epsg = src_h5[f'{group}{geodata['proj']}'][()]
+        xmin = src_h5[f"{group}/{geodata['xcoord']}"][:][0]
+        ymin = src_h5[f"{group}/{geodata['ycoord']}"][:][0]
+        xres = src_h5[f"{group}/{geodata['xposting']}"][()]
+        yres = src_h5[f"{group}/{geodata['yposting']}"][()]
+        epsg = src_h5[f"{group}{geodata['proj']}"][()]
  
     geo_dict = {
         'xmin': xmin,

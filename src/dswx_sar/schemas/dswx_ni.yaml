@@ -48,7 +48,7 @@ runconfig:
             # algorithm parameter 
             algorithm_parameters: str(required=True)
 
-            # placeholder for inundated vegettion 
+            # placeholder for inundated vegetation 
             mean_backscattering: str(required=False)
             standard_deviation_backscattering: str(required=False)
 

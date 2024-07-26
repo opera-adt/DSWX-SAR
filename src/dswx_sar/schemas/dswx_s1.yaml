@@ -35,6 +35,12 @@ runconfig:
             # ESA WorldCover map description
             worldcover_file_description: str(required=False)
 
+            # GLAD classification map file
+            glad_classification_file: str(required=False)
+
+            # GLAD classification map file description
+            glad_classification_file_description: str(required=False)
+
             # NOAA GSHHS shapefile
             shoreline_shapefile: str(required=False)
 
@@ -69,7 +75,7 @@ runconfig:
             # according to proper file naming conventions.
             sas_output_path: str()
 
-            product_version: num(required=False)
+            product_version: str(required=False)
 
             # DSWx-S1 product format (default is 'COG')
             output_imagery_format: enum('GTiff', 'COG', required=False)

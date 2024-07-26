@@ -101,7 +101,7 @@ def read_write_gcov(
     geodata,
     dswx_metadata_dict,
 ):
-    """Read an level-2 RTC prodcut in HDF5 format and writ it out in 
+    """Read an level-2 RTC product in HDF5 format and writ it out in 
     GeoTiff format in data blocks defined by row_blk_size and col_blk_size.
 
     Parameters
@@ -200,8 +200,8 @@ def read_rtc_geo(
 ):
     """extract data from RTC Geo information and store it as a dictionary
 
-    paremeters:
-    -----------
+    Parameters
+    ----------
     input_file: str
         input HDF5 file
     group: str
@@ -250,8 +250,8 @@ def process_nisar_gcov(
     """This wrapper reads the input HDF5 RTC product and writes it out
     in Geotiff format.
 
-    paremeters:
-    -----------
+    Parameters
+    ----------
     input_file: str
         input HDF5 RTC product file
     output_gtiff: str

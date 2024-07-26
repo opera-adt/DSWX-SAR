@@ -49,7 +49,7 @@ def validate_gtiff(geotiff_path, value_list):
        it suggests that all pixels in the file might have the same value.
 
     Parameters
-    -----------
+    ----------
     geotiff_path : str
         The file path to the GeoTIFF file to be checked.
     value_list : List[float]
@@ -126,7 +126,7 @@ class AncillaryRelocation:
         Parameters
         ----------
         ancillary_file_name : str
-            file name of ancilary data
+            file name of ancillary data
         relocated_file_str : str
             file name of output
         method : str
@@ -324,7 +324,6 @@ class AncillaryRelocation:
         file_min_x, file_dx, _, file_max_y, _, file_dy = file_geotransform
 
         file_width = gdal_ds.GetRasterBand(1).XSize
-        file_length = gdal_ds.GetRasterBand(1).YSize
 
         del gdal_ds
         file_srs = osr.SpatialReference()
@@ -371,7 +370,6 @@ class AncillaryRelocation:
         logger.info('    tile crosses the antimeridian')
 
         file_max_x = file_min_x + file_width * file_dx
-        file_min_y = file_max_y + file_length * file_dy
 
         # Crop input at the two sides of the antimeridian:
         # left side: use tile bbox with file_max_x from input
@@ -595,6 +593,7 @@ def run(cfg):
     landcover_file = dynamic_data_cfg.worldcover_file
     dem_file = dynamic_data_cfg.dem_file
     hand_file = dynamic_data_cfg.hand_file
+    glad_file = dynamic_data_cfg.glad_classification_file
 
     ref_water_max = processing_cfg.reference_water.max_value
     ref_water_no_data = processing_cfg.reference_water.no_data_value
@@ -608,8 +607,9 @@ def run(cfg):
     co_pol = processing_cfg.copol
     cross_pol = processing_cfg.crosspol
 
-    filter_size = processing_cfg.filter.window_size
+    filter_options = processing_cfg.filter
     filter_flag = processing_cfg.filter.enabled
+    filter_method = processing_cfg.filter.method
     line_per_block = processing_cfg.filter.line_per_block
 
     mosaic_prefix = processing_cfg.mosaic.mosaic_prefix
@@ -659,6 +659,7 @@ def run(cfg):
         'hand': 'interpolated_hand.tif',
         'landcover': 'interpolated_landcover.tif',
         'reference_water': 'interpolated_wbd.tif',
+        'glad_classification': 'interpolated_glad.tif',
     }
 
     input_ancillary_filename_set = {
@@ -666,6 +667,7 @@ def run(cfg):
         'hand': hand_file,
         'landcover': landcover_file,
         'reference_water': wbd_file,
+        'glad_classification': glad_file,
     }
 
     landcover_label = get_label_landcover_esa_10()
@@ -674,6 +676,11 @@ def run(cfg):
         input_anc_path = input_ancillary_filename_set[anc_type]
         ancillary_path = Path(
             os.path.join(scratch_dir, anc_filename))
+
+        # GLAD classification map is optional.
+        if input_anc_path is None and anc_type == 'glad_classification':
+            logger.info(f'{anc_type} file is not provided.')
+            continue
 
         # Check if input ancillary data is valid.
         if not os.path.isfile(input_anc_path) and \
@@ -685,6 +692,8 @@ def run(cfg):
             no_data = ref_water_no_data
         elif anc_type in ['landcover']:
             no_data = landcover_label['No_data']
+        elif anc_type in ['glad_classification']:
+            no_data = 255
         else:
             no_data = np.nan
 
@@ -733,7 +742,7 @@ def run(cfg):
                 )
 
     # apply SAR filtering
-    pad_shape = (filter_size, 0)
+    pad_shape = (filter_options.block_pad, 0)
     block_params = dswx_sar_util.block_param_generator(
         lines_per_block=line_per_block,
         data_shape=(im_meta['length'],
@@ -787,9 +796,24 @@ def run(cfg):
                 # need to replace 0 value in padded area to NaN.
                 intensity[intensity == 0] = np.nan
                 if filter_flag:
-                    filtered_intensity = filter_SAR.lee_enhanced_filter(
-                                    intensity,
-                                    win_size=filter_size)
+                    if filter_method == 'lee':
+                        filtering_method = filter_SAR.lee_enhanced_filter
+                        filter_option = vars(filter_options.lee_filter)
+
+                    elif filter_method == 'anisotropic_diffusion':
+                        filtering_method = filter_SAR.anisotropic_diffusion
+                        filter_option = vars(
+                            filter_options.anisotropic_diffusion)
+
+                    elif filter_method == 'guided_filter':
+                        filtering_method = filter_SAR.guided_filter
+                        filter_option = vars(filter_options.guided_filter)
+
+                    elif filter_method == 'bregman':
+                        filtering_method = filter_SAR.tv_bregman
+                        filter_option = vars(filter_options.bregman)
+                    filtered_intensity = filtering_method(
+                                                intensity, **filter_option)
                 else:
                     filtered_intensity = intensity
 

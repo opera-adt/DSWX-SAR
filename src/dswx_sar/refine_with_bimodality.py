@@ -198,7 +198,7 @@ class BimodalityMetrics:
             Amplitude of the second Gaussian.
 
         Returns
-        ----------
+        -------
         float or array-like
             The value(s) of the Gaussian function at x.
         """
@@ -212,8 +212,8 @@ class BimodalityMetrics:
         which is a measure of bimodality,
         based on the first and second distributions of the input histogram.
 
-        Returns:
-        ----------
+        Returns
+        -------
             float: The computed Ashman coefficient.
 
         """
@@ -252,7 +252,8 @@ class BimodalityMetrics:
 
         Returns:
         ----------
-            float: The computed Surface Ratio coefficient.
+            surface_ratio_coeff: float
+                The computed Surface Ratio coefficient.
         """
         area_first = np.sum(self.simul_first)
         area_second = np.sum(self.simul_second)
@@ -267,9 +268,10 @@ class BimodalityMetrics:
         which is a measure of bimodality,
         based on the skewness and kurtosis of the input data.
 
-        Returns:
-        ----------
-            float: The computed BC coefficient.
+        Returns
+        -------
+            bc_coeff: float
+                The computed BC coefficient.
       """
         sample_size = len(self.int_db)
         skewness_sq = stats.skew(self.int_db,
@@ -295,9 +297,10 @@ class BimodalityMetrics:
         coefficient based on the mean values and
         probabilities of the two modes.
 
-        Returns:
-        ----------
-            float: The computed bimodality coefficient.
+        Returns
+        -------
+            sigma_b: float
+                The computed bimodality coefficient.
         """
         try:
             local_left_ind = np.argmax(self.simul_first)
@@ -400,7 +403,7 @@ class BimodalityMetrics:
                 bimodal_metrics = (int(ashman_bool) +
                                    int(bm_coeff_bool) +
                                    int(bc_coeff_bool))
-                # If more than two metric satisficed are higher than threshold
+                # If more than two metric satisfied are higher than threshold
                 # or ashman coefficient is higher than 3
                 # and surface ratio is higher than threshold
                 bool_set = [(bimodal_metrics >= 2) or
@@ -479,7 +482,7 @@ def estimate_bimodality(array,
 
     bincenter = (bins[:-1] + bins[1:]) / 2
 
-    # smooth histogram by appling gaussian filter
+    # smooth histogram by applying gaussian filter
     counts_smooth = scipy.signal.convolve(counts,
                                           [0.2261, 0.5478, 0.2261],
                                           'same')
@@ -580,7 +583,7 @@ def process_dark_land_component(args):
             - water_label_block: np.ndarray
                 numpy array of the labeled water elements raster dataset.
             - thresholds: list
-                List of the thresholds to determine bimiodality.
+                List of the thresholds to determine bimodality.
             - minimum_pixel (int): minimum number of pixels to accept
               as water bodies.
             - debug_mode: boolean
@@ -698,8 +701,9 @@ def process_dark_land_component(args):
             bimodality_array_i = True
     else:
         # if the water body candiates are too small,
-        # we don't compute bimodality and remove it.
-        bimodality_array_i = False
+        # we compare the ref_land_portion, which is binary image of the land.
+        # If target area is only land, the area is deleted.
+        bimodality_array_i = ref_land_portion != 1
 
     return i, bimodality_array_i, ref_land_portion, metric_output_i
 
@@ -909,7 +913,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
 
             # save the water label into file
             water_label_str = os.path.join(
-                outputdir, f'false_water_label_{pol_str}.tif')
+                outputdir, f'false_water_label_{pol_str}_{block_iter}.tif')
             dswx_sar_util.write_raster_block(
                 water_label_str,
                 output_water,
@@ -940,9 +944,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
 
                 # Check if the component touches the boundary
                 if bbox_y != 0 and \
-                   (bbox_y + bbox_h) != block_param.block_length and \
-                   size >= minimum_pixel:
-
+                   (bbox_y + bbox_h) != block_param.block_length:
                     margin = int((np.sqrt(2) - 1.2) * np.sqrt(size))
                     margin = max(margin, 1)
 
@@ -990,7 +992,6 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                                   block_param.read_start_line,
                                   block_param.block_length)
                                  for i in component_data.keys()]
-
                     with Parallel(n_jobs=number_workers) as parallel:
                         results = parallel(
                             delayed(process_dark_land_component)(args)
@@ -1034,7 +1035,9 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                         ref_land_portion_image = ref_land_portion_output[
                             index_array_to_image]
                         dswx_sar_util.write_raster_block(
-                            os.path.join(outputdir, f'land_portion_{pol}.tif'),
+                            os.path.join(
+                                outputdir,
+                                f'land_portion_{pol}_{block_iter}.tif'),
                             ref_land_portion_image,
                             block_param,
                             geotransform=meta_info['geotransform'],
@@ -1044,11 +1047,11 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                             scratch_dir=outputdir)
 
                         metric_detail_name = [
-                            f'binary_ahman_{pol}.tif',
-                            f'binary_bhc_{pol}.tif',
-                            f'binary_asurface_ratio_{pol}.tif',
-                            f'binary_bm_coeff_{pol}.tif',
-                            f'binary_bc_coeff_{pol}.tif']
+                            f'binary_ahman_{pol}_{block_iter}.tif',
+                            f'binary_bhc_{pol}_{block_iter}.tif',
+                            f'binary_asurface_ratio_{pol}_{block_iter}.tif',
+                            f'binary_bm_coeff_{pol}_{block_iter}.tif',
+                            f'binary_bc_coeff_{pol}_{block_iter}.tif']
 
                         metric_output = np.insert(metric_output,
                                                   0,
@@ -1498,7 +1501,7 @@ def run(cfg):
         merged_layer_path=bright_water_path,
         lines_per_block=lines_per_block,
         mode='or', cog_flag=True,
-        scratch_dir='.')
+        scratch_dir=outputdir)
 
     fill_gap_bindary_path = \
         fill_gap_water_bimodality_parallel(
@@ -1521,7 +1524,7 @@ def run(cfg):
         lines_per_block=lines_per_block,
         mode='or',
         cog_flag=True,
-        scratch_dir='.')
+        scratch_dir=outputdir)
 
     t_time_end = time.time()
     t_all_elapsed = t_time_end - t_all

@@ -166,10 +166,10 @@ def process_region_growing_block(block_param,
     ----------
     block_param: BlockParam
         Object specifying where and how much to read and write to out_raster
-    data_block: numpy.ndarraya
+    data_block: numpy.ndarray
         fuzzy values after region growing
     """
-    # At first loop, read block from intial fuzzy value geotiff
+    # At first loop, read block from initial fuzzy value geotiff
     # Otherwise, read block from previous loop
 
     if loopind == 0:
@@ -352,7 +352,7 @@ def run(cfg):
         outputdir, f'temp_region_growing_{pol_str}.tif')
 
     # First, run region-growing algorithm for blocks
-    # to avoid to repeatly run with large image.
+    # to avoid repeated run with large image.
     run_parallel_region_growing(
         fuzzy_tif_path,
         temp_rg_tif_path,

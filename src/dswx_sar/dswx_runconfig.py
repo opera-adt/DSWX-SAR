@@ -19,10 +19,10 @@ WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 
 # Potential polarization scenarios for DSWx-S1
 # NOTE: DO NOT CHANGE THE ORDER of the items in the dictionary below.
-# There are more modes such as 'MIX_DUAL_V_SINGLE_V' and 
+# There are more modes such as 'MIX_DUAL_V_SINGLE_V' and
 # 'MIX_DUAL_H_SINGLE_H' describing the dual_polarization and
-# single polarization with same polarization. This mode will be 
-# deteremine by counting the available bursts. 
+# single polarization with same polarization. This mode will be
+# determined by counting the available bursts.
 DSWX_S1_POL_DICT = {
     'CO_POL': ['HH', 'VV'],
     'CROSS_POL': ['HV', 'VH'],
@@ -305,7 +305,7 @@ def check_polarizations(pol_list, input_dir_list):
             pol_mode = pol_mode_name
 
     if pol_mode is None:
-        err_msg = 'unable to identify polarzation mode.'
+        err_msg = 'unable to identify polarization mode.'
         logger.warning(err_msg)
     return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
 
@@ -326,11 +326,15 @@ def validate_group_dict(group_cfg: dict) -> None:
                     'dynamic_ancillary_file_group']['reference_water_file']
     hand_path = group_cfg[
                     'dynamic_ancillary_file_group']['hand_file']
+    glad_path = group_cfg[
+                    'dynamic_ancillary_file_group']['glad_classification_file']
     ancillary_file_paths = [dem_path, landcover_path,
-                            ref_water_path, hand_path]
+                            ref_water_path, hand_path,
+                            glad_path]
 
     for path in ancillary_file_paths:
-        check_file_path(path)
+        if path is not None:
+            check_file_path(path)
 
     # Check 'product_group' section of runconfig.
     # Check that directories herein have writing permissions

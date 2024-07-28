@@ -520,6 +520,7 @@ def create_dswx_s1_metadata(cfg,
         dswx_metadata_dict.update(extra_meta_data)
     return dswx_metadata_dict
 
+
 def create_dswx_ni_metadata(cfg,
                             rtc_dirs,
                             product_version=None,

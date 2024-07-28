@@ -24,6 +24,10 @@ runconfig:
             drought_erosion_pixel: 10
             # number of pixel to apply dilation for flood case
             flood_dilation_pixel: 16
+        # 
+        partial_surface_water:
+            enabled: True
+            threshold: 5
 
         hand:
             mask_value: 200
@@ -43,6 +47,9 @@ runconfig:
             #   - average : overlapped areas are averaged.
             #   - first : choose one burst without average.
             mosaic_mode: 'first'
+            resamp_required: True
+            resamp_method: 'nearest'
+            resamp_out_res: 30
             read_row_blk_size: 1000
             read_col_blk_size: 1100
 

@@ -25,7 +25,7 @@ from dswx_sar.dswx_sar_util import (band_assign_value_dict,
 from dswx_sar.dswx_ni_runconfig import (RunConfig,
                                         _get_parser,
                                         get_pol_rtc_hdf5,
-                                        DSWX_S1_POL_DICT)
+                                        DSWX_NI_POL_DICT)
 from dswx_sar.metadata import (create_dswx_ni_metadata,
                                collect_burst_id,
                                _populate_statics_metadata_datasets)
@@ -410,8 +410,8 @@ def run(cfg):
             logger.info('There is no need to mosaic different polarizations.')
             merge_layer_flag = False
         if merge_layer_flag:
-            pol_set1 = DSWX_S1_POL_DICT[pol_type1]
-            pol_set2 = DSWX_S1_POL_DICT[pol_type2]
+            pol_set1 = DSWX_NI_POL_DICT[pol_type1]
+            pol_set2 = DSWX_NI_POL_DICT[pol_type2]
             merge_pol_list = ['_'.join(pol_set1),
                               '_'.join(pol_set2)]
     else:
@@ -691,7 +691,7 @@ def run(cfg):
         expected_frame_list = ast.literal_eval(most_overlapped['frames'])
         logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
         actual_frame_id = collect_burst_id(input_list,
-                                           DSWX_S1_POL_DICT['CO_POL'])
+                                           DSWX_NI_POL_DICT['CO_POL'])
         number_frame = len(actual_frame_id)
         mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_BURSTS'] = \
             maximum_frame

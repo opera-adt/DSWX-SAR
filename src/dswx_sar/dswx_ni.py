@@ -14,7 +14,7 @@ from dswx_sar import (detect_inundated_vegetation,
                       region_growing,)
 from dswx_sar.dswx_ni_runconfig import (_get_parser,
                                         RunConfig,
-                                        DSWX_S1_POL_DICT)
+                                        DSWX_NI_POL_DICT)
 from dswx_sar import generate_log
 
 logger = logging.getLogger('dswx_sar')
@@ -39,17 +39,17 @@ def dswx_ni_workflow(cfg):
     mosaic_gcov_frame.run(cfg)
 
     if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['DH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
+                        DSWX_NI_POL_DICT['DH_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['SV_POL'],
+                        DSWX_NI_POL_DICT['SH_POL']]
     elif pol_mode == 'MIX_DUAL_H_SINGLE_V_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DH_POL'],
-                        DSWX_S1_POL_DICT['SV_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['DH_POL'],
+                        DSWX_NI_POL_DICT['SV_POL']]
     elif pol_mode == 'MIX_DUAL_V_SINGLE_H_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
+                        DSWX_NI_POL_DICT['SH_POL']]
     else:
         proc_pol_set = [pol_list]
 

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log, pre_processing
-from dswx_sar.dswx_ni_runconfig import (DSWX_S1_POL_DICT,
+from dswx_sar.dswx_ni_runconfig import (DSWX_NI_POL_DICT,
                                         _get_parser,
                                         RunConfig)
 from dswx_sar.dswx_sar_util import check_gdal_raster_s3
@@ -307,11 +307,11 @@ def main():
     pol_mode = processing_cfg.polarization_mode
     pol_list = processing_cfg.polarizations
     if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['DH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
+                        DSWX_NI_POL_DICT['DH_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['SV_POL'],
+                        DSWX_NI_POL_DICT['SH_POL']]
     else:
         proc_pol_set = [pol_list]
 

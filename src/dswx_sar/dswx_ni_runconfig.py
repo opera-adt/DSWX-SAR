@@ -283,7 +283,7 @@ def check_polarizations(pol_list, input_dir_list):
         raise FileNotFoundError(err_str)
 
     def custom_sort(pol):
-        if pol in DSWX_S1_POL_DICT['CO_POL']:
+        if pol in DSWX_NI_POL_DICT['CO_POL']:
             return (0, pol)  # Sort 'VV' and 'HH' before others
         return (1, pol)
 
@@ -292,7 +292,7 @@ def check_polarizations(pol_list, input_dir_list):
     co_pol_list = []
     cross_pol_list = []
     for pol in sorted_pol_list:
-        if pol in DSWX_S1_POL_DICT['CO_POL']:
+        if pol in DSWX_NI_POL_DICT['CO_POL']:
             co_pol_list.append(pol)
         else:
             cross_pol_list.append(pol)
@@ -300,9 +300,9 @@ def check_polarizations(pol_list, input_dir_list):
     # Even though the first subset is found, the code should keep searching.
     # For example, the ['VV', 'VH'] is a subset of `MIX_DUAL_POL` and `DV_POL`.
     # The expected output is `DV_POL`.
-    # So, the items in `DSWX_S1_POL_DICT` are sorted in an ordered manner.
+    # So, the items in `DSWX_NI_POL_DICT` are sorted in an ordered manner.
     pol_mode = None
-    for pol_mode_name, pols_in_mode in DSWX_S1_POL_DICT.items():
+    for pol_mode_name, pols_in_mode in DSWX_NI_POL_DICT.items():
         if set(sorted_pol_list).issubset(set(pols_in_mode)):
             pol_mode = pol_mode_name
 

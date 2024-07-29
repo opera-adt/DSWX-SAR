@@ -140,20 +140,20 @@ class RTCReader(DataReader):
         else:    
             if len(layover_gtiff_list) > 0:
                 layover_exist = True
-	        # Mosaic intermediate geotiffs
-                nlooks_list = []
-                self.mosaic_rtc_geotiff(
-                    input_list,
-                    data_path,
-                    scratch_dir,
-                    geogrid_in,
-                    nlooks_list,
-                    mosaic_mode,
-                    mosaic_prefix,
-                    layover_exist,
-	        )    
             else:
                 layover_exist = False
+
+        # Mosaic intermediate geotiffs
+        nlooks_list = []
+        self.mosaic_rtc_geotiff(
+            input_list,
+            data_path,
+            scratch_dir,
+            geogrid_in,
+            nlooks_list,
+            mosaic_mode,
+            mosaic_prefix,
+            layover_exist,)    
 
     # Class functions
     def write_rtc_geotiff(

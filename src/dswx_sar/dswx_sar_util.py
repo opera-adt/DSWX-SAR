@@ -1844,7 +1844,8 @@ def partial_water_product(input_file,
                           output_spacing,
                           scratch_dir,
                           target_label,
-                          threshold):
+                          threshold,
+                          logger=None):
     """
     Generates a water product from a satellite image, identifying areas
     of full and partial water based on specified thresholding of aggregated pixel values.
@@ -1900,6 +1901,11 @@ def partial_water_product(input_file,
     water = _aggregate_10m_to_30m_conv(target_high_binary,
                                        int(output_spacing / intermediate_spacing),
                                        normalize_flag=False)
+    
+    if intermediate_spacing == output_spacing:
+        if logger is not None:
+            logger.info('Partial Surface water was disable due to same spacings in input and output.')
+        threshold = 1
 
     full_water = water >= threshold
     partial_water = (water < threshold) & (water > 0)

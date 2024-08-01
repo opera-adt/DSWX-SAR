@@ -51,8 +51,28 @@ runconfig:
         # The enhanced Lee filter is available.
         filter:
             enabled: bool(required=False)
-            window_size: num(min=1, max=999, required=False)
+            method: str(required=False)
             line_per_block: num(min=1, required=False)
+            block_pad: num(min=1, required=False)
+            lee_filter:
+                window_size: num(min=1, required=False)
+            guided_filter:
+                # Radius of the kernel used in the Guided Filter.
+                radius: num(min=1, required=False)
+                # Regularization parameter in Guided Filter to smooth within
+                # a radius. Default is 3.
+                eps: num(required=False)
+                # The depth of the output image.
+                ddepth: num(required=False)
+            bregman:
+                # The regularization parameter for TV Bregman denoising.
+                # It controls the amount of smoothing. Higher values
+                # produce more smoothed results.
+                lambda_value: num(required=False)
+            anisotropic_diffusion:
+                # Denoising weight. The greater the weight, the more 
+                # denoising (at the expense of fidelity to image).
+                weight: num(required=False)
 
         initial_threshold:
             # Maximum tile size for initial threshold.
@@ -203,7 +223,29 @@ runconfig:
             dual_pol_ratio_threshold: num(min=0, max=30, required=False)
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
-            # Land covers where the inundated vegetation is detected.
-            target_land_cover: list(required=False)
+            # If 'auto' is selected and GLAD is available, GLAD will be
+            # used for inundated vegetation. In the 'auto' option, 
+            # GLAD is not provided, then WorldCover will be used to extract
+            # the target areas.
+            target_area_file_type: enum('WorldCover', 'GLAD', 'auto')
+            # Land covers where the inundated vegetation is detected. 
+            target_worldcover_class: list(required=False)
+            target_glad_class: list(required=False)
+            filter:
+                enabled: bool(required=False)
+                method: str(required=False)
+                line_per_block: num(min=1, required=False)
+                block_pad: num(min=1, required=False)
+                lee_filter:
+                    window_size: num(min=1, required=False)
+                guided_filter:
+                    radius: num(min=1, required=False)
+                    eps: num(required=False)
+                    ddepth: num(required=False)
+                bregman:
+                    lambda_value: num(required=False)
+                anisotropic_diffusion:
+                    weight: num(required=False)
+
         # If debug mode is true, intermediate product is generated.
         debug_mode: bool(required=False)

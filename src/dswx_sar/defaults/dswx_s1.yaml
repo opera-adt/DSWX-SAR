@@ -12,6 +12,9 @@ runconfig:
             #            for open water
             input_file_path:
 
+            # Specify the MGRS tile collection ID
+            input_mgrs_collection_id:
+
         dynamic_ancillary_file_group:
             # Digital elevation model (Required)
             dem_file:

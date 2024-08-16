@@ -366,7 +366,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
         # If only one record matches, return it immediately
         if len(vector_gdf) == 1:
-            logger.info('MGRS collection ID found from burst_list', vector_gdf['burst_overlap_count'] )
+            logger.info(f"MGRS collection ID found from burst_list {vector_gdf}")
             mgrs_list = ast.literal_eval(vector_gdf.iloc[0]['mgrs_tiles'])
             return list(set(mgrs_list)), vector_gdf.iloc[0]
 

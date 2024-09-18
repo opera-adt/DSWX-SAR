@@ -38,7 +38,7 @@ jobs:
       - name: Setup Environment
         uses: mamba-org/provision-with-micromamba@main
         with:
-          environment-file: ../docker/lock_package.lock
+          environment-file: ../../docker/lock_package.lock
           environment-name: DSWx-SAR
 
       # Install the S1-Reader OPERA-ADT project.

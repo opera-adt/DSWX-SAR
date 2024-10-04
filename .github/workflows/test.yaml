@@ -30,12 +30,14 @@ jobs:
       - name: Provision with Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.12'
           cache: 'pip'
 
       # Set the conda environment up using Mamba and install dependencies
       - name: Setup Environment
-        uses: mamba-org/provision-with-micromamba@main
+        #uses: mamba-org/provision-with-micromamba@main
+        uses: mamba-org/setup-micromamba@main
+        
         with:
           environment-file: .github/lock_package.lock
           environment-name: DSWx-SAR
@@ -52,4 +54,3 @@ jobs:
       - name: Test Project
         run: |
           pytest -vrpP
-  

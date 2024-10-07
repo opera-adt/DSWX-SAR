@@ -6,6 +6,7 @@ import os
 import sys
 import logging
 from types import SimpleNamespace
+import numpy as np
 
 import yamale
 from ruamel.yaml import YAML
@@ -33,6 +34,18 @@ DSWX_NI_POL_DICT = {
     'SH_POL': ['HH'],
     }
 
+# 2nd dictionary is for single frame only
+DSWX_NI_SINGLE_FRAME_POL_DICT = {
+    'SH_POL': ['HH'],
+    'SV_POL': ['VV'],
+    'DH_POL': ['HH', 'HV'],
+    'DV_POL': ['VV', 'VH'],
+    'CO_POL': ['HH', 'VV'],
+    'CROSS_POL': ['HV', 'VH'],
+    'QP_POL': ['HH', 'VV', 'HV', 'VH'],
+    'DV_SH_POL': ['VV', 'VH', 'HH'],
+    'DH_SV_POL': ['HH', 'HV', 'VV'],
+    }
 
 def _get_parser():
     parser = argparse.ArgumentParser(
@@ -190,17 +203,135 @@ def check_file_path(file_path: str) -> None:
             raise FileNotFoundError(err_str)
 
 
-def get_pol_rtc_hdf5(path):
+def get_pol_rtc_hdf5(input_rtc, freq_group):
     # convenience function to get polarization from RTC file path
     # basename separates file name from directory in path string
     # splitext removes the file extension from basename
     # split('_')[-1] gets polarization
-    path_pol = '/science/LSAR/GCOV/grids/frequencyA/listOfPolarizations'
-    with h5py.File(path) as src:
+    path_pol = f'/science/LSAR/GCOV/grids/frequency{freq_group}/listOfPolarizations'
+
+    with h5py.File(input_rtc) as src:
         pols = src[path_pol][()]
         pols = [pol.decode('utf-8') for pol in pols]
 
     return pols
+
+
+def get_freq_rtc_hdf5(input_rtc):
+    path_freq = f'/science/LSAR/identification/listOfFrequencies'
+
+    with h5py.File(input_rtc) as src_h5:
+        freq_group_list = src_h5[path_freq][()]
+        freq = [freq_group.decode('utf-8') for freq_group in freq_group_list]
+
+    return freq
+
+
+def check_rtc_frequency(input_h5_list):
+    """Read Frequency group information from input RTC file(s)
+
+    Parameters
+    ----------
+    input_h5_list : list of strings
+        input RTC files in a list
+
+    Returns
+    -------
+    freq_list: list
+        List of frequency group(s) in each of the files
+        e.g. A, B, or A and B
+    flag_freq_equal: bool
+        Flag that indicates whether the frequency groups are equal
+        among input files
+    """
+
+    num_input_files = len(input_h5_list)
+    freq_list = np.empty(num_input_files , dtype=object)
+    flag_pol_equal = True
+
+    for input_idx, input_h5 in enumerate(input_h5_list):
+        freq_list[input_idx] = get_freq_rtc_hdf5(input_h5)
+
+    for idx in range(num_input_files - 1):
+        if freq_list[idx] == freq_list[idx + 1]:
+            flag_freq_equal = True
+        else:
+            # Frequency groups between frames are different.
+            flag_freq_equal = False
+            break
+
+    return flag_freq_equal, freq_list
+
+
+def read_rtc_polarization(input_h5_list, freq_list):
+    num_input_files = len(input_h5_list)
+    pol_list = np.empty((num_input_files, 2) , dtype=object)
+
+    for input_idx, input_h5 in enumerate(input_h5_list):
+        # Check to see if frequency group of an input file is empty
+        if freq_list[input_idx]:
+            for freq_idx, freq_group in enumerate(freq_list[input_idx]):
+                pol_list[input_idx, freq_idx] = get_pol_rtc_hdf5(input_h5, freq_group)
+
+    return pol_list
+
+
+def compare_rtc_polarization(pol_list):
+    num_input_files = len(pol_list)
+
+    pol_freq_a = pol_list[:, 0]
+    pol_freq_b = pol_list[:, 1]
+
+    pol_freq_a_first = pol_freq_a[0]
+    pol_freq_b_first = pol_freq_b[0]
+
+    flag_pol_freq_a_equal = True
+    flag_pol_freq_b_equal = True
+
+    # Compare Frequency A of all inputs
+    for pol in pol_freq_a:
+        if isinstance(pol_freq_a_first, list) and isinstance(pol, list):
+            if sorted(pol_freq_a_first) != sorted(pol):
+                flag_pol_freq_a_equal = False
+                break
+        elif pol_freq_a_first is None and pol is not None:
+            flag_pol_freq_a_equal = False
+            break
+        elif pol_freq_a_first is None and pol is None:
+            continue
+
+    # Compare Frequency B of all inputs
+    for pol in pol_freq_b:
+        if isinstance(pol_freq_b_first, list) and isinstance(pol, list):
+            if sorted(pol_freq_b_first) != sorted(pol):
+                flag_pol_freq_b_equal = False
+                break
+        elif pol_freq_b_first is None and pol is not None:
+            flag_pol_freq_b_equal = False
+            break
+        elif pol_freq_b_first is None and pol is None:
+            continue
+
+    return flag_pol_freq_a_equal, flag_pol_freq_b_equal
+
+
+def verify_nisar_mode(input_dir_list):
+    # Extract Frequency Groups of input files
+    flag_freq_equal, freq_list = check_rtc_frequency(input_dir_list)
+
+    # Extract polarizations of each frequency group of the input files
+    pol_list = read_rtc_polarization(input_dir_list, freq_list)
+
+    # Compare polariztions of frequency groups among input files
+    flag_pol_freq_a_equal, flag_pol_freq_b_equal = compare_rtc_polarization(pol_list)
+
+    # Determine NiSAR input RTC mode of operation
+    if flag_freq_equal and flag_pol_freq_a_equal and flag_pol_freq_b_equal:
+        nisar_uni_mode = True
+    else:
+        nisar_uni_mode = False
+
+    return flag_freq_equal, flag_pol_freq_a_equal, flag_pol_freq_b_equal, nisar_uni_mode
 
 
 def _find_polarization_from_data_dirs(input_h5_list):
@@ -224,9 +355,20 @@ def _find_polarization_from_data_dirs(input_h5_list):
         This list contains the polarization identifiers
         (like 'HH', 'VV', etc.) found in the filenames.
     """
-    extracted_strings = []
-    for input_h5 in input_h5_list:
-        extracted_strings += get_pol_rtc_hdf5(input_h5)
+    num_input_rtc = len(input_h5_list)
+
+    for input_idx, input_h5 in enumerate(input_h5_list):
+        extracted_strings = []
+        freq_strings = get_freq_rtc_hdf5(input_h5)
+
+        for freq_idx, input_freq in enumerate(freq_strings):
+            extracted_strings += get_pol_rtc_hdf5(input_h5, input_freq)
+
+        if input_idx == 0:
+            pol_list_all_freq = extracted_strings.copy()
+        else:
+            if extracted_strings != pol_list_all_freq:
+                break
 
     # if nothing found raise error
     if not extracted_strings:
@@ -237,7 +379,7 @@ def _find_polarization_from_data_dirs(input_h5_list):
     return list(set(extracted_strings))
 
 
-def check_polarizations(pol_list, input_dir_list):
+def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
     """
     Sort polarizations so that co-polarizations are preceded. This function
     identifies the common polarizations between the requested polarizations
@@ -432,8 +574,10 @@ class RunConfig:
             cfg['runconfig']['groups']['input_file_group']['input_file_path']
         requested_pol = algorithm_cfg[
             'runconfig']['processing']['polarizations']
+
+        DSWX_NI_POL_DICT = DSWX_NI_SINGLE_FRAME_POL_DICT
         co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
-            requested_pol, input_dir_list)
+            requested_pol, input_dir_list, DSWX_NI_POL_DICT)
 
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list
@@ -459,6 +603,14 @@ class RunConfig:
                 f'command line visualization "{args.debug_mode}"'
                 f' has precedence over runconfig visualization "{debug_mode}"')
             sns.processing.debug_mode = args.debug_mode
+
+        # Determine NISAR input RTC mode of operation
+        (
+            flag_freq_equal, 
+            flag_pol_freq_a_equal, 
+            flag_pol_freq_b_equal, 
+            nisar_uni_mode
+        ) = verify_nisar_mode(input_dir_list)
 
         log_file = sns.log_file
         if args.log_file is not None:

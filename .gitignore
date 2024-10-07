@@ -156,3 +156,7 @@ cython_debug/
 
 # Local files MacOS
 .DS_Store
+
+# test dataset
+tests/*.zip
+tests/data/

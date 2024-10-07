@@ -11,6 +11,7 @@ from dswx_sar import dswx_s1
 DATASET_URL = ('https://github.com/opera-adt/DSWX-SAR/releases/download/'
                'sample_dataset/dswx_s1_test_data.zip')
 
+
 ZIP_FILENAME =  os.path.basename(DATASET_URL)
 def _download_test_dataset_from_github():
     with requests.get(DATASET_URL, stream=True) as rq:

@@ -23,6 +23,7 @@ def _download_test_dataset_from_github():
     with zipfile.ZipFile(ZIP_FILENAME, 'r') as zip_ref:
         zip_ref.extractall('./')
 
+print('')
 
 def test_workflow():
     test_data_directory = 'data'

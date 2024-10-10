@@ -275,6 +275,31 @@ def get_intersecting_mgrs_tiles_list_from_db(
     return list(set(mgrs_list)), most_overlapped
 
 
+def get_mgrs_tiles_list_from_db(mgrs_collection_file,
+                                mgrs_tile_collection_id):
+    """Retrieve a list of MGRS tiles from a specified MGRS tile collection.
+
+    Parameters
+    ----------
+    mgrs_collection_file : str
+        Path to the file containing the MGRS tile collection.
+        This file should be readable by GeoPandas.
+    mgrs_tile_collection_id : str
+        The ID of the MGRS tile collection from which to retrieve the MGRS tiles.
+
+    Returns
+    -------
+    mgrs_list : list
+        List of MGRS tile identifiers from the specified collection.
+    """
+    vector_gdf = gpd.read_file(mgrs_collection_file)
+    most_overlapped = vector_gdf[
+        vector_gdf['mgrs_set_id'] == mgrs_tile_collection_id].iloc[0]
+    mgrs_list = ast.literal_eval(most_overlapped['mgrs_tiles'])
+
+    return list(set(mgrs_list)), most_overlapped
+
+
 def run(cfg):
     '''
     Run save mgrs tiles with parameters in cfg dictionary
@@ -307,6 +332,8 @@ def run(cfg):
     cross_pol = processing_cfg.crosspol
 
     input_list = cfg.groups.input_file_group.input_file_path
+    input_mgrs_collection_id = \
+        cfg.groups.input_file_group.input_mgrs_collection_id
     dswx_workflow = processing_cfg.dswx_workflow
     hand_mask_value = processing_cfg.hand.mask_value
 
@@ -747,12 +774,25 @@ def run(cfg):
     mgrs_meta_dict = {}
 
     if database_bool:
-        mgrs_tile_list, most_overlapped = \
-            get_intersecting_mgrs_tiles_list_from_db(
-                mgrs_collection_file=mgrs_collection_db_path,
-                image_tif=paths['final_water'],
-                track_number=track_number
-                )
+        actual_burst_id = collect_burst_id(input_list,
+                                           DSWX_NI_POL_DICT['CO_POL'])
+        # In the case that mgrs_tile_collection_id is given
+        # from input, then extract the MGRS list from database
+        if input_mgrs_collection_id is not None:
+            mgrs_tile_list, most_overlapped = \
+                get_mgrs_tiles_list_from_db(
+                    mgrs_collection_file=mgrs_collection_db_path,
+                    mgrs_tile_collection_id=input_mgrs_collection_id)
+        # In the case that mgrs_tile_collection_id is not given
+        # from input, then extract the MGRS list from database
+        # using track number and area intersecting with image_tif
+        else:
+            mgrs_tile_list, most_overlapped = \
+                get_intersecting_mgrs_tiles_list_from_db(
+                    mgrs_collection_file=mgrs_collection_db_path,
+                    image_tif=paths['final_water'],
+                    track_number=track_number
+                    )
         maximum_frame = most_overlapped['number_of_frames']
         # convert string to list
         expected_frame_list = ast.literal_eval(most_overlapped['frames'])
@@ -760,13 +800,13 @@ def run(cfg):
         actual_frame_id = collect_burst_id(input_list,
                                            DSWX_NI_POL_DICT['CO_POL'])
         number_frame = len(actual_frame_id)
-        mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_BURSTS'] = \
+        mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_FRAMES'] = \
             maximum_frame
-        mgrs_meta_dict['MGRS_COLLECTION_ACTUAL_NUMBER_OF_BURSTS'] = \
+        mgrs_meta_dict['MGRS_COLLECTION_ACTUAL_NUMBER_OF_FRAMES'] = \
             number_frame
         missing_frame = len(list(set(expected_frame_list) -
                                  set(actual_frame_id)))
-        mgrs_meta_dict['MGRS_COLLECTION_MISSING_NUMBER_OF_BURSTS'] = \
+        mgrs_meta_dict['MGRS_COLLECTION_MISSING_NUMBER_OF_FRAMES'] = \
             missing_frame
         mgrs_meta_dict['MGRS_POL_MODE'] = pol_mode
     else:

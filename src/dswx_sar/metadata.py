@@ -479,6 +479,35 @@ def collect_burst_id(rtc_dirs, pol):
     return list(set(burst_id_list))
 
 
+def collect_track_frame_id(h5_list):
+    """
+    Collect burst IDs from RTC files for a specific polarization.
+
+    Parameters
+    ----------
+    h5_list : list
+        List of RTC HDF5 files
+    pol : str
+        The polarization for which to collect burst IDs
+        (e.g., 'HH', 'VV', 'HV', 'VH').
+
+    Returns
+    -------
+    list
+        A list of unique burst IDs found in the RTC files
+        for the specified polarization.
+    """
+    burst_id_list = []
+    for rtc_file in h5_list:
+        with h5py.open(rtc_file) as src:
+            # Accessing tags (additional metadata) of specific band
+            # (e.g., band 1)
+            tags = src.tags(0)
+            burst_id_list.append(tags['BURST_ID'])
+
+    return list(set(burst_id_list))
+
+
 def create_dswx_s1_metadata(cfg,
                              rtc_dirs,
                              product_version=None,

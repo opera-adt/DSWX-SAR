@@ -3,6 +3,7 @@ from datetime import datetime
 import glob
 import os
 
+import h5py
 import numpy as np
 import rasterio
 
@@ -477,6 +478,30 @@ def collect_burst_id(rtc_dirs, pol):
             burst_id_list.append(tags['BURST_ID'])
 
     return list(set(burst_id_list))
+
+
+def collect_frame_id(h5_list):
+    """
+    Collect frame IDs from GCOV files
+
+    Parameters
+    ----------
+    h5_list : list
+        List of RTC HDF5 files
+
+    Returns
+    -------
+    list
+        A list of unique burst IDs found in the RTC files
+        for the specified polarization.
+    """
+    frame_id_list = []
+    frame_path = '/science/LSAR/identification/frameNumber'
+    for rtc_file in h5_list:
+        with h5py.File(rtc_file) as src:
+            frame = src[frame_path][()]
+            frame_id_list.append(frame)
+    return list(set(frame_id_list))
 
 
 def create_dswx_s1_metadata(cfg,

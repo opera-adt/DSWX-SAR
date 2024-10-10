@@ -244,8 +244,14 @@ def check_rtc_frequency(input_h5_list):
         Flag that indicates whether the frequency groups are equal
         among input files
     """
-
+    print(input_h5_list)
     num_input_files = len(input_h5_list)
+
+    # Handle the case when there is only one file
+    if num_input_files == 1:
+        freq_list = [get_freq_rtc_hdf5(input_h5_list[0])]
+        return True, freq_list  # If only one file, frequencies are trivially equal
+
     freq_list = np.empty(num_input_files , dtype=object)
     flag_pol_equal = True
 

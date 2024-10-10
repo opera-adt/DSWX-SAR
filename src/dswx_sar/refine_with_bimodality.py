@@ -631,7 +631,7 @@ def process_dark_land_component(args):
     water_label = water_label_block[
         y_off-startline:y_off+height-startline,
         x_off:x_off+width]
-
+    print(np.shape(bands), 'band', pol_ind)
     if bands.ndim == 2:
         bands = bands[np.newaxis, :, :]
     # Identify out of boundary areas.
@@ -664,7 +664,7 @@ def process_dark_land_component(args):
             mask_buffer = ndimage.binary_dilation(watermask == 1,
                                                   iterations=margin,
                                                   mask=out_boundary)
-            single_band = bands[pol_ind, ...]
+            single_band = bands[0, ...]
 
             # compute median value for polygons
             intensity_center = np.nanmedian(single_band[watermask == 1])
@@ -926,6 +926,8 @@ def remove_false_water_bimodality_parallel(water_mask_path,
 
             intensity_block = dswx_sar_util.get_raster_block(
                 input_dict['intensity'], block_param)
+            print(input_dict['intensity'])
+            print(np.shape(intensity_block))
             refland_block = dswx_sar_util.get_raster_block(
                 input_dict['ref_land'], block_param)
 

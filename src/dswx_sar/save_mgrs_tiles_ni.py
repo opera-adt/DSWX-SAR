@@ -28,7 +28,7 @@ from dswx_sar.dswx_ni_runconfig import (RunConfig,
                                         get_pol_rtc_hdf5,
                                         DSWX_NI_POL_DICT)
 from dswx_sar.metadata import (create_dswx_ni_metadata,
-                               collect_burst_id,
+                               collect_frame_id,
                                _populate_statics_metadata_datasets)
 from dswx_sar.save_mgrs_tiles import (
     get_bounding_box_from_mgrs_tile,
@@ -774,8 +774,7 @@ def run(cfg):
     mgrs_meta_dict = {}
 
     if database_bool:
-        actual_burst_id = collect_burst_id(input_list,
-                                           DSWX_NI_POL_DICT['CO_POL'])
+        actual_frame_id = collect_frame_id(input_list)
         # In the case that mgrs_tile_collection_id is given
         # from input, then extract the MGRS list from database
         if input_mgrs_collection_id is not None:
@@ -797,8 +796,6 @@ def run(cfg):
         # convert string to list
         expected_frame_list = ast.literal_eval(most_overlapped['frames'])
         logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
-        actual_frame_id = collect_burst_id(input_list,
-                                           DSWX_NI_POL_DICT['CO_POL'])
         number_frame = len(actual_frame_id)
         mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_FRAMES'] = \
             maximum_frame

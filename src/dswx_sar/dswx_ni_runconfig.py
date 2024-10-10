@@ -244,7 +244,6 @@ def check_rtc_frequency(input_h5_list):
         Flag that indicates whether the frequency groups are equal
         among input files
     """
-    print(input_h5_list)
     num_input_files = len(input_h5_list)
 
     # Handle the case when there is only one file

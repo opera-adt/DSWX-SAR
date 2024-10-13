@@ -198,7 +198,7 @@ runconfig:
             number_cpu: 1
 
         refine_with_bimodality:
-            minimum_pixel: 4
+            minimum_pixel: 40
             lines_per_block: 500
             number_cpu: 1
             thresholds:

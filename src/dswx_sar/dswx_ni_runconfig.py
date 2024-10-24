@@ -327,24 +327,34 @@ def compare_rtc_bandwidth(bandwidth_list):
 
     if np.all(bw_freq_a == bw_freq_a[0]):
         flag_bw_freq_a_equal = True
-        max_bw_freq_a = bw_freq_a[0]
+        min_bw_freq_a = bw_freq_a[0]
     else:
         flag_bw_freq_a_equal = False
 
         # Need to identify highest and lowest bandwidth (resolution)
-        max_bw_freq_a = np.max(bw_freq_a) 
+        bw_freq_a_valid = bw_freq_a > 5
+
+        if bw_freq_a_valid.size > 0:
+            min_bw_freq_a = np.min(bw_freq_a_valid) 
+        else:
+            min_bw_freq_a = bw_freq_a[0]
     
     if np.all(bw_freq_b == bw_freq_b[0]):
         flag_bw_freq_b_equal = True
-        max_bw_freq_b = bw_freq_b[0]
+        min_bw_freq_b = bw_freq_b[0]
     else:
         flag_bw_freq_b_equal = False
 
         # Need to identify highest and lowest bandwidth (resolution)
-        max_bw_freq_b = np.max(bw_freq_b) 
+        bw_freq_b_valid = bw_freq_b > 5
+
+        if bw_freq_b_valid.size > 0:
+            min_bw_freq_b = np.min(bw_freq_b_valid) 
+        else:
+            min_bw_freq_b = bw_freq_b[0]
     
 
-    return flag_bw_freq_a_equal, flag_bw_freq_b_equal, max_bw_freq_a, max_bw_freq_b
+    return flag_bw_freq_a_equal, flag_bw_freq_b_equal, min_bw_freq_a, min_bw_freq_b
 
 def verify_nisar_mode(input_dir_list):
     # Extract Frequency Groups of input files
@@ -651,16 +661,6 @@ class RunConfig:
         co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
             requested_pol, input_dir_list, DSWX_NI_POL_DICT)
 
-        # Extract bandwidth from input RTC
-        bandwidth_list = extract_bandwidth(input_dir_list)
-        
-        (
-            flag_bw_freq_a_equal, 
-            flag_bw_freq_b_equal, 
-            max_bw_freq_a, 
-            max_bw_freq_b
-        ) = compare_rtc_bandwidth(bandwidth_list)
-
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list
         algorithm_cfg[
@@ -693,6 +693,20 @@ class RunConfig:
             flag_pol_freq_b_equal, 
             nisar_uni_mode
         ) = verify_nisar_mode(input_dir_list)
+
+        # Update NiSAR processing mode
+        algorithm_cfg[
+            'runconfig']['processing']['nisar_uni_mode'] = nisar_uni_mode
+
+        # Extract bandwidth from input RTC
+        bandwidth_list = extract_bandwidth(input_dir_list)
+        
+        (
+            flag_bw_freq_a_equal, 
+            flag_bw_freq_b_equal, 
+            min_bw_freq_a, 
+            min_bw_freq_b
+        ) = compare_rtc_bandwidth(bandwidth_list)
 
         log_file = sns.log_file
         if args.log_file is not None:

@@ -273,11 +273,12 @@ def read_rtc_polarization(input_h5_list, freq_list):
     pol_list = np.empty((num_input_files, 2) , dtype=object)
 
     for input_idx, input_h5 in enumerate(input_h5_list):
+        extracted_strings = []
         # Check to see if frequency group of an input file is empty
         if freq_list[input_idx]:
             for freq_idx, freq_group in enumerate(freq_list[input_idx]):
                 pol_list[input_idx, freq_idx] = get_pol_rtc_hdf5(input_h5, freq_group)
-
+                
     return pol_list
 
 
@@ -319,6 +320,31 @@ def compare_rtc_polarization(pol_list):
 
     return flag_pol_freq_a_equal, flag_pol_freq_b_equal
 
+def compare_rtc_bandwidth(bandwidth_list):
+    num_input_files = len(bandwidth_list)
+    bw_freq_a = bandwidth_list[:, 0]
+    bw_freq_b = bandwidth_list[:, 1]
+
+    if np.all(bw_freq_a == bw_freq_a[0]):
+        flag_bw_freq_a_equal = True
+        max_bw_freq_a = bw_freq_a[0]
+    else:
+        flag_bw_freq_a_equal = False
+
+        # Need to identify highest and lowest bandwidth (resolution)
+        max_bw_freq_a = np.max(bw_freq_a) 
+    
+    if np.all(bw_freq_b == bw_freq_b[0]):
+        flag_bw_freq_b_equal = True
+        max_bw_freq_b = bw_freq_b[0]
+    else:
+        flag_bw_freq_b_equal = False
+
+        # Need to identify highest and lowest bandwidth (resolution)
+        max_bw_freq_b = np.max(bw_freq_b) 
+    
+
+    return flag_bw_freq_a_equal, flag_bw_freq_b_equal, max_bw_freq_a, max_bw_freq_b
 
 def verify_nisar_mode(input_dir_list):
     # Extract Frequency Groups of input files
@@ -337,6 +363,13 @@ def verify_nisar_mode(input_dir_list):
         nisar_uni_mode = False
 
     return flag_freq_equal, flag_pol_freq_a_equal, flag_pol_freq_b_equal, nisar_uni_mode
+
+def find_unique_polarizations(pol_list):
+    pol_list_flatten = pol_list.copy()
+    pol_list_flatten = np.concatenate(pol_list_flatten.ravel()).ravel()
+    pol_list_unique = set(pol_list_flatten)
+
+    return pol_list_unique
 
 
 def _find_polarization_from_data_dirs(input_h5_list):
@@ -361,19 +394,13 @@ def _find_polarization_from_data_dirs(input_h5_list):
         (like 'HH', 'VV', etc.) found in the filenames.
     """
     num_input_rtc = len(input_h5_list)
+    extracted_strings = []
 
     for input_idx, input_h5 in enumerate(input_h5_list):
-        extracted_strings = []
         freq_strings = get_freq_rtc_hdf5(input_h5)
 
         for freq_idx, input_freq in enumerate(freq_strings):
             extracted_strings += get_pol_rtc_hdf5(input_h5, input_freq)
-
-        if input_idx == 0:
-            pol_list_all_freq = extracted_strings.copy()
-        else:
-            if extracted_strings != pol_list_all_freq:
-                break
 
     # if nothing found raise error
     if not extracted_strings:
@@ -397,6 +424,8 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
         List of polarizations.
     input_dir_list : list
         List of the input directories with RTC GeoTIFF files.
+    DSWX_NI_POL_DICT: dictionary
+        Dictionary which captures possible polarization scenarios for NISAR RTC inputs   
 
     Returns
     -------
@@ -457,6 +486,44 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
         err_msg = 'unable to identify polarization mode.'
         logger.warning(err_msg)
     return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
+
+
+def extract_bandwidth(input_dir_list):
+    """
+    This function extracts bandwidth of each frequency group of each input RTC.
+
+    Parameters
+    ----------
+    input_dir_list : list
+        List of the input RTC files.
+
+    Returns
+    -------
+    bandwidth_list
+        List of bandwidth from both frequency A and B of all input RTC files.
+    """
+
+    num_input_files = len(input_dir_list)
+    freq_path_list = '/science/LSAR/identification/listOfFrequencies'
+    bandwidth_list = np.zeros((num_input_files, 2), dtype=float)
+
+    for input_idx, input_rtc in enumerate(input_dir_list):
+        # Check if the file exists
+        if not os.path.exists(input_rtc):
+            raise FileNotFoundError(
+                f"The file '{input_rtc}' does not exist.")
+
+        with h5py.File(input_rtc, 'r') as src_h5:
+            freq_group_list = src_h5[freq_path_list][()]
+            freq_group_list = [freq_group.decode('utf-8') for freq_group in freq_group_list]
+
+            for freq_idx, freq_group in enumerate(freq_group_list):
+                bw_path = f'/science/LSAR/GCOV/metadata/sourceData/swaths/frequency{freq_group}/rangeBandwidth'
+                bandwidth = float(src_h5[bw_path][()])
+
+                bandwidth_list[input_idx, freq_idx] = bandwidth
+
+    return bandwidth_list
 
 
 def validate_group_dict(group_cfg: dict) -> None:
@@ -583,6 +650,16 @@ class RunConfig:
         DSWX_NI_POL_DICT = DSWX_NI_SINGLE_FRAME_POL_DICT
         co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
             requested_pol, input_dir_list, DSWX_NI_POL_DICT)
+
+        # Extract bandwidth from input RTC
+        bandwidth_list = extract_bandwidth(input_dir_list)
+        
+        (
+            flag_bw_freq_a_equal, 
+            flag_bw_freq_b_equal, 
+            max_bw_freq_a, 
+            max_bw_freq_b
+        ) = compare_rtc_bandwidth(bandwidth_list)
 
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list

@@ -57,8 +57,26 @@ runconfig:
         # The enhanced Lee filter is available.
         filter:
             enabled: True
-            # Window size for filtering.
-            window_size: 5
+            method: bregman
+            block_pad: 300
+            lee_filter:
+                window_size: 3
+            guided_filter:
+                radius: 1
+                # Regularization parameter in Guided Filter to smooth within
+                # a radius. Default is 3.
+                eps: 3
+                # The depth of the output image.
+                ddepth: -1
+            bregman:
+                # The regularization parameter for TV Bregman denoising.
+                # It controls the amount of smoothing. Higher values
+                # produce more smoothed results.
+                lambda_value: 20
+            anisotropic_diffusion:
+                # Denoising weight. The greater the weight, the more 
+                # denoising (at the expense of fidelity to image).
+                weight: 1
             line_per_block: 1000
 
         initial_threshold:
@@ -206,7 +224,38 @@ runconfig:
             dual_pol_ratio_threshold: 8
             cross_pol_min: -26
             line_per_block: 300
-            target_land_cover: ['Herbaceous wetland']
+            # If 'auto' is selected and GLAD is available, GLAD will be
+            # used for inundated vegetation. In the 'auto' option,
+            # GLAD is not provided, then WorldCover will be used to extract
+            # the target areas.
+            target_area_file_type: 'auto'
+            target_worldcover_class: ['Herbaceous wetland']
+            target_glad_class: ['112-124', '200-207', '19-24', '125-148']
+            filter:
+                enabled: True
+                method: lee
+                block_pad: 300
+                lee_filter:
+                    window_size: 3
+                guided_filter:
+                    # Radius of the kernel used in the Guided Filter.
+                    radius: 1
+                    # Regularization parameter in Guided Filter to smooth within
+                    # a radius. Default is 3.
+                    eps: 3
+                    # The depth of the output image.
+                    ddepth: -1
+                bregman:
+                    # The regularization parameter for TV Bregman denoising.
+                    # It controls the amount of smoothing. Higher values
+                    # produce more smoothed results.
+                    lambda_value: 20
+                anisotropic_diffusion:
+                    # Denoising weight. The greater the weight, the more
+                    # denoising (at the expense of fidelity to image).
+                    weight: 1
+                # Window size for filtering.
+                line_per_block: 1000
 
         # debug mode is true, intermediate product is generated.
         debug_mode: False

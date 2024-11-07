@@ -1,6 +1,7 @@
 import ast
 import copy
 import datetime
+import glob
 import logging
 import mimetypes
 import os
@@ -315,6 +316,9 @@ def run(cfg):
     mgrs_collection_db_path = \
         static_ancillary_file_group_cfg.mgrs_collection_database_file
 
+    # Inundated vegetation
+    inundated_vege_cfg = processing_cfg.inundated_vegetation
+
     # Browse image options
     browser_image_cfg = cfg.groups.browse_image_group
     browse_image_flag = browser_image_cfg.save_browse
@@ -381,14 +385,17 @@ def run(cfg):
     platform_str = platform
     resolution_str = str(int(resolution))
 
-    if processing_cfg.inundated_vegetation.enabled == 'auto':
+    if inundated_vege_cfg.enabled == 'auto':
         if cross_pol and co_pol:
             total_inundated_vege_flag = True
         else:
             total_inundated_vege_flag = False
+        # update the IV flag
+        inundated_vege_cfg.enabled = total_inundated_vege_flag
+
     else:
         total_inundated_vege_flag = \
-            processing_cfg.inundated_vegetation.enabled
+            inundated_vege_cfg.enabled
 
     inundated_vege_mosaic_flag = False
     # Set merge_layer_flag and merge_pol_list based on pol_mode
@@ -417,12 +424,25 @@ def run(cfg):
     else:
         pol_set1 = pol_list
         pol_set2 = []
-        count_pols = [len(get_pol_rtc_hdf5(file_cand))
-                      for file_cand in input_list]
+        count_pols = []
+        for input_dir in input_list:
+            pol_types = DSWX_NI_POL_DICT['DV_POL'] + \
+                        DSWX_NI_POL_DICT['DH_POL']
+            # Initialize count
+            count_pol = 0
+            # Count files for each polarization type
+            for target_pol in pol_types:
+                pol_files = glob.glob(
+                    os.path.join(input_dir, f'*{target_pol}*.tif'))
+                count_pol += len(pol_files)
+            count_pols.append(count_pol)
+        all_match_first = all(count == count_pols[0]
+                              for count in count_pols)
+
         # count_pols is list of number of the available pols.
         # count_pols[0] is always copol because
         # Co-pol proceed before cross-pol.
-        if len(pol_list) > 1 and np.any(count_pols != count_pols[0]):
+        if len(pol_list) > 1 and not all_match_first:
             # get first character from polarization (V or H)
             pol_id = pol_list[0][0]
             pol_mode = f'MIX_DUAL_{pol_id}_SINGLE_{pol_id}_POL'
@@ -451,8 +471,9 @@ def run(cfg):
         if len(pol_set1) == 2 and len(pol_set2) == 2:
             inundated_vege_mosaic_flag = True
 
-    if total_inundated_vege_flag:
         prefix_dict['inundated_veg'] = 'temp_inundated_vegetation'
+        prefix_dict['inundated_veg_target'] = 'temp_target_area'
+        prefix_dict['inundated_veg_high_ratio'] = 'temp_high_dualpol_ratio'
 
     paths = {}
     for key, prefix in prefix_dict.items():
@@ -468,7 +489,9 @@ def run(cfg):
                 extra_args = {'nodata_value': -1}
             else:
                 extra_args = {'nodata_value': 0}
-            if not inundated_vege_mosaic_flag and key == 'inundated_veg':
+            if not inundated_vege_mosaic_flag and \
+                key in ['inundated_veg', 'inundated_veg_target',
+                        'inundated_veg_high_ratio']:
                 dual_pol_vege_string = '_'.join(pol_set1)
                 paths[key] = os.path.join(
                     scratch_dir, f'{prefix}_{dual_pol_vege_string}.tif')
@@ -478,7 +501,7 @@ def run(cfg):
                                  **extra_args)
 
     # metadata for final product
-    # e.g. geotransform, projection, length, width, utmzon, epsg
+    # e.g. geotransform, projection, length, width, utmzone, epsg
     water_meta = dswx_sar_util.get_meta_from_tif(paths['final_water'])
 
     # repackage the water map
@@ -518,13 +541,48 @@ def run(cfg):
     if total_inundated_vege_flag:
         inundated_vegetation = dswx_sar_util.read_geotiff(
             paths['inundated_veg'])
+        inundated_vege_target_area = dswx_sar_util.read_geotiff(
+            paths['inundated_veg_target'])
+        inundated_vege_high_ratio = dswx_sar_util.read_geotiff(
+            paths['inundated_veg_high_ratio'])
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
         inundated_vegetation[inundated_vegetation_mask] = 1
         logger.info('Inundated vegetation file was found.')
+        iv_target_file_type = inundated_vege_cfg.target_area_file_type
+        if iv_target_file_type == 'auto':
+            # if target_file_type is auto and GLAD is provided,
+            # GLAD is the source of inundated vegetation mapping
+            interp_glad_path_str = os.path.join(
+                scratch_dir,'interpolated_glad.tif')
+
+            if os.path.exists(interp_glad_path_str):
+                inundated_vege_cfg.target_area_file_type = 'GLAD'
+
+                worldcover_valid = np.nansum(inundated_vege_target_area == 2)
+                glad_valid = np.nansum(inundated_vege_target_area == 1)
+                # If some pixels are extracted from WorldCover,
+                # IV source is GLAD/WorldCover
+                if worldcover_valid > 0 and glad_valid > 0:
+                    inundated_vege_cfg.target_area_file_type = 'GLAD/WorldCover'
+                # If the GLAD is provided but all pixels come from 'WorldCover'
+                # due to the no-data of GLAD,
+                # IV source is WorldCover
+                elif worldcover_valid > 0 and glad_valid == 0:
+                    inundated_vege_cfg.target_area_file_type = 'WorldCover'
+            else:
+                inundated_vege_cfg.target_area_file_type = 'WorldCover'
+        logger.info('Inundated vegetation areas are defined from  '
+                    f'{inundated_vege_cfg.target_area_file_type}.')
+
     else:
         inundated_vegetation = None
-        logger.warning('Inundated vegetation file was disabled.')
+        inundated_vege_target_area = None
+        inundated_vege_high_ratio = None
+        inundated_vegetation_mask = None
+        inundated_vege_cfg.target_area_file_type = None
+
+        logger.info('Inundated vegetation file was disabled.')
 
     # 5) create ocean mask
     if ocean_mask_enabled:
@@ -552,7 +610,7 @@ def run(cfg):
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
         bright_water_mask = (landcover_map == 0) & (water_map == 1)
-
+        wetland = inundated_vege_target_area == 1
         # Open water/inundated vegetation
         # layover shadow mask/hand mask/no_data
         # will be saved in WTR product
@@ -602,10 +660,17 @@ def run(cfg):
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
+            inundated_vegetation_conf=(inundated_vege_high_ratio == 1) &
+                (wetland == 0) & (water_map == 0),
+            wetland_nonwater=(water_map == 0) & wetland,
+            wetland_water=(water_map == 1) & wetland,
+            wetland_bright_water_fill=bright_water_mask & wetland,
+            wetland_inundated_veg=(inundated_vegetation == 2) & wetland,
+            wetland_dark_land_mask=dark_land_mask & wetland,
+            wetland_landcover_mask=landcover_mask & wetland,
             layover_shadow_mask=layover_shadow_mask > 0,
             hand_mask=hand_mask,
             ocean_mask=ocean_mask,
-            inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
             )
 
@@ -656,7 +721,9 @@ def run(cfg):
             output_spacing=output_spacing,
             scratch_dir=scratch_dir,
             target_label=1, # only open water
-            threshold=partial_water_threshold)
+            threshold=partial_water_threshold,
+            logger=logger)
+
         temp_full_wtr_water_set_path = \
             os.path.join(scratch_dir, 'full_water_binary_WTR_set_temp.tif')
         os.rename(full_wtr_water_set_path, temp_full_wtr_water_set_path)

@@ -19,7 +19,9 @@ from dswx_sar.mosaic_rtc_burst import (majority_element,
                                        mosaic_single_output_file)
 from dswx_sar.dswx_sar_util import change_epsg_tif
 from dswx_sar.dswx_geogrid import DSWXGeogrid
-from dswx_sar.dswx_ni_runconfig import _get_parser, RunConfig
+from dswx_sar.dswx_ni_runconfig import (_get_parser, 
+                                        RunConfig, 
+                                        extract_bandwidth)
 from dswx_sar.dswx_sar_util import (_calculate_output_bounds,
                                     _aggregate_10m_to_30m_conv)
 
@@ -1012,8 +1014,14 @@ def run(cfg):
     mosaic_cfg = processing_cfg.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix
+    nisar_uni_mode = processing_cfg.nisar_uni_mode
 
-    resamp_required = mosaic_cfg.resamp_required
+    # Determine if resampling is required
+    if nisar_uni_mode:
+        resamp_required = False
+    else:
+        resamp_required = True
+
     resamp_method = mosaic_cfg.resamp_method
     resamp_out_res = mosaic_cfg.resamp_out_res
 

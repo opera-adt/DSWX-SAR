@@ -502,7 +502,7 @@ def verify_nisar_mode(input_h5_list):
     flag_freq_equal, freq_list = check_rtc_frequency(input_h5_list)
 
     # Extract polarizations of each frequency group of the input files
-    pol_list = read_rtc_polarization(input_h5_list, freq_list)
+    pol_list = get_rtc_spacing_list(input_h5_list, freq_list)
 
     # Compare polariztions of frequency groups among input files
     flag_pol_freq_a_equal, flag_pol_freq_b_equal = compare_rtc_polarization(pol_list)

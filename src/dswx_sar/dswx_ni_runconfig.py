@@ -593,7 +593,7 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
 
     # Find polarization of files in list of directories
     found_pol = _find_polarization_from_data_dirs(input_dir_list)
-    print(found_pol, 'found')
+
     # Find the common polarizations between requests and files.
     proc_pol_list = list(set(proc_pol_list) & set(found_pol))
 

@@ -100,8 +100,7 @@ class RTCReader(DataReader):
                 data_path,
                 layover_path,
             )
-        print(resamp_required, resamp_out_res)
-        print(pol_gtiff_list)
+
         # Choose Resampling methods
         if resamp_required:
             # Apply multi-look technique
@@ -353,8 +352,8 @@ class RTCReader(DataReader):
         ----------
         input_list: list
             The HDF5 file paths of input RTCs to be mosaicked.
-        data_path: list
-            RTC dataset path within the HDF5 input file
+        pol_list: dictionary
+            polarization dictionary with Geotiff paths
         scratch_dir: str
             Directory which stores the temporary files
         geogrid_in: DSWXGeogrid object
@@ -698,8 +697,9 @@ class RTCReader(DataReader):
 
         Returns
         -------
-        data_path: np.ndarray of str
-            RTC dataset path within the HDF5 input file
+        h5_path_dict: dict
+            dictionary containing the RTC file path and image path for
+            each polarization
         """
         if isinstance(input_list, str):
             input_list = [input_list]

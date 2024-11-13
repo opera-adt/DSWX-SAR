@@ -252,7 +252,7 @@ def get_freq_rtc_hdf5(input_rtc):
 
     return freq
 
-def get_res_rtc_hdf5(input_rtc, freq_group):
+def get_x_spacing_rtc_hdf5(input_rtc, freq_group):
     """ convenience function to get the image postings from RTC file path
     Since x and y postings are equal, x posting is used
 

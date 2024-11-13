@@ -375,7 +375,7 @@ def read_rtc_resolution(input_h5_list, freq_list):
         if freq_list[input_idx]:
             for freq_idx, freq_group in enumerate(freq_list[input_idx]):
                 res_list[input_idx, freq_idx] = \
-                    get_res_rtc_hdf5(input_h5, freq_group)
+                    get_x_spacing_rtc_hdf5(input_h5, freq_group)
 
     # Flatten the array and filter out None values
     res_list_valid = [item for item in res_list.flatten() if item is not None]

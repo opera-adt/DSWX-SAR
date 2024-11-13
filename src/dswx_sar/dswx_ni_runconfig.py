@@ -347,7 +347,7 @@ def read_rtc_polarization(input_h5_list, freq_list):
     return pol_list
 
 
-def read_rtc_resolution(input_h5_list, freq_list):
+def get_rtc_spacing_list(input_h5_list, freq_list):
     """Find highest resolution of the input data from all frequency groups
 
     Parameters

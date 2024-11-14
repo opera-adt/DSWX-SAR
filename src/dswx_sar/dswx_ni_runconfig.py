@@ -249,7 +249,7 @@ def get_freq_rtc_hdf5(input_rtc):
     with h5py.File(input_rtc) as src_h5:
         freq_group_list = src_h5[path_freq][()]
         freq = [freq_group.decode('utf-8') for freq_group in freq_group_list]
-
+        freq = ['A']
     return freq
 
 def get_x_spacing_rtc_hdf5(input_rtc, freq_group):
@@ -379,7 +379,7 @@ def get_rtc_spacing_list(input_h5_list, freq_list):
 
     # Flatten the array and filter out None values
     res_list_valid = [item for item in res_list.flatten() if item is not None]
-    res_highest = max(res_list_valid)
+    res_highest = min(res_list_valid)
 
     return res_list, res_highest
 
@@ -846,6 +846,11 @@ class RunConfig:
                 f'command line log file "{args.log_file}"'
                 f' has precedence over runconfig log file "{log_file}"')
             sns.log_file = args.log_file
+
+        algorithm_sns = wrap_namespace(
+            algorithm_cfg['runconfig']['processing'])
+        sns.processing = algorithm_sns
+        processing_group = sns.processing
 
         return cls(cfg['runconfig']['name'], sns, yaml_path)
 

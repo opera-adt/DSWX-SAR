@@ -80,7 +80,7 @@ class RTCReader(DataReader):
         data_path = self.generate_nisar_dataset_name(input_list)
 
         # Generate layover mask path
-        layover_mask_name = 'layoverShadowMask'
+        layover_mask_name = 'mask'
         layover_path = str(self.generate_nisar_layover_name(layover_mask_name))
 
         # Collect EPSG
@@ -177,7 +177,7 @@ class RTCReader(DataReader):
         data_path: dict
             Dictionary containing input rtc with RTC image paths
         layover_path: str
-            layoverShadowMask layer dataset path
+            mask layer dataset path
 
         Returns
         -------
@@ -284,7 +284,7 @@ class RTCReader(DataReader):
             layover_data = f'HDF5:{input_rtc}:/{layover_path}'
             h5_layover = gdal.Open(layover_data, gdal.GA_ReadOnly)
 
-            # Check if layoverShadowMask layer exists:
+            # Check if mask layer exists:
             if h5_layover is None:
                 warnings.warn(f'\nDataset at {layover_data} does not exist or '
                               'cannot be opened.', RuntimeWarning)
@@ -367,7 +367,7 @@ class RTCReader(DataReader):
         mosaic_prefix: str
             Mosaicked output file name prefix
         layover_exist: bool
-            Boolean which indicates if a layoverShadowMask layer
+            Boolean which indicates if a mask layer
             exists in input RTC
         """
         for pol in pol_list:

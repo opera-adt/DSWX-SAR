@@ -383,38 +383,6 @@ def get_rtc_spacing_list(input_h5_list, freq_list):
 
     return res_list, res_highest
 
-
-def compare_rtc_resolution(res_list):
-    """Find highest resolution from all input resolutions
-    If an item in the list is None, then generate an error
-
-    Parameters
-    ----------
-    res_list
-        input RTC files resolutions
-
-    Returns
-    -------
-        
-    res_highest: float
-        Highest resolution of each input RTC
-    """
-    res_highest = 0
-
-    for res in res_list:
-        if (res is not None) and (res > res_highest):
-            res_highest = res
-        else:
-            continue
-
-    if res_highest == 0:
-        raise ValueError(
-            f'Incorrect highest RTC resolution: {res_highest} meter.'
-        )
-            
-
-    return res_highest
-
 def compare_rtc_polarization(pol_list):
     """Verify polarizations of all inputs from same the frequency group
     to see if they are of the same.
@@ -470,6 +438,55 @@ def compare_rtc_polarization(pol_list):
 
     return flag_pol_freq_a_equal, flag_pol_freq_b_equal
 
+def compare_rtc_spacing(res_list):
+    """Verify x dimension spacing of all inputs from the same frequency groups
+
+    Parameters
+    ----------
+    res_list
+        Input resolution list, including both frequency A and frequency B
+
+    Returns
+    -------
+    res_freq_a_equal: bool
+        Frequency A resolution equal flag
+    res_freq_b_equal: bool
+        Frequency B resolution equal flag
+    """
+    num_input_files = len(res_list)
+
+    res_freq_a = res_list[:, 0]
+    res_freq_b = res_list[:, 1]
+
+    res_freq_a_first = res_freq_a[0]
+    res_freq_b_first = res_freq_b[0]
+
+    res_freq_a_equal = True
+    res_freq_b_equal = True
+
+    # Compare x spacing of frequency group A of all inputs
+    for res in res_freq_a:
+        if all(item is not None for item in res_freq_a):
+            if all(item != res_freq_a_first for item in res_freq_a):
+                flag_res_freq_a_equal = False
+        elif res_freq_a_first is None and res is not None:
+            flag_res_freq_a_equal = False
+            break
+        elif res_freq_a_first is None and res is None:
+            continue
+
+    # Compare x spacing of frequency group B of all inputs
+    for res in res_freq_b:
+        if all(item is not None for item in res_freq_b):
+            if all(item != res_freq_a_first for item in res_freq_b):
+                flag_res_freq_b_equal = False
+        elif res_freq_b_first is None and res is not None:
+            flag_res_freq_b_equal = False
+            break
+        elif res_freq_b_first is None and res is None:
+            continue
+
+    return res_freq_a_equal, res_freq_b_equal
 
 def verify_nisar_mode(input_h5_list):
     """Determine the mode of processing for input RTC
@@ -493,6 +510,10 @@ def verify_nisar_mode(input_h5_list):
     freq_list: list
         List of frequency group(s) in each of the files
         e.g. A, B, or A and B
+    res_freq_a_equal: bool
+        Frequency A resolution equal flag
+    res_freq_b_equal: bool
+        Frequency B resolution equal flag
     nisar_uni_mode: bool
         If true, processing mode is nisar_uni_mode
         No additional processing such as resampling is required. Mosaic operation
@@ -502,19 +523,32 @@ def verify_nisar_mode(input_h5_list):
     flag_freq_equal, freq_list = check_rtc_frequency(input_h5_list)
 
     # Extract polarizations of each frequency group of the input files
-    pol_list = get_rtc_spacing_list(input_h5_list, freq_list)
+    pol_list = read_rtc_polarization(input_h5_list, freq_list)
 
     # Compare polariztions of frequency groups among input files
     flag_pol_freq_a_equal, flag_pol_freq_b_equal = compare_rtc_polarization(pol_list)
 
+    # Determine highest resolution in an RTC input
+    res_list, res_highest = get_rtc_spacing_list(input_h5_list, freq_list)
+    res_freq_a_equal, res_freq_b_equal = compare_rtc_spacing(res_list)
+
     # Determine NiSAR input RTC mode of operation
-    if flag_freq_equal and flag_pol_freq_a_equal and flag_pol_freq_b_equal:
+    if flag_freq_equal and flag_pol_freq_a_equal and flag_pol_freq_b_equal \
+        and res_freq_a_equal and res_freq_b_equal:
         nisar_uni_mode = True
     else:
         nisar_uni_mode = False
 
-    return flag_freq_equal, flag_pol_freq_a_equal, flag_pol_freq_b_equal, freq_list, nisar_uni_mode
-
+    return [
+        flag_freq_equal,
+        flag_pol_freq_a_equal,
+        flag_pol_freq_b_equal,
+        freq_list,
+        res_freq_a_equal,
+        res_freq_b_equal,
+        res_highest,
+        nisar_uni_mode
+    ]
 
 def _find_polarization_from_data_dirs(input_h5_list):
     """
@@ -823,9 +857,12 @@ class RunConfig:
         # Determine NISAR input RTC mode of operation
         (
             flag_freq_equal, 
-            flag_pol_freq_a_equal, 
-            flag_pol_freq_b_equal, 
+            flag_pol_freq_a_equal,
+            flag_pol_freq_b_equal,
             freq_list,
+            res_freq_b_equal,
+            res_freq_b_equal,
+            res_highest,
             nisar_uni_mode
         ) = verify_nisar_mode(input_dir_list)
 

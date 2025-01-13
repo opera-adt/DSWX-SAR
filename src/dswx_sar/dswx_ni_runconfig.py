@@ -249,7 +249,6 @@ def get_freq_rtc_hdf5(input_rtc):
     with h5py.File(input_rtc) as src_h5:
         freq_group_list = src_h5[path_freq][()]
         freq = [freq_group.decode('utf-8') for freq_group in freq_group_list]
-        freq = ['A']
     return freq
 
 def get_x_spacing_rtc_hdf5(input_rtc, freq_group):
@@ -368,7 +367,6 @@ def get_rtc_spacing_list(input_h5_list, freq_list):
     """
     num_input_files = len(input_h5_list)
     res_list = np.empty((num_input_files, 2) , dtype=object)
-    #y_res_list = np.empty((num_input_files, 2) , dtype=object)
 
     for input_idx, input_h5 in enumerate(input_h5_list):
         # Check to see if frequency group of an input file is empty
@@ -467,10 +465,10 @@ def compare_rtc_spacing(res_list):
     # Compare x spacing of frequency group A of all inputs
     for res in res_freq_a:
         if all(item is not None for item in res_freq_a):
-            if all(item != res_freq_a_first for item in res_freq_a):
-                flag_res_freq_a_equal = False
+            if len(set(res_freq_a)) != 1:
+                res_freq_a_equal = False
         elif res_freq_a_first is None and res is not None:
-            flag_res_freq_a_equal = False
+            res_freq_a_equal = False
             break
         elif res_freq_a_first is None and res is None:
             continue
@@ -478,10 +476,10 @@ def compare_rtc_spacing(res_list):
     # Compare x spacing of frequency group B of all inputs
     for res in res_freq_b:
         if all(item is not None for item in res_freq_b):
-            if all(item != res_freq_a_first for item in res_freq_b):
-                flag_res_freq_b_equal = False
+            if len(set(res_freq_b)) != 1:
+                res_freq_b_equal = False
         elif res_freq_b_first is None and res is not None:
-            flag_res_freq_b_equal = False
+            res_freq_b_equal = False
             break
         elif res_freq_b_first is None and res is None:
             continue
@@ -524,6 +522,7 @@ def verify_nisar_mode(input_h5_list):
 
     # Extract polarizations of each frequency group of the input files
     pol_list = read_rtc_polarization(input_h5_list, freq_list)
+    #pols_rtc = set(tuple(arr) for arr in pol_list)
 
     # Compare polariztions of frequency groups among input files
     flag_pol_freq_a_equal, flag_pol_freq_b_equal = compare_rtc_polarization(pol_list)
@@ -575,8 +574,8 @@ def _find_polarization_from_data_dirs(input_h5_list):
     extracted_strings = []
 
     for input_idx, input_h5 in enumerate(input_h5_list):
-        freq_strings = get_freq_rtc_hdf5(input_h5)
 
+        freq_strings = get_freq_rtc_hdf5(input_h5)
         for freq_idx, input_freq in enumerate(freq_strings):
             extracted_strings += get_pol_rtc_hdf5(input_h5, input_freq)
 

@@ -15,13 +15,16 @@ from rasterio.transform import Affine
 from rasterio.windows import Window
 from typing import Any
 import math
+from collections import defaultdict
 from dswx_sar.mosaic_rtc_burst import (majority_element,
                                        mosaic_single_output_file)
 from dswx_sar.dswx_sar_util import change_epsg_tif
 from dswx_sar.dswx_geogrid import DSWXGeogrid
 from dswx_sar.dswx_ni_runconfig import (_get_parser,
                                         RunConfig,
-                                        extract_bandwidth)
+                                        get_pol_rtc_hdf5,
+                                        check_rtc_frequency,
+                                        get_rtc_spacing_list)
 from dswx_sar.dswx_sar_util import (_calculate_output_bounds,
                                     _aggregate_10m_to_30m_conv)
 
@@ -48,6 +51,7 @@ class RTCReader(DataReader):
             scratch_dir: str,
             mosaic_mode: str,
             mosaic_prefix: str,
+            mosaic_posting_thresh: float,
             resamp_method: str,
             resamp_out_res: float,
             resamp_required: bool,
@@ -66,6 +70,8 @@ class RTCReader(DataReader):
             or 'burst_center'
         mosaic_prefix: str
             Mosaicked output file name prefix
+        mosaic_posting_thresh: float
+            Minimu RTC posting needed for processing
         resamp_required: bool
             Indicates whether resampling (downsampling) needs to be performed
             on input RTC product in Geotiff.
@@ -75,9 +81,26 @@ class RTCReader(DataReader):
         resamp_out_res: float
             User define output resolution for resampled Geotiff
         """
-        # Extract polarizations
+        # Extract Relevant information of input files
+
+        # Read frequency group(s) from each input file
+        flag_freq_equal, freq_list = check_rtc_frequency(input_list)
+
+        num_input_files = len(input_list)
+        
+        res_dict = defaultdict(dict)
+
+        # Determine valid data_path 
+        res_list, res_highest = get_rtc_spacing_list(input_list, freq_list)
+
         # Generate data paths
-        data_path = self.generate_nisar_dataset_name(input_list)
+        data_path = self.generate_nisar_dataset_name(input_list, freq_list)
+
+        for input_idx, input_rtc in enumerate(input_list):
+            for freq_idx, freq_group in enumerate(freq_list[input_idx]):
+                if res_list[input_idx][freq_idx] is not None and \
+                    res_list[input_idx][freq_idx] > mosaic_posting_thresh:
+                        del data_path[input_rtc][freq_group]
 
         # Generate layover mask path
         layover_mask_name = 'mask'
@@ -100,6 +123,9 @@ class RTCReader(DataReader):
                 data_path,
                 layover_path,
             )
+
+        # To Do: Use flag_mosaic_freq_a and flag_mosaic_freq_b flags to
+        # filter frequency A or B from processing
 
         # Choose Resampling methods
         if resamp_required:
@@ -175,7 +201,8 @@ class RTCReader(DataReader):
         epsg_array: array of int
             EPSG of each of the RTC input HDF5
         data_path: dict
-            Dictionary containing input rtc with RTC image paths
+            Nested dictionary containing input rtc with RTC image paths
+            key: input path, subkey: frequency group
         layover_path: str
             mask layer dataset path
 
@@ -190,6 +217,7 @@ class RTCReader(DataReader):
             List of layoverShadow Mask Geotiffs derived from input RTC HDF5.
         """
 
+        # Need to index data_path dict with both input rtc and freq_group
         # Reproject geotiff
         most_freq_epsg = majority_element(epsg_array)
         designated_value = np.float32(500)
@@ -198,6 +226,8 @@ class RTCReader(DataReader):
         output_gtiff_list = []
         layover_gtiff_list = []
         pol_gtiff_list = {}
+        freq = ['A', 'B']
+
         # Create intermediate input Geotiffs
         for input_idx, input_rtc in enumerate(input_list):
             # Extract file names
@@ -209,75 +239,88 @@ class RTCReader(DataReader):
             # Read metadata
             dswx_metadata_dict = self.read_metadata_hdf5(input_rtc)
 
+            # Data path associated with each input file
+            data_path_input = data_path[input_rtc]
+
             # Create Intermediate Geotiffs for each input GCOV file
-            for path_idx, dataset_path in enumerate(data_path[input_rtc]):
-                data_name = Path(dataset_path).name[:2]
+            for freq_idx, freq_group in enumerate(freq):
+                dataset_path_freq = data_path_input[freq_group]                       
+                for path_idx, dataset_path in enumerate(dataset_path_freq):
+                    data_name = Path(dataset_path).name[:2]
 
-                pol = dataset_path.split('/')[-1][:2]
+                    pol = dataset_path.split('/')[-1][:2]
 
-                dataset = f'HDF5:{input_rtc}:/{dataset_path}'
-                output_gtiff = f'{scratch_dir}/{output_prefix}_{data_name}.tif'
+                    dataset = f'HDF5:{input_rtc}:/{dataset_path}'
+                    output_gtiff = f'{scratch_dir}/{output_prefix}_{data_name}_{freq_group}.tif'
+                    output_gtiff_list = np.append(output_gtiff_list, output_gtiff)
 
-                output_gtiff_list = np.append(output_gtiff_list, output_gtiff)
+                    if pol not in pol_gtiff_list:
+                        pol_gtiff_list[pol] = []
+                    pol_gtiff_list[pol].append(output_gtiff)
 
-                if pol not in pol_gtiff_list:
-                    pol_gtiff_list[pol] = []
-                pol_gtiff_list[pol].append(output_gtiff)
+                    h5_ds = gdal.Open(dataset, gdal.GA_ReadOnly)
+                    num_cols = h5_ds.RasterXSize
+                    num_rows = h5_ds.RasterYSize
 
-                h5_ds = gdal.Open(dataset, gdal.GA_ReadOnly)
-                num_cols = h5_ds.RasterXSize
-                num_rows = h5_ds.RasterYSize
+                    row_blk_size = self.row_blk_size
+                    col_blk_size = self.col_blk_size
 
-                row_blk_size = self.row_blk_size
-                col_blk_size = self.col_blk_size
-
-                self.read_write_rtc(
-                    h5_ds,
-                    output_gtiff,
-                    num_rows,
-                    num_cols,
-                    row_blk_size,
-                    col_blk_size,
-                    designated_value,
-                    geotransform,
-                    crs,
-                    dswx_metadata_dict,
+                    self.read_write_rtc(
+                        h5_ds,
+                        output_gtiff,
+                        num_rows,
+                        num_cols,
+                        row_blk_size,
+                        col_blk_size,
+                        designated_value,
+                        geotransform,
+                        crs,
+                        dswx_metadata_dict,
                     )
 
         geogrid_in = DSWXGeogrid()
         # Loop through EPSG (input files)
         for input_idx, input_rtc in enumerate(input_list):
             input_prefix = self.extract_file_name(input_rtc)
+
+            # Data path associated with each input file
+            data_path_input = data_path[input_rtc]
+
             # Check if the RTC has the same EPSG with the reference.
             if epsg_array[input_idx] != most_freq_epsg:
-                for idx, dataset_path in enumerate(data_path[input_rtc]):
-                    data_name = Path(dataset_path).name[:2]
-                    input_gtiff = \
-                        f'{scratch_dir}/{input_prefix}_{data_name}.tif'
-                    temp_gtiff = \
-                        f'{scratch_dir}/{input_prefix}_temp_{data_name}.tif'
+                for freq_idx, freq_group in enumerate(freq):
+                    dataset_path_freq = data_path_input[freq_group]                       
+                    for path_idx, dataset_path in enumerate(dataset_path_freq):
+                        data_name = Path(dataset_path).name[:2]
+                        input_gtiff = \
+                            f'{scratch_dir}/{input_prefix}_{data_name}_{freq_group}.tif'
+                        temp_gtiff = \
+                            f'{scratch_dir}/{input_prefix}_temp_{data_name}_{freq_group}.tif'
 
-                    # Change EPSG
-                    change_epsg_tif(
-                        input_tif=input_gtiff,
-                        output_tif=temp_gtiff,
-                        epsg_output=most_freq_epsg,
-                        output_nodata=255,
-                    )
+                        # Change EPSG
+                        change_epsg_tif(
+                            input_tif=input_gtiff,
+                            output_tif=temp_gtiff,
+                            epsg_output=most_freq_epsg,
+                            output_nodata=255,
+                        )
 
-                    # Update geogrid
-                    geogrid_in.update_geogrid(output_gtiff)
+                        # Update geogrid
+                        geogrid_in.update_geogrid(temp_gtiff)
 
-                    # Replace input file with output temp file
-                    os.replace(temp_gtiff, input_gtiff)
+                        # Replace input file with output temp file
+                        os.replace(temp_gtiff, input_gtiff)
             else:
-                for idx, dataset_path in enumerate(data_path[input_rtc]):
-                    data_name = Path(dataset_path).name[:2]
-                    output_gtiff = \
-                        f'{scratch_dir}/{input_prefix}_{data_name}.tif'
+                # Data path associated with each input file
+                for freq_idx, freq_group in enumerate(freq):
+                    dataset_path_freq = data_path_input[freq_group]                       
+                    for path_idx, dataset_path in enumerate(dataset_path_freq):
+                        data_name = Path(dataset_path).name[:2]
+                        output_gtiff = \
+                            f'{scratch_dir}/{input_prefix}_{data_name}_{freq_group}.tif'
 
-                    # Update geogrid
-                    geogrid_in.update_geogrid(output_gtiff)
+                        geogrid_in.update_geogrid(output_gtiff)
+
 
         # Generate Layover Shadow Mask Intermediate Geotiffs
         for input_idx, input_rtc in enumerate(input_list):
@@ -357,7 +400,7 @@ class RTCReader(DataReader):
         scratch_dir: str
             Directory which stores the temporary files
         geogrid_in: DSWXGeogrid object
-            A dataclass object  representing the geographical grid
+            A dataclass object representing the geographical grid
             configuration for an RTC (Radar Terrain Correction) run.
         nlooks_list: list
             List of the nlooks raster that corresponds to list_rtc
@@ -687,7 +730,7 @@ class RTCReader(DataReader):
 
         return pols_rtc
 
-    def generate_nisar_dataset_name(self, input_list: str | list[str]):
+    def generate_nisar_dataset_name(self, input_list: str | list[str], freq_list: np.ndarray):
         """Generate dataset paths
 
         Parameters
@@ -698,25 +741,29 @@ class RTCReader(DataReader):
         Returns
         -------
         h5_path_dict: dict
-            dictionary containing the RTC file path and image path for
+            dictionary containing the RTC file and image paths for
             each polarization
         """
         if isinstance(input_list, str):
             input_list = [input_list]
-        h5_path_dict = {}
+        h5_path_dict = defaultdict(dict)
+        h5_path_dict = defaultdict(lambda: defaultdict(dict))
 
-        for single_input_list in input_list:
-            pols_rtc = self.extract_nisar_polarization([single_input_list])
+        for input_idx, input_rtc in enumerate(input_list):
+            if freq_list[input_idx]:
+                for freq_idx, freq_group in enumerate(freq_list[input_idx]):
+                    pols_rtc = get_pol_rtc_hdf5(input_rtc, freq_group)
 
-            if isinstance(pols_rtc, str):
-                pols_rtc = [pols_rtc]
-            group = '/science/LSAR/GCOV/grids/frequencyA/'
-            data_path = []
-            for dname in pols_rtc:
-                hdf5_path = f'{group}{dname * 2}'
-                data_path.append(hdf5_path)
+                    group = f'/science/LSAR/GCOV/grids/frequency{freq_group}/'
 
-            h5_path_dict[single_input_list] = data_path
+                    data_path = []
+                    if isinstance(pols_rtc, str):
+                        pols_rtc = [pols_rtc]
+                    for dname in pols_rtc:
+                        hdf5_path = f'{group}{dname * 2}'
+                        data_path.append(hdf5_path)
+
+                    h5_path_dict[input_rtc][freq_group] = data_path
 
         return h5_path_dict
 
@@ -1019,6 +1066,7 @@ def run(cfg):
     mosaic_cfg = processing_cfg.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix
+    mosaic_posting_thresh = mosaic_cfg.mosaic_posting_thresh
     nisar_uni_mode = processing_cfg.nisar_uni_mode
 
     # Determine if resampling is required
@@ -1048,6 +1096,7 @@ def run(cfg):
         scratch_dir,
         mosaic_mode,
         mosaic_prefix,
+        mosaic_posting_thresh,
         resamp_method,
         resamp_out_res,
         resamp_required,

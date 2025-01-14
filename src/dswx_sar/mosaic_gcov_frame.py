@@ -96,6 +96,7 @@ class RTCReader(DataReader):
         # Generate data paths
         data_path = self.generate_nisar_dataset_name(input_list, freq_list)
 
+        # Remove dataset from processing based on minimum image resolution/posting
         for input_idx, input_rtc in enumerate(input_list):
             for freq_idx, freq_group in enumerate(freq_list[input_idx]):
                 if res_list[input_idx][freq_idx] is not None and \
@@ -737,6 +738,9 @@ class RTCReader(DataReader):
         ----------
         input_list: str or list of str
             All dataset polarizations listed in the input HDF5 file
+        freq_list: array
+            list of available frequency groups for each of the input files
+            e.g., [[A, B], [A, B]]
 
         Returns
         -------
@@ -747,7 +751,6 @@ class RTCReader(DataReader):
         if isinstance(input_list, str):
             input_list = [input_list]
         h5_path_dict = defaultdict(dict)
-        h5_path_dict = defaultdict(lambda: defaultdict(dict))
 
         for input_idx, input_rtc in enumerate(input_list):
             if freq_list[input_idx]:
@@ -764,6 +767,11 @@ class RTCReader(DataReader):
                         data_path.append(hdf5_path)
 
                     h5_path_dict[input_rtc][freq_group] = data_path
+            else:
+                warnings.warn(f'\nFrequency group {freq_group} does not exist.'
+                              , RuntimeWarning)
+                continue
+                    
 
         return h5_path_dict
 

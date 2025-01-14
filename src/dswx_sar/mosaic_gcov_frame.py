@@ -227,7 +227,6 @@ class RTCReader(DataReader):
         output_gtiff_list = []
         layover_gtiff_list = []
         pol_gtiff_list = {}
-        freq = ['A', 'B']
 
         # Create intermediate input Geotiffs
         for input_idx, input_rtc in enumerate(input_list):
@@ -242,6 +241,7 @@ class RTCReader(DataReader):
 
             # Data path associated with each input file
             data_path_input = data_path[input_rtc]
+            freq = data_path_input.keys()
 
             # Create Intermediate Geotiffs for each input GCOV file
             for freq_idx, freq_group in enumerate(freq):

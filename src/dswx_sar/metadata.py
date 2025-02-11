@@ -75,8 +75,8 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
 
         if rtc_field in ['ZERO_DOPPLER_START_TIME', 'ZERO_DOPPLER_END_TIME']:
             mode = 'min' if rtc_field == 'ZERO_DOPPLER_START_TIME' else 'max'
-            #sensing_time = _get_date_range(values, mode=mode)
-            #dswx_metadata_dict[dswx_field] = sensing_time
+            sensing_time = _get_date_range(values, mode=mode)
+            dswx_metadata_dict[dswx_field] = sensing_time
 
         elif rtc_field == 'QA_RFI_INFO_AVAILABLE':
             bool_list = [item.lower() == 'true' for item in values]

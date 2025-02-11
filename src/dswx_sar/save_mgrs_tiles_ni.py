@@ -252,7 +252,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
     # If track number is given, then search MGRS tile collection with
     # track number
-    if track_number is not None:
+    if track_number is not None and track_number != 0:
         vector_gdf = vector_gdf[
             vector_gdf['track_number'] ==
             track_number].to_crs("EPSG:4326")
@@ -778,6 +778,7 @@ def run(cfg):
         # In the case that mgrs_tile_collection_id is given
         # from input, then extract the MGRS list from database
         if input_mgrs_collection_id is not None:
+            logger.info(f'input mgrs collection id {input_mgrs_collection_id} is provided.')
             mgrs_tile_list, most_overlapped = \
                 get_mgrs_tiles_list_from_db(
                     mgrs_collection_file=mgrs_collection_db_path,
@@ -786,6 +787,7 @@ def run(cfg):
         # from input, then extract the MGRS list from database
         # using track number and area intersecting with image_tif
         else:
+            logger.info(f'Searching MGRS tiles using bounding box.')
             mgrs_tile_list, most_overlapped = \
                 get_intersecting_mgrs_tiles_list_from_db(
                     mgrs_collection_file=mgrs_collection_db_path,

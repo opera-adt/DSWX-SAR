@@ -121,7 +121,7 @@ def crop_and_save_mgrs_tile_spacing(
 def find_intersecting_frames_with_bbox(ref_bbox,
                                        ref_epsg,
                                        input_rtc_files):
-    """Find bursts overlapped with the reference bbox.
+    """Find frames overlapped with the reference bbox.
 
     Parameters
     ----------
@@ -135,7 +135,7 @@ def find_intersecting_frames_with_bbox(ref_bbox,
     Returns
     -------
     overlapped_rtc_dir_list: list
-        List of rtc bursts overlapped with given bbox
+        List of rtc frames overlapped with given bbox
     """
     minx, miny, maxx, maxy = ref_bbox
     ref_polygon = Polygon([(minx, miny),
@@ -162,7 +162,7 @@ def find_intersecting_frames_with_bbox(ref_bbox,
                 # Transform the polygon
                 rtc_polygon = transform(transformer.transform, rtc_polygon)
 
-        # Check if bursts intersect the reference polygon
+        # Check if frames intersect the reference polygon
         if ref_polygon.intersects(rtc_polygon) or \
            ref_polygon.overlaps(rtc_polygon):
             overlapped_rtc_dir_list.append(input_file)
@@ -252,7 +252,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
     # If track number is given, then search MGRS tile collection with
     # track number
-    if track_number is not None and track_number != 0:
+    if track_number is not None:
         vector_gdf = vector_gdf[
             vector_gdf['track_number'] ==
             track_number].to_crs("EPSG:4326")
@@ -778,7 +778,6 @@ def run(cfg):
         # In the case that mgrs_tile_collection_id is given
         # from input, then extract the MGRS list from database
         if input_mgrs_collection_id is not None:
-            logger.info(f'input mgrs collection id {input_mgrs_collection_id} is provided.')
             mgrs_tile_list, most_overlapped = \
                 get_mgrs_tiles_list_from_db(
                     mgrs_collection_file=mgrs_collection_db_path,
@@ -787,7 +786,6 @@ def run(cfg):
         # from input, then extract the MGRS list from database
         # using track number and area intersecting with image_tif
         else:
-            logger.info(f'Searching MGRS tiles using bounding box.')
             mgrs_tile_list, most_overlapped = \
                 get_intersecting_mgrs_tiles_list_from_db(
                     mgrs_collection_file=mgrs_collection_db_path,
@@ -832,21 +830,20 @@ def run(cfg):
                     get_bounding_box_from_mgrs_tile_db(mgrs_tile_id,
                                                        mgrs_db_path)
             mgrs_bbox = [x_value_min, y_value_min, x_value_max, y_value_max]
-            overlapped_burst = find_intersecting_frames_with_bbox(
+            overlapped_frame = find_intersecting_frames_with_bbox(
                 ref_bbox=mgrs_bbox,
                 ref_epsg=epsg_output,
                 input_rtc_files=input_list)
-            logger.info(f'overlapped_bursts: {overlapped_burst}')
+            logger.info(f'overlapped_bursts: {overlapped_frame}')
 
             # Metadata
-            if overlapped_burst:
-                # TODO: The metadata field will be added
-                # dswx_metadata_dict = create_dswx_ni_metadata(
-                #     cfg,
-                #     overlapped_burst,
-                #     product_version=product_version,
-                #     extra_meta_data=mgrs_meta_dict)
-                dswx_metadata_dict = {}
+            if overlapped_frame:
+                dswx_metadata_dict = create_dswx_ni_metadata(
+                     cfg,
+                     overlapped_frame,
+                     product_version=product_version,
+                     extra_meta_data=mgrs_meta_dict)
+                #dswx_metadata_dict = {}
                 dswx_name_format_prefix = (f'OPERA_L3_DSWx-NI_T{mgrs_tile_id}_'
                                            f'{date_str_id}_{processing_time}_'
                                            f'{platform_str}_{resolution_str}_'

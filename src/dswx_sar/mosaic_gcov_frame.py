@@ -88,12 +88,10 @@ class RTCReader(DataReader):
 
         num_input_files = len(input_list)
         
-        res_dict = defaultdict(dict)
-
-        # Determine valid data_path 
+        # Extract resolution information
         res_list, res_highest = get_rtc_spacing_list(input_list, freq_list)
 
-        # Generate data paths
+        # Generate valid data paths
         data_path = self.generate_nisar_dataset_name(input_list, freq_list)
 
         # Remove dataset from processing based on minimum image resolution/posting
@@ -1000,18 +998,29 @@ class RTCReader(DataReader):
             try:
                 input_slc_granules = src_h5[
                     dswx_meta_mapping['RTC_INPUT_L1_SLC_GRANULES']][(0)].decode()
+                dswx_metadata_dict = {
+                    'ORBIT_PASS_DIRECTION': orbit_pass_dir,
+                    'LOOK_DIRECTION': look_dir,
+                    'PRODUCT_VERSION': prod_ver,
+                    'ZERO_DOPPLER_START_TIME': zero_dopp_start,
+                    'ZERO_DOPPLER_END_TIME': zero_dopp_end,
+                    'FRAME_NUMBER': frame_number,
+                    'TRACK_NUMBER': track_number,
+                    'ABSOLUTE_ORBIT_NUMBER': abs_orbit_number,
+                    'INPUT_L1_SLC_GRANULES': input_slc_granules,
+                }
             except:
                 print('RTC_INPUT_L1_SLC_GRANULES is not available')
-        dswx_metadata_dict = {
-            'ORBIT_PASS_DIRECTION': orbit_pass_dir,
-            'LOOK_DIRECTION': look_dir,
-            'PRODUCT_VERSION': prod_ver,
-            'ZERO_DOPPLER_START_TIME': zero_dopp_start,
-            'ZERO_DOPPLER_END_TIME': zero_dopp_end,
-            'FRAME_NUMBER': frame_number,
-            'TRACK_NUMBER': track_number,
-            'ABSOLUTE_ORBIT_NUMBER': abs_orbit_number,
-        }
+                dswx_metadata_dict = {
+                    'ORBIT_PASS_DIRECTION': orbit_pass_dir,
+                    'LOOK_DIRECTION': look_dir,
+                    'PRODUCT_VERSION': prod_ver,
+                    'ZERO_DOPPLER_START_TIME': zero_dopp_start,
+                    'ZERO_DOPPLER_END_TIME': zero_dopp_end,
+                    'FRAME_NUMBER': frame_number,
+                    'TRACK_NUMBER': track_number,
+                    'ABSOLUTE_ORBIT_NUMBER': abs_orbit_number,
+                }
 
         return dswx_metadata_dict
 

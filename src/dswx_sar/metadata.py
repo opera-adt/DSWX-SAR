@@ -8,8 +8,10 @@ import numpy as np
 import rasterio
 
 from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT
+from dswx_sar.dswx_ni_runconfig import DSWX_NI_POL_DICT, DSWX_NI_SINGLE_FRAME_POL_DICT
 from dswx_sar.dswx_sar_util import (band_assign_value_dict,
                                     read_geotiff)
+from dswx_sar.mosaic_gcov_frame import RTCReader
 from dswx_sar.version import VERSION as SOFTWARE_VERSION
 
 # Constants
@@ -28,7 +30,6 @@ DEFAULT_METADATA = {
     'SENSOR': UNKNOWN
 }
 
-
 def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
     """Copy metadata dictionary from RTC metadata.
 
@@ -40,7 +41,7 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
         Metadata dictionary to populate.
     """
     metadata_dict = defaultdict(list)
-
+    
     dswx_meta_mapping = {
         'ORBIT_PASS_DIRECTION': 'RTC_ORBIT_PASS_DIRECTION',
         'BURST_ID': 'RTC_BURST_ID',
@@ -52,12 +53,12 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
         'ABSOLUTE_ORBIT_NUMBER': 'RTC_ABSOLUTE_ORBIT_NUMBER',
         'QA_RFI_INFO_AVAILABLE': 'RTC_QA_RFI_INFO_AVAILABLE',
     }
+ 
     # Collect metadata from overlapped bursts
     dswx_metadata_dict['RTC_INPUT_LIST'] = [
         os.path.basename(meta_path) for meta_path in metapath_list]
 
     for meta_path in metapath_list:
-
         with rasterio.open(meta_path) as src:
             # Accessing tags (additional metadata) of specific band
             # (e.g., band 1)
@@ -386,6 +387,14 @@ def set_dswx_s1_metadata(metadata_dict):
         'SENSOR': 'IW'
     })
 
+def set_dswx_ni_metadata(metadata_dict):
+    """Update the dictionary with DSWx-NI specific metadata."""
+    metadata_dict.update({
+        'PRODUCT_TYPE': 'DSWx-NI',
+        'PRODUCT_SOURCE': 'NISAR_GCOV',
+        'SPACECRAFT_NAME': 'NISAR',
+        'SENSOR': 'LSAR'
+    })
 
 def _get_general_dswx_metadata_dict(cfg, product_version=None):
     """
@@ -412,6 +421,8 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
 
     if product_type == 'dswx_s1':
         set_dswx_s1_metadata(dswx_metadata_dict)
+    elif product_type == 'dswx_ni':
+        set_dswx_ni_metadata(dswx_metadata_dict)
 
     # save datetime 'YYYY-MM-DDTHH:MM:SSZ'
     dswx_metadata_dict['PROCESSING_DATETIME'] = \
@@ -452,7 +463,7 @@ def gather_rtc_files(rtc_dirs, pols):
 
 def collect_burst_id(rtc_dirs, pol):
     """
-    Collect burst IDs from RTC files for a specific polarization.
+    Collect frame IDs from RTC files for a specific polarization.
 
     Parameters
     ----------
@@ -525,8 +536,8 @@ def create_dswx_s1_metadata(cfg,
 
     Returns
     -------
-    dict
-        Metadata dictionary.
+    dswx_metadata_dict: dict
+        Metadata dictionary for Sentinel output products.
     """
     # Get general DSWx-S1 metadata
     dswx_metadata_dict = _get_general_dswx_metadata_dict(
@@ -567,8 +578,8 @@ def create_dswx_ni_metadata(cfg,
 
     Returns
     -------
-    dict
-        Metadata dictionary.
+    dswx_metadata_dict: dict
+        Metadata dictionary for NISAR output products.
     """
     # Get general DSWx-S1 metadata
     dswx_metadata_dict = _get_general_dswx_metadata_dict(
@@ -577,8 +588,23 @@ def create_dswx_ni_metadata(cfg,
     # Add metadata related to ancillary data
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
 
-    h5path_list = gather_rtc_files(rtc_dirs, DSWX_S1_POL_DICT['CO_POL'])
-    _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict)
+    rtc_reader = RTCReader(row_blk_size=1000, col_blk_size=1000)
+    metadata_gcov = {}
+
+    for input_idx, input_rtc in enumerate(rtc_dirs):
+        metadata_dict = rtc_reader.read_metadata_hdf5(input_rtc)     
+        for key, value in metadata_dict.items():
+            # Store in a set to ensure uniqueness
+            if key not in metadata_gcov:
+                metadata_gcov[key] = {value}  # Initialize with the first value
+            else:
+                metadata_gcov[key].add(value)  # Add new values
+
+    # Convert sets to lists for final output
+    dswx_gcov_metadata_dict = {key: list(values) for key, values in metadata_gcov.items()}
+
+    # Combine the secondary dictionary into the original
+    dswx_metadata_dict.update(dswx_gcov_metadata_dict)
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)
     _populate_processing_metadata_datasets(dswx_metadata_dict, cfg)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 IMAGE=opera/dswx-ni
-tag=beta_0.2
+tag=beta_0.2.1
 echo "IMAGE is $IMAGE:$tag"
 
 # fail on any non-zero exit codes

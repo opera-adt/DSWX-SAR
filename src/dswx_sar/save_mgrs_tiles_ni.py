@@ -843,6 +843,7 @@ def run(cfg):
                 dswx_metadata_dict = create_dswx_ni_metadata(
                      cfg,
                      overlapped_frame,
+                     pol_list,
                      product_version=product_version,
                      extra_meta_data=mgrs_meta_dict)
                 #dswx_metadata_dict = {}

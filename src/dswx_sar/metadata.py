@@ -519,7 +519,7 @@ def collect_frame_id(h5_list):
     return list(set(frame_id_list))
 
 
-def count_rfi_frames(h5_list, pol_list):
+def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
     """Count number frames affected by RFI by its scalar RFI likelihood value
     Parameters
     ----------
@@ -527,6 +527,8 @@ def count_rfi_frames(h5_list, pol_list):
         List of RTC HDF5 files
     pol_list: list
         List of available polarizations
+    rfi_likelihood_thresh: float
+        RFI likelihood threshold to determine if RFI is present in a frame
 
     Returns
     -------
@@ -552,10 +554,10 @@ def count_rfi_frames(h5_list, pol_list):
                         f'/science/LSAR/GCOV/metadata/calibrationInformation/'
                         f'frequency{freq_group}/{pol}/rfiLikelihood'
                     )
-
+                    # make threshold a configurable
                     if rfi_likelihood_path in src:
                         rfi_likelihood = src[rfi_likelihood_path][()]
-                        if not np.isnan(rfi_likelihood) and rfi_likelihood > 0.1:
+                        if not np.isnan(rfi_likelihood) and rfi_likelihood > rfi_likelihood_thresh:
                             rfi_found = True
                             break
                         else:
@@ -669,7 +671,8 @@ def create_dswx_ni_metadata(cfg,
     dswx_metadata_dict.update(metadata_gcov)
 
     # Add RFI count
-    num_rfi_frames = count_rfi_frames(rtc_dirs, pol_list)
+    rfi_likelihood_thresh = 0.1
+    num_rfi_frames = count_rfi_frames(rtc_dirs, pol_list, rfi_likelihood_thresh)
     dswx_metadata_dict.update({'RFI_FRAMES_COUNT': num_rfi_frames})
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)

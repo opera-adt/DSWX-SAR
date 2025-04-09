@@ -26,6 +26,7 @@ def dswx_ni_workflow(cfg):
     processing_cfg = cfg.groups.processing
     pol_list = processing_cfg.polarizations
     pol_mode = processing_cfg.polarization_mode
+    nisar_uni_mode = processing_cfg.nisar_uni_mode
     input_list = cfg.groups.input_file_group.input_file_path
     dswx_workflow = processing_cfg.dswx_workflow
     inundated_veg_cfg = processing_cfg.inundated_vegetation
@@ -34,6 +35,8 @@ def dswx_ni_workflow(cfg):
     logger.info("Starting DSWx-NI algorithm")
     logger.info(f"Number of RTC products: {len(input_list)}")
     logger.info(f"Polarizations : {pol_list}")
+    logger.info(f"Polarization Mode : {pol_mode}")
+    logger.info(f"NISAR Processing Mode : {nisar_uni_mode}")
 
     # Create mosaic burst RTCs
     mosaic_gcov_frame.run(cfg)
@@ -50,6 +53,10 @@ def dswx_ni_workflow(cfg):
     elif pol_mode == 'MIX_DUAL_V_SINGLE_H_POL':
         proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
                         DSWX_NI_POL_DICT['SH_POL']]
+    # Add Full polarization mode
+    # Add more scenarios to the above options
+    # I need to verify frame1 : [HH, HV], frame2: [VH, VV]
+    # Need to run for loop twice to generate 2 intermediate water products
     else:
         proc_pol_set = [pol_list]
 

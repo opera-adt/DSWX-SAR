@@ -214,6 +214,8 @@ class RTCReader(DataReader):
             List of RTC Geotiffs derived from input RTC HDF5.
         layover_gtiff_list: list
             List of layoverShadow Mask Geotiffs derived from input RTC HDF5.
+        pol_gtiff_list: list
+            List of polarizations
         """
 
         # Need to index data_path dict with both input rtc and freq_group
@@ -993,11 +995,13 @@ class RTCReader(DataReader):
                 dswx_meta_mapping['RTC_FRAME_NUMBER']][()]
             track_number = src_h5[
                 dswx_meta_mapping['RTC_TRACK_NUMBER']][()]
+            if isinstance(track_number, bytes):
+                track_number = track_number.decode("utf-8")
             abs_orbit_number = src_h5[
                 dswx_meta_mapping['RTC_ABSOLUTE_ORBIT_NUMBER']][()]
             try:
-                input_slc_granules = src_h5[
-                    dswx_meta_mapping['RTC_INPUT_L1_SLC_GRANULES']][(0)].decode()
+                input_slc_granules = os.path.basename(src_h5[
+                    dswx_meta_mapping['RTC_INPUT_L1_SLC_GRANULES']][(0)].decode())
                 dswx_metadata_dict = {
                     'ORBIT_PASS_DIRECTION': orbit_pass_dir,
                     'LOOK_DIRECTION': look_dir,

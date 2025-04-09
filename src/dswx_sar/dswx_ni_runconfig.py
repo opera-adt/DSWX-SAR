@@ -838,21 +838,6 @@ class RunConfig:
         algorithm_cfg[
             'runconfig']['processing']['polarization_mode'] = pol_mode
 
-        algorithm_sns = wrap_namespace(
-            algorithm_cfg['runconfig']['processing'])
-
-        # copy runconfig parameters from dictionary
-        sns.processing = algorithm_sns
-        processing_group = sns.processing
-
-        debug_mode = processing_group.debug_mode
-
-        if args.debug_mode and not debug_mode:
-            logger.warning(
-                f'command line visualization "{args.debug_mode}"'
-                f' has precedence over runconfig visualization "{debug_mode}"')
-            sns.processing.debug_mode = args.debug_mode
-
         # Determine NISAR input RTC mode of operation
         (
             flag_freq_equal, 
@@ -875,6 +860,18 @@ class RunConfig:
         algorithm_cfg[
             'runconfig']['processing']['mosaic']['resamp_out_res'] = res_highest
 
+        algorithm_sns = wrap_namespace(
+            algorithm_cfg['runconfig']['processing'])
+        sns.processing = algorithm_sns
+        processing_group = sns.processing
+
+        debug_mode = processing_group.debug_mode
+
+        if args.debug_mode and not debug_mode:
+            logger.warning(
+                f'command line visualization "Debug mode {args.debug_mode}"'
+                f' has precedence over runconfig visualization "{debug_mode}"')
+            sns.processing.debug_mode = args.debug_mode
 
         log_file = sns.log_file
         if args.log_file is not None:
@@ -882,11 +879,6 @@ class RunConfig:
                 f'command line log file "{args.log_file}"'
                 f' has precedence over runconfig log file "{log_file}"')
             sns.log_file = args.log_file
-
-        algorithm_sns = wrap_namespace(
-            algorithm_cfg['runconfig']['processing'])
-        sns.processing = algorithm_sns
-        processing_group = sns.processing
 
         return cls(cfg['runconfig']['name'], sns, yaml_path)
 

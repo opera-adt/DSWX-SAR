@@ -9,12 +9,14 @@ import time
 from pathlib import Path
 
 from dswx_sar import dswx_sar_util, filter_SAR, generate_log, pre_processing
+from filter_SAR import tv_bregman
 from dswx_sar.dswx_ni_runconfig import (DSWX_NI_POL_DICT,
                                         _get_parser,
                                         RunConfig)
 from dswx_sar.dswx_sar_util import check_gdal_raster_s3
 from dswx_sar.masking_with_ancillary import get_label_landcover_esa_10
-
+from joblib import Parallel, delayed
+import psutil
 
 logger = logging.getLogger('dswx_sar')
 
@@ -181,11 +183,11 @@ def run(cfg):
                     im_meta['width']),
         pad_shape=pad_shape)
 
+
     for block_ind, block_param in enumerate(block_params):
         output_image_set = []
         for polind, pol in enumerate(pol_list):
             logger.info(f'  block processing {block_ind} - {pol}')
-
             if pol in ['ratio', 'span']:
 
                 # If ratio/span is in the list,
@@ -216,48 +218,46 @@ def run(cfg):
                     span = np.squeeze(temp_raster_set[0, :, :] +
                                       2 * temp_raster_set[1, :, :])
                     output_image_set.append(span)
-            else:
-                intensity_path = \
-                    f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
 
-                intensity = dswx_sar_util.get_raster_block(
-                    intensity_path, block_param)
-                # need to replace 0 value in padded area to NaN.
-                intensity[intensity == 0] = np.nan
-                if filter_flag:
-                    if filter_method == 'lee':
-                        filtering_method = filter_SAR.lee_enhanced_filter
-                        filter_option = vars(filter_options.lee_filter)
+    # Perform Parallell Filtering
+    cpu_count = os.cpu_count() - 1
+    total_ram_gb = psutil.virtual_memory().total / 1e9
+    memory_peak_job = 1 # 1 GB
 
-                    elif filter_method == 'anisotropic_diffusion':
-                        filtering_method = filter_SAR.anisotropic_diffusion
-                        filter_option = vars(
-                            filter_options.anisotropic_diffusion)
+    # Reserver 50% memory for other usage
+    memory_use_rate = 0.5
+    max_jobs = int(memory_use_rate * total_ram_gb / memory_peak_job)
+    use_cpu = min(cpu_count, max_jobs)
 
-                    elif filter_method == 'guided_filter':
-                        filtering_method = filter_SAR.guided_filter
-                        filter_option = vars(filter_options.guided_filter)
+    for polind, pol in enumerate(pol_list):
+        logger.info(f'  block processing {block_ind} - {pol}')
 
-                    elif filter_method == 'bregman':
-                        filtering_method = filter_SAR.tv_bregman
-                        filter_option = vars(filter_options.bregman)
-                    filtered_intensity = filtering_method(
-                                                intensity, **filter_option)
-                else:
-                    filtered_intensity = intensity
+        intensity_path = \
+            f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
+        if filter_flag:
+            filtered_intensity = Parallel(n_jobs = use_cpu)(
+                delayed(process_sar_filter_block)(
+                block_param,
+                intensity_path,
+                filter_method,
+                filter_options)
+            for block_param in block_params)
+            filtered_intensity = np.array(filtered_intensity, dtype='float32')
+        else:
+            filtered_intensity = intensity
 
-                output_image_set.append(filtered_intensity)
+    output_image_set.append(filtered_intensity)
 
-        output_image_set = np.array(output_image_set, dtype='float32')
-        output_image_set[output_image_set == 0] = np.nan
+    output_image_set = np.array(output_image_set, dtype='float32')
+    output_image_set[output_image_set == 0] = np.nan
 
-        dswx_sar_util.write_raster_block(
-            out_raster=filtered_image_path,
-            data=output_image_set,
-            block_param=block_param,
-            geotransform=im_meta['geotransform'],
-            projection=im_meta['projection'],
-            datatype='float32')
+    dswx_sar_util.write_raster_block(
+        out_raster=filtered_image_path,
+        data=output_image_set,
+        block_param=block_param,
+        geotransform=im_meta['geotransform'],
+        projection=im_meta['projection'],
+        datatype='float32')
 
     dswx_sar_util._save_as_cog(filtered_image_path, scratch_dir)
 
@@ -309,6 +309,61 @@ def run(cfg):
     logger.info("successfully ran pre-processing in "
                 f"{t_all_elapsed:.3f} seconds")
 
+def process_sar_filter_block(
+    block_param,
+    intensity_path,
+    filter_method,
+    filter_options,
+):
+
+    """ Process SAR filtering on blocks based on selected filtering algorithm
+
+    Parameters
+    ----------
+    block_param: BlockParam
+        Object specifying the block start and finish lines for processing as well as 
+        its data length
+    intensity_path: str
+        Data path for input mosaicked geotiff
+    filter_method: str
+        filter algorithm configured in the input YAML file
+    filter_options: class
+        filter options class
+
+    Returns
+    --------
+    filtered_intenstiy: 2D numpy.ndarray 
+        filtered output block data
+    """
+
+    intensity = dswx_sar_util.get_raster_block(
+        intensity_path, block_param)
+
+    # need to replace 0 value in padded area to NaN.
+    intensity[intensity == 0] = np.nan
+
+    if filter_method == 'lee':
+        filtering_method = filter_SAR.lee_enhanced_filter
+        filter_option = vars(filter_options.lee_filter)
+
+    elif filter_method == 'anisotropic_diffusion':
+        filtering_method = filter_SAR.anisotropic_diffusion
+        filter_option = vars(filter_options.anisotropic_diffusion)
+
+    elif filter_method == 'guided_filter':
+        filtering_method = filter_SAR.guided_filter
+        filter_option = vars(filter_options.guided_filter)
+
+    elif filter_method == 'bregman':
+        filtering_method = filter_SAR.tv_bregman
+        filter_option = vars(filter_options.bregman)
+
+    filtered_intensity = filtering_method(
+        intensity, 
+        **filter_option,
+    ) 
+   
+    return filtered_intensity
 
 def main():
 

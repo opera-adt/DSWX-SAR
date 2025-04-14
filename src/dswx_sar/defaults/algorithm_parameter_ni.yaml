@@ -79,6 +79,8 @@ runconfig:
                 # denoising (at the expense of fidelity to image).
                 weight: 1
             line_per_block: 1000
+            # Number of CPU to be used to perform parallelized filtering
+            n_cpus: 8
 
         initial_threshold:
             # Maximum tile size for initial threshold.

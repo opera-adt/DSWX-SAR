@@ -225,9 +225,12 @@ def run(cfg):
     memory_peak_job = 1 # 1 GB
 
     # Reserver 50% memory for other usage
-    memory_use_rate = 0.5
-    max_jobs = int(memory_use_rate * total_ram_gb / memory_peak_job)
-    use_cpu = min(cpu_count, max_jobs)
+    if filter_options.n_cpus is None:
+        memory_use_rate = 0.5
+        max_jobs = int(memory_use_rate * total_ram_gb / memory_peak_job)
+        use_cpu = min(cpu_count, max_jobs)
+    else:
+        use_cpu = filter_options.n_cpus
 
     for polind, pol in enumerate(pol_list):
         logger.info(f'  block processing {block_ind} - {pol}')

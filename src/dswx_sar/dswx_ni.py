@@ -3,7 +3,7 @@
 import logging
 import time
 
-from dswx_sar import (detect_inundated_vegetation,
+from dswx_sar import (detect_inundated_vegetation_ni,
                       fuzzy_value_computation,
                       initial_threshold,
                       masking_with_ancillary,
@@ -78,7 +78,7 @@ def dswx_ni_workflow(cfg):
                len(pol_set) >= 2) or \
                inundated_veg_cfg.enabled is True:
 
-                detect_inundated_vegetation.run(cfg)
+                detect_inundated_vegetation_ni.run(cfg)
 
     processing_cfg.polarizations = pol_list
     # save product as mgrs tiles.

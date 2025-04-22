@@ -411,8 +411,10 @@ def run(cfg):
             # If forest show higher than the expected ratio value, then those areas are
             # defined as inundated forest
 
-            glad_height = mask_obj.get_class(block_param=block_param)
-
+            # glad_height = mask_obj.get_mask(block_param=block_param)
+            glad_height = dswx_sar_util.get_raster_block(
+                interp_glad_path_str,
+                block_param)
             # Inundated Forest
             if height_data_type == 'GLAD':
                 vege_param_image = np.zeros(glad_height.shape)
@@ -482,7 +484,9 @@ def run(cfg):
                 # Inundated short vegetation
                 # Since glad product has underestimated and not-precise height for short vegetation,
                 # we cannot simulate the water cloud mode. Thus, we use the dual thresholds for co/cross-ratio.
-                glad_height = mask_obj.get_class(block_param=block_param)
+                glad_height = dswx_sar_util.get_raster_block(
+                    interp_glad_path_str,
+                    block_param)
                 short_vege_param_image = np.zeros(glad_height.shape)
                 wet_short_vege_mask = np.logical_and(
                     glad_height >= 100,

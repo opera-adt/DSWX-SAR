@@ -38,51 +38,6 @@ from typing import List, Tuple
 import requests
 import yaml  # PyYAML
 
-URS_HOST = "urs.earthdata.nasa.gov"
-
-# -----------------------------------------------------------------------------
-# Authentication helpers (same logic as download_gcov_hls.py)
-# -----------------------------------------------------------------------------
-
-def _get_netrc_auth(host: str, netrc_path: Path | None = None) -> Tuple[str, str] | None:
-    """Return (user, password) for *host* from .netrc if present."""
-    try:
-        nrc = netrc.netrc(str(netrc_path) if netrc_path else None)
-        auth = nrc.authenticators(host)
-        return auth[:2] if auth else None
-    except (FileNotFoundError, netrc.NetrcParseError):
-        return None
-
-
-def _init_session(token: str | None, netrc_path: Path | None) -> requests.Session:
-    sess = requests.Session()
-    if token:
-        sess.headers["Authorization"] = f"Bearer {token}"
-    else:
-        auth = _get_netrc_auth(URS_HOST, netrc_path)
-        if auth:
-            sess.auth = auth
-        else:
-            print(
-                "Warning: no token and no .netrc credentials found; downloads may fail.",
-                file=sys.stderr,
-            )
-    return sess
-
-
-# -----------------------------------------------------------------------------
-# Download helper
-# -----------------------------------------------------------------------------
-
-def _download(url: str, target: Path, session: requests.Session) -> None:
-    """Download *url* to *target* using *session*."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with session.get(url, stream=True, timeout=120) as resp:
-        resp.raise_for_status()
-        with open(target, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
 
 
 # -----------------------------------------------------------------------------
@@ -118,11 +73,11 @@ def _build_runconfig(h5_path: Path, scratch_base: Path, product_base: Path) -> d
                     "reference_water_file_description": None,
                     "hand_file": "/mnt/aurora-r0/jungkyo/data/hand/data/EPSG4326.vrt",
                     "hand_file_description": None,
+                    "eth_global_canopy_file": "/mnt/aurora-r0/jungkyo/OPERA/DSWx-NI/ETH_Global_canopy_height/ETH.vrt",
                     "shoreline_shapefile": None,
                     "shoreline_shapefile_description": None,
                     "algorithm_parameters": "/mnt/aurora-r0/jungkyo/OPERA/DSWx-NI/scale/algorithm_parameter_ni2.yaml",
-                    "mean_backscattering": None,
-                    "standard_deviation_backscattering": None,
+
                 },
                 "static_ancillary_file_group": {
                     "static_ancillary_inputs_flag": True,
@@ -166,7 +121,6 @@ def main(argv: List[str] | None = None) -> None:
     ap = argparse.ArgumentParser(
         description="Download GCOV .h5 files listed in a text file and create YAML runconfigs."
     )
-    ap.add_argument("--url-file", required=True, type=Path, help="Path to gcov_urls.txt")
     ap.add_argument(
         "--download-dir",
         default=Path("data"),
@@ -191,46 +145,19 @@ def main(argv: List[str] | None = None) -> None:
         type=Path,
         help="Base directory for sas_output_path (default: ./products)",
     )
-    ap.add_argument(
-        "--token",
-        default=os.environ.get("EARTHDATA_TOKEN"),
-        help="Bearer token for Earthdata (optional). If omitted, falls back to .netrc.",
-    )
-    ap.add_argument("--netrc", type=Path, help="Path to a .netrc file (optional)")
 
+    import glob
     args = ap.parse_args(argv)
-
-    session = _init_session(args.token, args.netrc)
-
-    # read URL list
-    try:
-        urls = [u.strip() for u in args.url_file.read_text().splitlines() if u.strip()]
-    except FileNotFoundError:
-        sys.exit(f"URL file not found: {args.url_file}")
-
-    if not urls:
-        sys.exit("URL list is empty – nothing to do.")
 
     # ensure directories exist
     for d in (args.download_dir, args.yaml_dir, args.scratch_dir, args.product_dir):
         d.mkdir(parents=True, exist_ok=True)
 
-    for url in urls:
-        fname = Path(url).name
-        local_path = args.download_dir / fname
-
-        if not local_path.exists():
-            print(f"Downloading {fname} ...")
-            try:
-                _download(url, local_path, session)
-            except Exception as e:
-                print(f"  Failed: {e}")
-                continue
-        else:
-            print(f"File {fname} already exists; skipping download.")
-
+    data_paths = glob.glob(f'{args.download_dir}/*h5')
+    for data_path in data_paths:
+        fname = os.path.basename(data_path)
         # build and write YAML
-        runconfig = _build_runconfig(local_path, args.scratch_dir, args.product_dir)
+        runconfig = _build_runconfig(Path(data_path), args.scratch_dir, args.product_dir)
         yaml_path = args.yaml_dir / f"{fname}.yaml"
         with open(yaml_path, "w") as y:
             yaml.safe_dump(runconfig, y, sort_keys=False)

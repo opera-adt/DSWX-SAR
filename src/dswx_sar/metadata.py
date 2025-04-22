@@ -8,7 +8,10 @@ import numpy as np
 import rasterio
 
 from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT
-from dswx_sar.dswx_ni_runconfig import DSWX_NI_POL_DICT, DSWX_NI_SINGLE_FRAME_POL_DICT
+from dswx_sar.dswx_ni_runconfig import (DSWX_NI_POL_DICT, 
+                                        DSWX_NI_SINGLE_FRAME_POL_DICT,
+                                        check_rtc_frequency,
+                                        read_rtc_polarization)
 from dswx_sar.dswx_sar_util import (band_assign_value_dict,
                                     read_geotiff)
 from dswx_sar.mosaic_gcov_frame import RTCReader
@@ -75,6 +78,7 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
 
         if rtc_field in ['ZERO_DOPPLER_START_TIME', 'ZERO_DOPPLER_END_TIME']:
             mode = 'min' if rtc_field == 'ZERO_DOPPLER_START_TIME' else 'max'
+            
             sensing_time = _get_date_range(values, mode=mode)
             dswx_metadata_dict[dswx_field] = sensing_time
 
@@ -515,6 +519,56 @@ def collect_frame_id(h5_list):
     return list(set(frame_id_list))
 
 
+def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
+    """Count number frames affected by RFI by its scalar RFI likelihood value
+    Parameters
+    ----------
+    h5_list : list
+        List of RTC HDF5 files
+    pol_list: list
+        List of available polarizations
+    rfi_likelihood_thresh: float
+        RFI likelihood threshold to determine if RFI is present in a frame
+
+    Returns
+    -------
+    num_frames_rfi: int 
+        Number of frames affected by Radio Frequency Interference
+    """
+
+    freq_path_list = '/science/LSAR/identification/listOfFrequencies'
+
+    # Read RFI likelihood scalar value from each frequency group and polarization
+    # of an input RTC file
+    num_frames_rfi = 0
+
+    for input_idx, rtc_file in enumerate(h5_list):
+        with h5py.File(rtc_file) as src:
+            freq_group_list = src[freq_path_list][()]
+
+            for freq_idx, freq_group in enumerate(freq_group_list):
+                freq_group = freq_group.decode('utf-8')
+
+                for pol_idx, pol in enumerate(pol_list):
+                    rfi_likelihood_path = (
+                        f'/science/LSAR/GCOV/metadata/calibrationInformation/'
+                        f'frequency{freq_group}/{pol}/rfiLikelihood'
+                    )
+                    # make threshold a configurable
+                    if rfi_likelihood_path in src:
+                        rfi_likelihood = src[rfi_likelihood_path][()]
+                        if not np.isnan(rfi_likelihood) and rfi_likelihood > rfi_likelihood_thresh:
+                            rfi_found = True
+                            break
+                        else:
+                            rfi_found = False
+                    
+                if rfi_found:
+                    num_frames_rfi += 1
+                    break
+
+    return num_frames_rfi
+
 def create_dswx_s1_metadata(cfg,
                              rtc_dirs,
                              product_version=None,
@@ -547,6 +601,7 @@ def create_dswx_s1_metadata(cfg,
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
 
     h5path_list = gather_rtc_files(rtc_dirs, DSWX_S1_POL_DICT['CO_POL'])
+
     _copy_meta_data_from_rtc(h5path_list, dswx_metadata_dict)
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)
@@ -559,6 +614,7 @@ def create_dswx_s1_metadata(cfg,
 
 def create_dswx_ni_metadata(cfg,
                             rtc_dirs,
+                            pol_list,
                             product_version=None,
                             extra_meta_data=None):
     """
@@ -570,6 +626,8 @@ def create_dswx_ni_metadata(cfg,
         Input runconfig.
     rtc_dirs: list
         List of directories containing RTC files.
+    pol_list: list
+        list of polarizations
     product_version: str, optional
         Version of the DSWx product. Defaults to None.
     extra_meta_data: dict, optional
@@ -585,9 +643,11 @@ def create_dswx_ni_metadata(cfg,
     dswx_metadata_dict = _get_general_dswx_metadata_dict(
         cfg,
         product_version=product_version)
+
     # Add metadata related to ancillary data
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
 
+    # Read Metadata from input RTC HDF5 
     rtc_reader = RTCReader(row_blk_size=1000, col_blk_size=1000)
     metadata_gcov = {}
 
@@ -600,15 +660,25 @@ def create_dswx_ni_metadata(cfg,
             else:
                 metadata_gcov[key].add(value)  # Add new values
 
-    # Convert sets to lists for final output
-    dswx_gcov_metadata_dict = {key: list(values) for key, values in metadata_gcov.items()}
+    # Derive start and end sensing times
+    sensing_start_time = _get_date_range(metadata_gcov["ZERO_DOPPLER_START_TIME"], mode='min')
+    sensing_end_time = _get_date_range(metadata_gcov["ZERO_DOPPLER_END_TIME"], mode='max')
+
+    metadata_gcov["ZERO_DOPPLER_START_TIME"] = sensing_start_time
+    metadata_gcov["ZERO_DOPPLER_END_TIME"] = sensing_end_time
 
     # Combine the secondary dictionary into the original
-    dswx_metadata_dict.update(dswx_gcov_metadata_dict)
+    dswx_metadata_dict.update(metadata_gcov)
+
+    # Add RFI count
+    rfi_likelihood_thresh = 0.1
+    num_rfi_frames = count_rfi_frames(rtc_dirs, pol_list, rfi_likelihood_thresh)
+    dswx_metadata_dict.update({'RFI_FRAMES_COUNT': num_rfi_frames})
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)
     _populate_processing_metadata_datasets(dswx_metadata_dict, cfg)
     # Merge extra_meta_data with dswx_metadata_dict if provided
     if extra_meta_data is not None:
         dswx_metadata_dict.update(extra_meta_data)
+
     return dswx_metadata_dict

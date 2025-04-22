@@ -522,7 +522,6 @@ def verify_nisar_mode(input_h5_list):
 
     # Extract polarizations of each frequency group of the input files
     pol_list = read_rtc_polarization(input_h5_list, freq_list)
-    #pols_rtc = set(tuple(arr) for arr in pol_list)
 
     # Compare polariztions of frequency groups among input files
     flag_pol_freq_a_equal, flag_pol_freq_b_equal = compare_rtc_polarization(pol_list)
@@ -588,7 +587,7 @@ def _find_polarization_from_data_dirs(input_h5_list):
     return list(set(extracted_strings))
 
 
-def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
+def check_polarizations(pol_list, input_dir_list, DSWX_NI_PROC_POL_DICT):
     """
     Sort polarizations so that co-polarizations are preceded. This function
     identifies the common polarizations between the requested polarizations
@@ -601,7 +600,7 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
         List of polarizations.
     input_dir_list : list
         List of the input directories with RTC GeoTIFF files.
-    DSWX_NI_POL_DICT: dictionary
+    DSWX_NI_PROC_POL_DICT: dictionary
         Dictionary which captures possible polarization scenarios for NISAR RTC inputs   
 
     Returns
@@ -636,7 +635,7 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
         raise FileNotFoundError(err_str)
 
     def custom_sort(pol):
-        if pol in DSWX_NI_POL_DICT['CO_POL']:
+        if pol in DSWX_NI_PROC_POL_DICT['CO_POL']:
             return (0, pol)  # Sort 'VV' and 'HH' before others
         return (1, pol)
 
@@ -645,7 +644,7 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
     co_pol_list = []
     cross_pol_list = []
     for pol in sorted_pol_list:
-        if pol in DSWX_NI_POL_DICT['CO_POL']:
+        if pol in DSWX_NI_PROC_POL_DICT['CO_POL']:
             co_pol_list.append(pol)
         else:
             cross_pol_list.append(pol)
@@ -653,9 +652,9 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_POL_DICT):
     # Even though the first subset is found, the code should keep searching.
     # For example, the ['VV', 'VH'] is a subset of `MIX_DUAL_POL` and `DV_POL`.
     # The expected output is `DV_POL`.
-    # So, the items in `DSWX_NI_POL_DICT` are sorted in an ordered manner.
+    # So, the items in `DSWX_NI_PROC_POL_DICT` are sorted in an ordered manner.
     pol_mode = None
-    for pol_mode_name, pols_in_mode in DSWX_NI_POL_DICT.items():
+    for pol_mode_name, pols_in_mode in DSWX_NI_PROC_POL_DICT.items():
         if set(sorted_pol_list).issubset(set(pols_in_mode)):
             pol_mode = pol_mode_name
 
@@ -824,9 +823,9 @@ class RunConfig:
         requested_pol = algorithm_cfg[
             'runconfig']['processing']['polarizations']
 
-        DSWX_NI_POL_DICT = DSWX_NI_SINGLE_FRAME_POL_DICT
+        DSWX_NI_PROC_POL_DICT = DSWX_NI_SINGLE_FRAME_POL_DICT
         co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
-            requested_pol, input_dir_list, DSWX_NI_POL_DICT)
+            requested_pol, input_dir_list, DSWX_NI_PROC_POL_DICT)
 
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list

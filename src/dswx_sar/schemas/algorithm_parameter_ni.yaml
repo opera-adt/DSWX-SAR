@@ -74,6 +74,8 @@ runconfig:
                 # Denoising weight. The greater the weight, the more 
                 # denoising (at the expense of fidelity to image).
                 weight: num(required=False)
+            # Number of CPU to be used to perform parallelized filtering
+            n_cpus: num(required=False)
 
         initial_threshold:
             # Maximum tile size for initial threshold.

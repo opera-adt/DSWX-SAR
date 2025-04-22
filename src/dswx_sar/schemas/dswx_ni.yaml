@@ -45,6 +45,9 @@ runconfig:
             # GLAD classification map file description
             glad_classification_file_description: str(required=False)
 
+
+            eth_global_canopy_file: str(required=False)
+
             # NOAA GSHHS shapefile
             shoreline_shapefile: str(required=False)
 
@@ -53,10 +56,6 @@ runconfig:
 
             # algorithm parameter 
             algorithm_parameters: str(required=True)
-
-            # placeholder for inundated vegetation 
-            mean_backscattering: str(required=False)
-            standard_deviation_backscattering: str(required=False)
 
         static_ancillary_file_group:
 

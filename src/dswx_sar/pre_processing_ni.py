@@ -36,6 +36,7 @@ def run(cfg):
     dem_file = dynamic_data_cfg.dem_file
     hand_file = dynamic_data_cfg.hand_file
     glad_file = dynamic_data_cfg.glad_classification_file
+    eth_file = dynamic_data_cfg.eth_global_canopy_file
 
     ref_water_max = processing_cfg.reference_water.max_value
     ref_water_no_data = processing_cfg.reference_water.no_data_value
@@ -92,6 +93,8 @@ def run(cfg):
         'landcover': 'interpolated_landcover.tif',
         'reference_water': 'interpolated_wbd.tif',
         'glad_classification': 'interpolated_glad.tif',
+        'eth_global_canopy': 'interpolated_eth.tif',
+
     }
 
     input_ancillary_filename_set = {
@@ -100,6 +103,7 @@ def run(cfg):
         'landcover': landcover_file,
         'reference_water': wbd_file,
         'glad_classification': glad_file,
+        'eth_global_canopy': eth_file,
     }
 
     landcover_label = get_label_landcover_esa_10()

@@ -187,42 +187,6 @@ def run(cfg):
                     im_meta['width']),
         pad_shape=pad_shape)
 
-
-    for block_ind, block_param in enumerate(block_params):
-        output_image_set = []
-        for polind, pol in enumerate(pol_list):
-            logger.info(f'  block processing {block_ind} - {pol}')
-            if pol in ['ratio', 'span']:
-
-                # If ratio/span is in the list,
-                # then compute the ratio from VVVV and VHVH
-                temp_pol_list = co_pol + cross_pol
-                logger.info(f'  >> computing {pol} {temp_pol_list}')
-
-                temp_raster_set = []
-                for temp_pol in temp_pol_list:
-                    filename = \
-                        f'{scratch_dir}/{mosaic_prefix}_{temp_pol}.tif'
-
-                    block_data = dswx_sar_util.get_raster_block(
-                        filename,
-                        block_param)
-
-                    temp_raster_set.append(block_data)
-
-                temp_raster_set = np.array(temp_raster_set)
-                if pol in ['ratio']:
-                    ratio = pre_processing.pol_ratio(
-                        np.squeeze(temp_raster_set[0, :, :]),
-                        np.squeeze(temp_raster_set[1, :, :]))
-                    output_image_set.append(ratio)
-                    logger.info(f'  computing ratio {co_pol}/{cross_pol}')
-
-                if pol in ['span']:
-                    span = np.squeeze(temp_raster_set[0, :, :] +
-                                      2 * temp_raster_set[1, :, :])
-                    output_image_set.append(span)
-
     # Perform Parallell Filtering
     cpu_count = os.cpu_count() - 1
     total_ram_gb = psutil.virtual_memory().total / 1e9
@@ -239,7 +203,8 @@ def run(cfg):
     results = Parallel(n_jobs=use_cpu)(
         delayed(_filter_one_block)(
             bp, pol_list, scratch_dir, mosaic_prefix,
-            filter_flag, filter_method, filter_options
+            filter_flag, filter_method, filter_options,
+            co_pol, cross_pol
         ) for bp in block_params
     )
 
@@ -305,12 +270,28 @@ def run(cfg):
                 f"{t_all_elapsed:.3f} seconds")
 
 
-def _filter_one_block(block_param, pol_list, scratch_dir,
-                      mosaic_prefix, filter_flag,
-                      filter_method, filter_options):
-    """Return (block_param, stacked_float32_array) for a single block."""
-    band_stack = []
-    for pol in pol_list:
+def _filter_one_block(block_param,
+                      pol_list,
+                      scratch_dir,
+                      mosaic_prefix,
+                      filter_flag,
+                      filter_method,
+                      filter_options,
+                      co_pol,
+                      cross_pol):
+    """
+    Return (block_param, stacked_float32_array) for a single block.
+
+    Handles ordinary polarisations plus synthetic ‘ratio’ and ‘span’.
+    Only reads each required raster once.
+    """
+
+    needed_pols = set(pol_list)
+    if 'ratio' in needed_pols or 'span' in needed_pols:
+        needed_pols.update({co_pol, cross_pol})
+
+    real_pol_data = {}
+    for pol in needed_pols:
         intensity_path = f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
 
         if filter_flag:
@@ -322,10 +303,27 @@ def _filter_one_block(block_param, pol_list, scratch_dir,
             arr = dswx_sar_util.get_raster_block(
                 intensity_path, block_param)
 
-        band_stack.append(arr.astype(np.float32))
+        arr[arr == 0] = np.nan         # mask padded zeros
+        real_pol_data[pol] = arr.astype(np.float32)
 
-    data = np.stack(band_stack)        # (n_bands, n_rows, n_cols)
-    data[data == 0] = np.nan
+    band_stack = []
+    for pol in pol_list:
+        if pol == 'ratio':
+            band_stack.append(
+                pre_processing.pol_ratio(
+                    real_pol_data[co_pol],
+                    real_pol_data[cross_pol]
+                ).astype(np.float32)
+            )
+        elif pol == 'span':
+            band_stack.append(
+                (real_pol_data[co_pol] +
+                 2 * real_pol_data[cross_pol]).astype(np.float32)
+            )
+        else:          # ordinary polarisation
+            band_stack.append(real_pol_data[pol])
+
+    data = np.stack(band_stack)
     return block_param, data
 
 
@@ -341,7 +339,7 @@ def process_sar_filter_block(
     Parameters
     ----------
     block_param: BlockParam
-        Object specifying the block start and finish lines for processing as well as 
+        Object specifying the block start and finish lines for processing as well as
         its data length
     intensity_path: str
         Data path for input mosaicked geotiff
@@ -352,7 +350,7 @@ def process_sar_filter_block(
 
     Returns
     --------
-    filtered_intenstiy: 2D numpy.ndarray 
+    filtered_intenstiy: 2D numpy.ndarray
         filtered output block data
     """
 
@@ -378,11 +376,11 @@ def process_sar_filter_block(
         filtering_method = filter_SAR.tv_bregman
         filter_option = vars(filter_options.bregman)
 
-    if filter_method is not None:        
+    if filter_method is not None:
         filtered_intensity = filtering_method(
-            intensity, 
+            intensity,
             **filter_option,
-        ) 
+        )
     else:
         filtered_intensity = intensity
 

@@ -236,35 +236,23 @@ def run(cfg):
     else:
         use_cpu = filter_options.n_cpus
 
-    for polind, pol in enumerate(pol_list):
-        logger.info(f'  block processing {block_ind} - {pol}')
+    results = Parallel(n_jobs=use_cpu)(
+        delayed(_filter_one_block)(
+            bp, pol_list, scratch_dir, mosaic_prefix,
+            filter_flag, filter_method, filter_options
+        ) for bp in block_params
+    )
 
-        intensity_path = \
-            f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
-        if filter_flag:
-            filtered_intensity = Parallel(n_jobs = use_cpu)(
-                delayed(process_sar_filter_block)(
-                block_param,
-                intensity_path,
-                filter_method,
-                filter_options)
-            for block_param in block_params)
-            filtered_intensity = np.array(filtered_intensity, dtype='float32')
-        else:
-            filtered_intensity = intensity
-
-    output_image_set.append(filtered_intensity)
-
-    output_image_set = np.array(output_image_set, dtype='float32')
-    output_image_set[output_image_set == 0] = np.nan
-
-    dswx_sar_util.write_raster_block(
-        out_raster=filtered_image_path,
-        data=output_image_set,
-        block_param=block_param,
-        geotransform=im_meta['geotransform'],
-        projection=im_meta['projection'],
-        datatype='float32')
+    results.sort(key=lambda x: x[0].write_start_line)
+    for block_param, block_data in results:
+        dswx_sar_util.write_raster_block(
+            out_raster=filtered_image_path,
+            data=block_data,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='float32',
+        )
 
     dswx_sar_util._save_as_cog(filtered_image_path, scratch_dir)
 
@@ -316,6 +304,31 @@ def run(cfg):
     logger.info("successfully ran pre-processing in "
                 f"{t_all_elapsed:.3f} seconds")
 
+
+def _filter_one_block(block_param, pol_list, scratch_dir,
+                      mosaic_prefix, filter_flag,
+                      filter_method, filter_options):
+    """Return (block_param, stacked_float32_array) for a single block."""
+    band_stack = []
+    for pol in pol_list:
+        intensity_path = f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
+
+        if filter_flag:
+            arr = process_sar_filter_block(block_param,
+                                           intensity_path,
+                                           filter_method,
+                                           filter_options)
+        else:
+            arr = dswx_sar_util.get_raster_block(
+                intensity_path, block_param)
+
+        band_stack.append(arr.astype(np.float32))
+
+    data = np.stack(band_stack)        # (n_bands, n_rows, n_cols)
+    data[data == 0] = np.nan
+    return block_param, data
+
+
 def process_sar_filter_block(
     block_param,
     intensity_path,
@@ -365,11 +378,14 @@ def process_sar_filter_block(
         filtering_method = filter_SAR.tv_bregman
         filter_option = vars(filter_options.bregman)
 
-    filtered_intensity = filtering_method(
-        intensity, 
-        **filter_option,
-    ) 
-   
+    if filter_method is not None:        
+        filtered_intensity = filtering_method(
+            intensity, 
+            **filter_option,
+        ) 
+    else:
+        filtered_intensity = intensity
+
     return filtered_intensity
 
 def main():

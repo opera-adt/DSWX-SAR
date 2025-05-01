@@ -537,7 +537,7 @@ def run(cfg):
                         # open water vs no-water (DSWX-S1)
                         # open water vs no-water (DSWx-HLS)
                         stat.compute_accuracy(
-                            cls_positive_values=[1],
+                            cls_positive_values=[1, 8],
                             cls_negative_values=[0, 5, 6, 3],
                             cls_ignore_values=ignore_cls_values,
                             ref_positive_values=[1],

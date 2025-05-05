@@ -478,7 +478,18 @@ def run(cfg):
                 acquisition_time = acquisition_time.strip("[]'\" ")
 
             # Parse microsecond-aware timestamp
-            date_obj = datetime.strptime(acquisition_time, "%Y-%m-%dT%H:%M:%S.%f")    # new format for 'ZERO_DOPPLER_START_TIME'
+            #date_obj = datetime.strptime(acquisition_time, "%Y-%m-%dT%H:%M:%S.%f")    # new format for 'ZERO_DOPPLER_START_TIME'
+            # Try multiple datetime formats until one works
+            date_obj = None
+            for fmt in ["%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"]:
+                try:
+                    date_obj = datetime.strptime(acquisition_time, fmt)
+                    break  # stop after first successful parse
+                except ValueError:
+                    continue
+            if date_obj is None:
+                raise ValueError(f"Could not parse datetime string: {acquisition_time}")
+                
         except Exception as e:
             print(f"Error extracting or parsing acquisition time: {e}")
             continue
@@ -489,7 +500,7 @@ def run(cfg):
         print('MGRS Tile ID: ')
         print(MGRS_tile_id)
         print('\n')
-        formats_input = '%Y-%m-%dT%H:%M:%SZ'
+        #formats_input = '%Y-%m-%dT%H:%M:%SZ'
         #date_obj = datetime.strptime(acquisition_time, formats_input)
 
         # Compute 10 days before and 10 days after

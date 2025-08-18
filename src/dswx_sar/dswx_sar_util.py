@@ -293,6 +293,7 @@ def save_dswx_product(wtr, output_file, geotransform,
     for band_key in sorted_band_keys:
         if band_key.lower() in dswx_processed_bands_keys:
             dswx_product_value = band_value_dict[band_key]
+            print(np.count_nonzero(dswx_processed_bands[band_key.lower()] == 1))
             wtr[dswx_processed_bands[band_key.lower()] == 1] = \
                 dswx_product_value
             msg = f'    {band_key.lower()} found {dswx_product_value}'
@@ -1845,6 +1846,7 @@ def partial_water_product(input_file,
                           scratch_dir,
                           target_label,
                           threshold,
+                          no_water_threshold,
                           logger=None):
     """
     Generates a water product from a satellite image, identifying areas
@@ -1906,12 +1908,29 @@ def partial_water_product(input_file,
         if logger is not None:
             logger.info('Partial Surface water was disable due to same spacings in input and output.')
         threshold = 1
+    new_geotransform = geotransform
+
+    new_gt = list(geotransform)
+
+    # 2) modify the pixel size elements
+    new_gt[1] = output_spacing        # pixel width  (east-west)
+    new_gt[5] = -output_spacing       # pixel height (north-south, must be negative)
+
+    # 3) either convert back to tuple or use the list directly
+    new_gt = tuple(new_gt)
 
     full_water = water >= threshold
-    partial_water = (water < threshold) & (water > 0)
-
+    partial_water = (water < threshold) & (water > no_water_threshold)
+    no_water = water <= no_water_threshold
+    save_raster_gdal(water, 
+                     f'{scratch_dir}/partial_water_.tif', 
+                     geotransform=new_gt,
+                    projection=meta_info['projection'],
+                    scratch_dir=scratch_dir,
+                    datatype='float32')
     output_array[full_water] = 1
     output_array[partial_water] = 11
+    output_array[no_water] = 0
 
     return output_array
 

@@ -13,6 +13,8 @@ from scipy.optimize import curve_fit
 from skimage.filters import (threshold_otsu,
                              threshold_multiotsu)
 import gc
+from sklearn.mixture import GaussianMixture
+from scipy.stats import gaussian_kde
 
 from dswx_sar import (dswx_sar_util,
                       generate_log,
@@ -20,6 +22,7 @@ from dswx_sar import (dswx_sar_util,
 from dswx_sar.dswx_runconfig import (_get_parser,
                                      RunConfig,
                                      DSWX_S1_POL_DICT)
+from threadpoolctl import threadpool_limits
 
 logger = logging.getLogger('dswx_sar')
 
@@ -338,6 +341,276 @@ class BimodalityMetrics:
             sigma_b, _ = estimate_bimodality(self.int_db)
 
         return sigma_b
+
+    @staticmethod
+    def _clip_outliers_iqr(x, k=3.0):
+        x = np.asarray(x)
+        x = x[np.isfinite(x)]
+        if x.size == 0:
+            return x
+        q1, q3 = np.percentile(x, [25, 75])
+        iqr = q3 - q1
+        lo = q1 - k * iqr
+        hi = q3 + k * iqr
+        return x[(x >= lo) & (x <= hi)]
+
+    @staticmethod
+    def _kde_num_peaks(xs, ys):
+        """Return number of local maxima and their indices in ys."""
+        if ys.size < 3:
+            return 1, np.array([], dtype=int)
+        dy = np.diff(ys)
+        s = np.sign(dy)
+        s[s == 0] = 1
+        # peak at i when slope goes + -> -
+        peak_idx = np.where((np.hstack([0, s[:-1]]) > 0) & (s < 0))[0]
+        return peak_idx.size, peak_idx
+
+    @staticmethod
+    def _valley_depth_between(xs, ys, p1_x, p2_x):
+        """Depth of the lowest valley between two peak x-positions, normalized to max peak density."""
+        lo, hi = sorted([p1_x, p2_x])
+        mask = (xs >= lo) & (xs <= hi)
+        if mask.sum() < 3:
+            return np.nan
+        min_between = ys[mask].min()
+        d1 = ys[np.argmin(np.abs(xs - p1_x))]
+        d2 = ys[np.argmin(np.abs(xs - p2_x))]
+        denom = max(d1, d2)
+        if denom <= 0:
+            return np.nan
+        return 1.0 - (min_between / denom)
+
+    # ---------------- NEW: GMM + BIC metric ----------------
+    def fit_gmm_bic(self,
+                    min_n=40,
+                    clip_iqr_k=3.0,
+                    bic_thresh=-10.0,
+                    d_thresh=1.5,
+                    min_weight=0.10,
+                    random_state=0):
+        """
+        Fit 1- and 2-comp GMM to dB values and compute ΔBIC and Ashman's D.
+        Stores results on self: gmm_delta_bic, gmm_means_db, gmm_sds_db,
+        gmm_weights, gmm_ashman_D, gmm_ok
+        """
+        x = self._clip_outliers_iqr(self.int_db, k=clip_iqr_k)
+        self.gmm_ok = False
+        self.gmm_delta_bic = None
+        self.gmm_means_db = None
+        self.gmm_sds_db = None
+        self.gmm_weights = None
+        self.gmm_ashman_D = None
+
+        if x.size < min_n:
+            return {
+                "ok": False,
+                "reason": f"Too few samples (n={x.size} < {min_n})"
+            }
+
+        try:
+            with threadpool_limits(limits=1):
+
+                X = x.reshape(-1, 1)
+                gm1 = GaussianMixture(n_components=1, covariance_type="full",
+                                    random_state=random_state).fit(X)
+                gm2 = GaussianMixture(n_components=2, covariance_type="full",
+                                    random_state=random_state).fit(X)
+                bic1, bic2 = gm1.bic(X), gm2.bic(X)
+                delta_bic = bic2 - bic1  # negative favors 2 comps
+
+                means = gm2.means_.ravel()
+                order = np.argsort(means)
+                means = means[order]
+                covs = gm2.covariances_.ravel()[order]
+                sds = np.sqrt(covs)
+                weights = gm2.weights_[order]
+
+                # Ashman's D
+                D = np.sqrt(2.0) * abs(means[1] - means[0]) / np.sqrt(sds[0]**2 + sds[1]**2)
+
+                self.gmm_delta_bic = float(delta_bic)
+                self.gmm_means_db = means.tolist()
+                self.gmm_sds_db = sds.tolist()
+                self.gmm_weights = weights.tolist()
+                self.gmm_ashman_D = float(D)
+
+                self.gmm_ok = (delta_bic < bic_thresh) and (D >= d_thresh) and (weights.min() >= min_weight)
+                return {
+                    "ok": bool(self.gmm_ok),
+                    "delta_bic": float(delta_bic),
+                    "ashman_D": float(D),
+                    "means_db": self.gmm_means_db,
+                    "sds_db": self.gmm_sds_db,
+                    "weights": self.gmm_weights
+                }
+        except Exception as e:
+            return {"ok": False, "reason": f"GMM failed: {e}"}
+
+    # ---------------- NEW: KDE peaks + (optional) bootstrap ----------------
+    def kde_peaks(self,
+                  grid=256,
+                  clip_iqr_k=3.0,
+                  valley_depth_thresh=0.20,
+                  bootstrap=0,
+                  bootstrap_frac_thresh=0.60,
+                  random_state=0):
+        """
+        KDE on dB values; count peaks and measure valley depth between top two peaks.
+        Stores results on self: kde_num_peaks, kde_valley_depth, kde_bootstrap_frac, kde_ok
+        """
+        rng = np.random.default_rng(random_state)
+        x = self._clip_outliers_iqr(self.int_db, k=clip_iqr_k)
+
+        self.kde_ok = False
+        self.kde_num_peaks = None
+        self.kde_valley_depth = None
+        self.kde_bootstrap_frac = None
+
+        if x.size < 10:
+            return {"ok": False, "reason": f"Too few samples for KDE (n={x.size})"}
+
+        try:
+            with threadpool_limits(limits=1):  # KDE also calls BLAS via NumPy
+
+                kde = gaussian_kde(x)
+                xs = np.linspace(x.min(), x.max(), grid)
+                ys = kde(xs)
+                n_peaks, peak_idx = self._kde_num_peaks(xs, ys)
+
+                vd = None
+                if n_peaks >= 2:
+                    # pick two highest peaks by density value
+                    top2 = peak_idx[np.argsort(ys[peak_idx])[-2:]]
+                    p1_x, p2_x = xs[top2[0]], xs[top2[1]]
+                    vd = float(self._valley_depth_between(xs, ys, p1_x, p2_x))
+
+                frac = None
+                if bootstrap and x.size >= 10:
+                    cnt = 0
+                    for _ in range(bootstrap):
+                        xb = rng.choice(x, size=x.size, replace=True)
+                        kde_b = gaussian_kde(xb)
+                        ys_b = kde_b(xs)
+                        n_b, _ = self._kde_num_peaks(xs, ys_b)
+                        cnt += (n_b >= 2)
+                    frac = cnt / bootstrap
+
+                self.kde_num_peaks = int(n_peaks)
+                self.kde_valley_depth = vd
+                self.kde_bootstrap_frac = frac
+
+                kde_ok = (n_peaks >= 2) and (vd is None or np.isnan(vd) or vd >= valley_depth_thresh)
+                boot_ok = (frac is None) or (frac >= bootstrap_frac_thresh)
+                self.kde_ok = bool(kde_ok and boot_ok)
+
+                return {
+                    "ok": self.kde_ok,
+                    "num_peaks": int(n_peaks),
+                    "valley_depth": vd,
+                    "bootstrap_frac": frac
+                }
+        except Exception as e:
+            return {"ok": False, "reason": f"KDE failed: {e}"}
+
+    # ---------------- NEW: convenient aggregator ----------------
+    def get_extended_metrics(self):
+        """
+        Return a dict with BOTH legacy and new (GMM/KDE) metrics, if available.
+        Does not compute new ones—call fit_gmm_bic() / kde_peaks() first if you need them.
+        """
+        out = {}
+        # legacy (only if already computed)
+        try:
+            ashman, bhc, surface_ratio, bm_coeff, bc_coeff = self.get_metric()
+            out.update({
+                "ashman_legacy": ashman,
+                "bhattacharyya": bhc,
+                "surface_ratio": surface_ratio,
+                "bimodality_coeff": bm_coeff,
+                "bc_coeff": bc_coeff
+            })
+        except Exception:
+            pass
+
+        # new
+        out.update({
+            "gmm_delta_bic": getattr(self, "gmm_delta_bic", None),
+            "gmm_ashman_D": getattr(self, "gmm_ashman_D", None),
+            "gmm_means_db": getattr(self, "gmm_means_db", None),
+            "gmm_sds_db": getattr(self, "gmm_sds_db", None),
+            "gmm_weights": getattr(self, "gmm_weights", None),
+            "kde_num_peaks": getattr(self, "kde_num_peaks", None),
+            "kde_valley_depth": getattr(self, "kde_valley_depth", None),
+            "kde_bootstrap_frac": getattr(self, "kde_bootstrap_frac", None),
+        })
+        return out
+    def compute_metric_extended(self,
+                       ashman_flag=True,
+                       bm_flag=True,
+                       surface_ratio_flag=True,
+                       bc_flag=True,
+                       thresholds=None,
+                       use_gmm=False,
+                       use_kde=False,
+                       gmm_params=None,
+                       kde_params=None):
+        """
+        Compute the bimodality decision.
+
+        Legacy metrics behave exactly as before.
+        If use_gmm/use_kde are True, we first try those fast checks and
+        short-circuit to True when strong evidence is found.
+
+        thresholds: [ashman, bhattacharyya(BHC), surface_ratio, bm_coeff]
+        """
+        if thresholds is None:
+            thresholds = [1.5, 0.97, 0.1, 0.7]
+
+        # ---- NEW: fast pre-checks (optional) ----
+        if self.enough_number:
+            if use_gmm:
+                gp = gmm_params or {}
+                gmm_res = self.fit_gmm_bic(**gp)
+                if gmm_res.get("ok", False):
+                    return True
+
+            if use_kde:
+                kp = kde_params or {}
+                kde_res = self.kde_peaks(**kp)
+                if kde_res.get("ok", False):
+                    return True
+
+        # ---- ORIGINAL logic unchanged below ----
+        if self.enough_number:
+            if self.optimization and len(self.int_db) > 4:
+                (ashman, bhc, surface_ratio,
+                 bm_coeff, bc_coeff) = self.get_metric()
+
+                bm_coeff_bool = bm_flag and \
+                    (bm_coeff is None or bm_coeff > thresholds[3])
+                ashman_bool = ashman_flag and \
+                    (ashman is None or ashman > thresholds[0])
+                surface_ratio_bool = surface_ratio_flag and \
+                    (surface_ratio is None or surface_ratio > thresholds[2])
+                bc_coeff_bool = bc_flag and \
+                    (bc_coeff is None or bc_coeff > 5/9)
+
+                bimodal_metrics = (int(ashman_bool) +
+                                   int(bm_coeff_bool) +
+                                   int(bc_coeff_bool))
+
+                bool_set = [(bimodal_metrics >= 2) or
+                            (ashman > 3),
+                            surface_ratio_bool]
+
+                return all(bool_set)
+            else:
+                # fallback path you already had
+                bt_max, ad_max = estimate_bimodality(self.int_db)
+                return (bt_max > thresholds[3]) & (ad_max > 1.5)
+
+        return False
 
     def compute_metric(self,
                        ashman_flag=True,
@@ -688,9 +961,34 @@ def process_dark_land_component(args):
                     metric_obj = BimodalityMetrics(intensity_array)
                     bimodality_array_i = metric_obj.compute_metric(
                         thresholds=thresholds)
-
+                    if bimodality_array_i is False:
+                        bimodality_array_i = metric_obj.compute_metric_extended(
+                                use_gmm=True,
+                                use_kde=True,
+                                gmm_params=dict(min_n=40, bic_thresh=-10.0, d_thresh=1.8, min_weight=0.12),
+                                kde_params=dict(valley_depth_thresh=0.2, bootstrap=100, bootstrap_frac_thresh=0.6)
+                            )
                     if debug_mode:
                         metric_output_i = metric_obj.get_metric()
+                        # ashman, bhc, surface_ratio, bm_coeff, bc_coeff
+                        # if (metric_output_i[0] > 1.449) and (metric_output_i[0] <1.5) and \
+                        # (metric_output_i[1] > 0.997) and (metric_output_i[1] < 1) and \
+                        # (metric_output_i[2] > 0.59) and (metric_output_i[2] < 0.6) and \
+                        # (metric_output_i[3] > 0.69) and (metric_output_i[3] < 0.7) and \
+                        # (metric_output_i[4] > 0.48) and (metric_output_i[4] < 0.49):
+                        #     flag = metric_obj.compute_metric_extended(
+                        #         use_gmm=True,
+                        #         use_kde=True,
+                        #         gmm_params=dict(min_n=40, bic_thresh=-10.0, d_thresh=1.8, min_weight=0.12),
+                        #         kde_params=dict(valley_depth_thresh=0.2, bootstrap=100, bootstrap_frac_thresh=0.6)
+                        #     )
+                        #     metric_obj.fit_gmm_bic(min_n=40)
+                        #     metric_obj.kde_peaks(valley_depth_thresh=0.2, bootstrap=100)
+                        #     diagnostics = metric_obj.get_extended_metrics()
+                        #     print(metric_output_i)
+                        #     test_output_i = metric_obj.get_extended_metrics()
+                        #     print('extended', diagnostics, flag)
+
                 else:
                     # if intensity array is empty
                     bimodality_array_i = False

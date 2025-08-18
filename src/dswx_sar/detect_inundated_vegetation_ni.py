@@ -440,7 +440,7 @@ def run(cfg):
                 vege_param_image = dswx_sar_util.get_raster_block(
                     interp_eth_path_str,
                     block_param)
- 
+            vege_param_image = vege_param_image.astype('float')
             (all_inundated_cand_forest,
             simul_forest_co_pol,
             simul_forest_x_pol,

@@ -252,7 +252,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
     # If track number is given, then search MGRS tile collection with
     # track number
-    if track_number is not None and track_number != 0:
+    if track_number is not None and track_number != 0 and track_number != 1:
         vector_gdf = vector_gdf[
             vector_gdf['track_number'] ==
             track_number].to_crs("EPSG:4326")
@@ -369,7 +369,7 @@ def run(cfg):
 
     partial_water_flag = processing_cfg.partial_surface_water.enabled
     partial_water_threshold = processing_cfg.partial_surface_water.threshold
-
+    no_water_threshold = processing_cfg.partial_surface_water.no_water_threshold
     if product_version is None:
         logger.warning('WARNING: product version was not provided.')
 
@@ -743,14 +743,34 @@ def run(cfg):
         new_geotransform[5] = -1 * output_spacing
 
         new_water_meta['geotransform'] = tuple(new_geotransform)
+        # Resamping full_wtr_water_set_path to output spacing
+        # and determine if pixels are open water/partial water/non-water
+        # by counting the number of open water to dete
         partial_open_water = dswx_sar_util.partial_water_product(
             input_file=full_wtr_water_set_path,
             output_spacing=output_spacing,
             scratch_dir=scratch_dir,
             target_label=1, # only open water
             threshold=partial_water_threshold,
+            no_water_threshold=no_water_threshold,
             logger=logger)
-
+        
+        # Above function resamples the open water pixels only
+        # Hence, the other classes are resampled again.
+        new_output_bounds = dswx_sar_util._calculate_output_bounds(
+            new_geotransform,
+            partial_open_water.shape[1],
+            partial_open_water.shape[0],
+            output_spacing)
+        resampled_wtr = dswx_sar_util._perform_warp_in_memory(
+            input_file=full_wtr_water_set_path,
+            output_spacing=output_spacing,
+            output_bounds=new_output_bounds,
+            scratch=scratch_dir,
+            debug=False)
+        
+        # rename the old full_water_binary_WTR_set.tif with native spacing
+        # to "...._temp.tif"
         temp_full_wtr_water_set_path = \
             os.path.join(scratch_dir, 'full_water_binary_WTR_set_temp.tif')
         os.rename(full_wtr_water_set_path, temp_full_wtr_water_set_path)
@@ -764,11 +784,11 @@ def run(cfg):
             scratch_dir=scratch_dir,
             logger=logger,
             partial_water=partial_open_water == 11,
-            layover_shadow_mask=partial_open_water == band_assign_value_dict['layover_shadow_mask'],
-            hand_mask=partial_open_water==band_assign_value_dict['hand_mask'],
-            inundated_vegetation=partial_open_water==band_assign_value_dict['inundated_vegetation'],
-            no_data=partial_open_water==band_assign_value_dict['no_data'],
-            ocean_mask=partial_open_water==band_assign_value_dict['ocean_mask'],)
+            layover_shadow_mask=resampled_wtr == band_assign_value_dict['layover_shadow_mask'],
+            hand_mask=resampled_wtr==band_assign_value_dict['hand_mask'],
+            inundated_vegetation=resampled_wtr==band_assign_value_dict['inundated_vegetation'],
+            no_data=resampled_wtr==band_assign_value_dict['no_data'],
+            ocean_mask=resampled_wtr==band_assign_value_dict['ocean_mask'],)
 
     # Get list of MGRS tiles overlapped with mosaic RTC image
     mgrs_meta_dict = {}

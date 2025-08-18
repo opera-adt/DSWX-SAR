@@ -424,7 +424,7 @@ def split_extended_water_parallel(
 
                 # Check if the component touches the boundary
                 if bbox_y_start != 0 and \
-                   bbox_x_end != block_param.block_length and \
+                   bbox_y_end != block_param.block_length and \
                    size >= minimum_pixel:
 
                     filtered_index.append(ind)
@@ -837,9 +837,10 @@ def extend_land_cover(landcover_path,
 
     # Run region-growing again for entire image
     region_grow_map = region_growing.region_growing(
-        fuzzy_map,
+        likelihood_image = fuzzy_map,
         initial_threshold=0.9,
         relaxed_threshold=0.7,
+        exclude_area=exclude_area_rg,
         maxiter=0)
     reference_landcover_binary[region_grow_map] = 1
 
@@ -1154,21 +1155,67 @@ def run(cfg):
     # Worldcover map
     landcover_path = os.path.join(outputdir, 'interpolated_landcover.tif')
 
+    # GLAD
+    glad_path = os.path.join(outputdir, 'interpolated_glad.tif')
+
     # Identify dark land candidate areas from landcover
     mask_obj = FillMaskLandCover(landcover_path, 'WorldCover')
     mask_excluded_landcover = mask_obj.get_mask(
         mask_label=landcover_masking_list)
     del mask_obj
 
+    glad_obj = FillMaskLandCover(glad_path, 'GLAD')
+    from detect_inundated_vegetation_ni import parse_ranges
+    target_glad_class = ['1-24']
+    inundated_vege_target = parse_ranges(target_glad_class)
+    glad_mask_excluded_landcover = glad_obj.get_mask(
+                mask_label=inundated_vege_target)
+    mask_excluded_landcover_path = os.path.join(
+        outputdir, 'initial_mask_excluded_landcover_ancillary.tif')
+    
+    dswx_sar_util.save_dswx_product(
+        mask_excluded_landcover | glad_mask_excluded_landcover,
+        mask_excluded_landcover_path,
+        geotransform=water_meta['geotransform'],
+        projection=water_meta['projection'],
+        scratch_dir=outputdir)
+
     # If `extended_landcover_flag`` is enabled, additional landcovers
     # spatially connected with `mask_excluded_landcover` are added.
     if extended_landcover_flag:
         logger.info('Extending landcover enabled.')
-        rg_excluded_area = interp_wbd > dry_water_area_threshold
+
+        # Seed for region growing (dark land extension) is defined from
+        # landcover + water + backscatter
+        initial_darkland_cand_path = \
+            os.path.join(outputdir,
+                        'initial_darkland_candidate_from_landcover_water_backscatter.tif')
+
+        get_darkland_from_intensity_ancillary(
+            intensity_path=filt_im_str,
+            landcover_path=mask_excluded_landcover_path,
+            reference_water_path=interp_wbd_str,
+            darkland_candidate_path=initial_darkland_cand_path,
+            lines_per_block=lines_per_block,
+            pol_list=pol_list,
+            co_pol_threshold=masking_ancillary_cfg.co_pol_threshold,
+            cross_pol_threshold=masking_ancillary_cfg.cross_pol_threshold,
+            ref_water_max=ref_water_max,
+            dry_water_area_threshold=dry_water_area_threshold)
+
+        mask_excluded_landcover_original = copy.deepcopy(mask_excluded_landcover)
+
+        potential_water_glad_class = ['100-230']
+        potential_water_glad_class_whole = parse_ranges(potential_water_glad_class)
+        potential_water_glad = glad_obj.get_mask(mask_label=potential_water_glad_class_whole)
+        # region growing does not cover the water areas
+        initial_mask_excluded_landcover = dswx_sar_util.read_geotiff(initial_darkland_cand_path)
+        rg_excluded_area = np.logical_or(interp_wbd > dry_water_area_threshold,
+                                         potential_water_glad)
 
         mask_excluded_landcover = extend_land_cover(
             landcover_path=landcover_path,
-            reference_landcover_binary=mask_excluded_landcover,
+            reference_landcover_binary=initial_mask_excluded_landcover,
             target_landcover=landcover_masking_extension_list,
             water_landcover=landcover_water_label,
             exclude_area_rg=rg_excluded_area,
@@ -1176,16 +1223,18 @@ def run(cfg):
             minimum_pixel=extend_minimum,
             metainfo=water_meta,
             scratch_dir=outputdir)
+        mask_excluded_landcover = np.logical_or(mask_excluded_landcover,
+                                                mask_excluded_landcover_original)
         logger.info('Landcover extension completed.')
 
-    mask_excluded_landcover_path = os.path.join(
-        outputdir, 'mask_excluded_landcover_ancillary.tif')
-    dswx_sar_util.save_dswx_product(
-        mask_excluded_landcover,
-        mask_excluded_landcover_path,
-        geotransform=water_meta['geotransform'],
-        projection=water_meta['projection'],
-        scratch_dir=outputdir)
+        mask_excluded_landcover_path = os.path.join(
+            outputdir, 'mask_excluded_landcover_ancillary.tif')
+        dswx_sar_util.save_dswx_product(
+            mask_excluded_landcover,
+            mask_excluded_landcover_path,
+            geotransform=water_meta['geotransform'],
+            projection=water_meta['projection'],
+            scratch_dir=outputdir)
 
     # 2) Create initial mask binary
     # mask_excluded indicates the areas satisfying all conditions which are

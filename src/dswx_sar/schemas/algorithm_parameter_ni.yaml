@@ -28,7 +28,7 @@ runconfig:
         partial_surface_water:
             enabled: bool(required=False)
             threshold: int(min=0, required=False)
-
+            no_water_threshold: int(min=0, required=False)
         ocean_mask:
             # Flag to apply ocean mask
             mask_enabled: bool(required=False)

@@ -28,6 +28,7 @@ runconfig:
         partial_surface_water:
             enabled: True
             threshold: 5
+            no_water_threshold: 1
 
         hand:
             mask_value: 200
@@ -190,7 +191,7 @@ runconfig:
             land_cover_darkland_list: ['Bare sparse vegetation', 'Urban', 'Moss and lichen']
             # The elements is considered as the dark land candidates
             # where these elements are spatially connected to the dark land.
-            land_cover_darkland_extension_list: ['Grassland', 'Shrubs']
+            land_cover_darkland_extension_list: ['Grassland', 'Shrubs', 'Crop']
             land_cover_water_label: ['Permanent water bodies']
             # VV and VH threshold values for dark land candidates
             co_pol_threshold: -14.6

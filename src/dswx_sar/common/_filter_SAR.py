@@ -4,7 +4,7 @@ from scipy import ndimage, signal
 from scipy.interpolate import griddata
 from skimage.restoration import denoise_tv_chambolle, denoise_tv_bregman
 
-from dswx_sar.dswx_sar_util import Constants
+from dswx_sar.common._dswx_sar_util import Constants
 
 K_DEFAULT = 1.0
 CU_DEFAULT = 0.523

@@ -1,18 +1,13 @@
 import copy
 import logging
-import mimetypes
 import os
 import time
 
 import cv2
+from dswx_sar.common import _dswx_sar_util
 import numpy as np
 
-from dswx_sar import (dswx_sar_util,
-                      generate_log,
-                      masking_with_ancillary)
-from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
-                                     _get_parser,
-                                     RunConfig)
+from dswx_sar.common import _masking_with_ancillary
 
 logger = logging.getLogger('dswx_sar')
 
@@ -61,22 +56,22 @@ def create_slope_angle_geotiff(dem_path,
         lines per block processing
     """
     pad_shape = (SOBEL_KERNEL_SIZE, 0)
-    im_meta = dswx_sar_util.get_meta_from_tif(dem_path)
+    im_meta = _dswx_sar_util.get_meta_from_tif(dem_path)
     scratch_dir = os.path.dirname(slope_path)
 
-    block_params = dswx_sar_util.block_param_generator(
+    block_params = _dswx_sar_util.block_param_generator(
         lines_per_block=lines_per_block,
         data_shape=(im_meta['length'],
                     im_meta['width']),
         pad_shape=pad_shape)
 
     for block_param in block_params:
-        dem = dswx_sar_util.get_raster_block(
+        dem = _dswx_sar_util.get_raster_block(
             dem_path,
             block_param)
         slope = compute_slope_dem(dem)
 
-        dswx_sar_util.write_raster_block(
+        _dswx_sar_util.write_raster_block(
             out_raster=slope_path,
             data=slope,
             block_param=block_param,
@@ -118,7 +113,7 @@ def smf(values, minv, maxv):
             logger.info(f'{number_strange} pixels have minimum values '
                         'larger than maximum values')
             minv[diff <= 0] = maxv[diff <= 0] - \
-                dswx_sar_util.Constants.negligible_value
+                _dswx_sar_util.Constants.negligible_value
 
     membership_left = 2 * ((values - minv) / (maxv - minv))**2
     output[(values >= minv) & (values <= center_value)] = \
@@ -163,7 +158,7 @@ def zmf(values, minv, maxv):
             logger.info(f'{number_strange} pixels have minimum values '
                         'larger than maximum values')
             minv[diff <= 0] = maxv[diff <= 0] - \
-                dswx_sar_util.Constants.negligible_value
+                _dswx_sar_util.Constants.negligible_value
 
     center_value = (minv + maxv) / 2
 
@@ -307,9 +302,9 @@ def compute_fuzzy_value(intensity,
             outputdir, f"intensity_threshold_filled_{pol}.tif")
         thresh_peak_str = os.path.join(outputdir, f"mode_tau_filled_{pol}.tif")
 
-        valley_threshold_raster = dswx_sar_util.get_raster_block(
+        valley_threshold_raster = _dswx_sar_util.get_raster_block(
             thresh_valley_str, block_param)
-        peak_threshold_raster = dswx_sar_util.get_raster_block(
+        peak_threshold_raster = _dswx_sar_util.get_raster_block(
             thresh_peak_str, block_param)
 
         intensity_band = intensity[int_id, :, :]
@@ -521,40 +516,40 @@ def run(cfg):
         f"fuzzy_image_{pol_all_str}.tif")
 
     # read metadata including geotransform, projection, size
-    im_meta = dswx_sar_util.get_meta_from_tif(filt_im_str)
+    im_meta = _dswx_sar_util.get_meta_from_tif(filt_im_str)
 
     create_slope_angle_geotiff(
         dem_gdal_str,
         slope_gdal_str,
         lines_per_block=lines_per_block)
 
-    landcover_label = masking_with_ancillary.get_label_landcover_esa_10()
+    landcover_label = _masking_with_ancillary.get_label_landcover_esa_10()
 
     data_shape = [im_meta['length'], im_meta['width']]
     pad_shape = (0, 0)
-    block_params = dswx_sar_util.block_param_generator(
+    block_params = _dswx_sar_util.block_param_generator(
         lines_per_block,
         data_shape,
         pad_shape)
 
     for block_ind, block_param in enumerate(block_params):
         logger.info(f'fuzzy logic computation block {block_ind}')
-        intensity = dswx_sar_util.get_raster_block(
+        intensity = _dswx_sar_util.get_raster_block(
             filt_im_str, block_param)
         if im_meta['band_number'] == 1:
             intensity = intensity[np.newaxis, :, :]
 
-        no_data_raster = dswx_sar_util.get_raster_block(
+        no_data_raster = _dswx_sar_util.get_raster_block(
             no_data_raster_path, block_param)
 
         # Read Ancillary files
-        interphand = dswx_sar_util.get_raster_block(
+        interphand = _dswx_sar_util.get_raster_block(
             hand_gdal_str, block_param)
 
-        landcover_map = dswx_sar_util.get_raster_block(
+        landcover_map = _dswx_sar_util.get_raster_block(
             landcover_gdal_str, block_param)
 
-        wbd = dswx_sar_util.get_raster_block(
+        wbd = _dswx_sar_util.get_raster_block(
             reference_water_gdal_str, block_param)
         wbd = np.array(wbd, dtype='float32')
         wbd[wbd == ref_no_data] = np.nan
@@ -562,7 +557,7 @@ def run(cfg):
         wbd = wbd / ref_water_max
 
         # Compute slope angle from DEM
-        slope = dswx_sar_util.get_raster_block(
+        slope = _dswx_sar_util.get_raster_block(
             slope_gdal_str, block_param)
 
         # compute fuzzy value
@@ -584,7 +579,7 @@ def run(cfg):
         fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
         fuzzy_avgvalue[no_data_raster == 1] = -1
 
-        dswx_sar_util.write_raster_block(
+        _dswx_sar_util.write_raster_block(
             out_raster=fuzzy_output_str,
             data=fuzzy_avgvalue,
             block_param=block_param,
@@ -606,7 +601,7 @@ def run(cfg):
             for raster_name, raster in rasters_to_save:
                 output_file_name = os.path.join(
                     outputdir, f"fuzzy_{raster_name}_{pol_all_str}.tif")
-                dswx_sar_util.write_raster_block(
+                _dswx_sar_util.write_raster_block(
                     out_raster=output_file_name,
                     data=raster,
                     block_param=block_param,
@@ -617,7 +612,7 @@ def run(cfg):
                     scratch_dir=outputdir)
 
             for polind, pol in enumerate(pol_list):
-                dswx_sar_util.write_raster_block(
+                _dswx_sar_util.write_raster_block(
                     out_raster=os.path.join(
                         outputdir, f"fuzzy_intensity_{pol}.tif"),
                     data=np.reshape(intensity_z[polind, :, :],
@@ -639,7 +634,7 @@ def run(cfg):
             if not filename.endswith('.tif'):
                 continue
             logger.info(f'    processing file: {filename}')
-            dswx_sar_util._save_as_cog(
+            _dswx_sar_util._save_as_cog(
                 filename,
                 outputdir,
                 logger,
@@ -649,7 +644,7 @@ def run(cfg):
         for pol in pol_list:
             filename = os.path.join(
                 outputdir, f"fuzzy_intensity_{pol}.tif")
-            dswx_sar_util._save_as_cog(
+            _dswx_sar_util._save_as_cog(
                 filename,
                 outputdir,
                 logger,
@@ -660,39 +655,3 @@ def run(cfg):
     logger.info("successfully ran fuzzy processing in "
                 f"{t_all_elapsed:.3f} seconds")
 
-
-def main():
-
-    parser = _get_parser()
-    args = parser.parse_args()
-
-    generate_log.configure_log_file(args.log_file)
-    mimetypes.add_type("text/yaml", ".yaml", strict=True)
-    flag_first_file_is_text = 'text' in mimetypes.guess_type(
-        args.input_yaml[0])[0]
-
-    if len(args.input_yaml) > 1 and flag_first_file_is_text:
-        logger.info('ERROR only one runconfig file is allowed')
-        return
-
-    if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
-
-    processing_cfg = cfg.groups.processing
-    pol_mode = processing_cfg.polarization_mode
-    pol_list = processing_cfg.polarizations
-    if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['DH_POL']]
-    elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
-    else:
-        proc_pol_set = [pol_list]
-    for pol_set in proc_pol_set:
-        processing_cfg.polarizations = pol_set
-        run(cfg)
-
-
-if __name__ == '__main__':
-    main()

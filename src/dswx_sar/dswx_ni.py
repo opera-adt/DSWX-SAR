@@ -3,19 +3,22 @@
 import logging
 import time
 
-from dswx_sar import (detect_inundated_vegetation,
-                      fuzzy_value_computation,
-                      initial_threshold,
-                      masking_with_ancillary,
-                      mosaic_gcov_frame,
-                      pre_processing_ni,
-                      save_mgrs_tiles_ni,
-                      refine_with_bimodality,
-                      region_growing,)
-from dswx_sar.dswx_ni_runconfig import (_get_parser,
+from dswx_sar.common import (detect_inundated_vegetation,)
+
+from dswx_sar.nisar.dswx_ni_runconfig import (_get_parser,
                                         RunConfig,
                                         DSWX_NI_POL_DICT)
-from dswx_sar import generate_log
+
+from dswx_sar.common import _initial_threshold as initial_threshold
+from dswx_sar.common import _fuzzy_value_computation as fuzzy_value_computation
+
+from dswx_sar.common import _generate_log
+from dswx_sar.nisar import (mosaic_gcov_frame, 
+                            pre_processing, 
+                            save_mgrs_tiles_ni, 
+                            refine_with_bimodality,
+                            region_growing)
+from dswx_sar.nisar import masking_with_ancillary
 
 logger = logging.getLogger('dswx_sar')
 
@@ -63,7 +66,7 @@ def dswx_ni_workflow(cfg):
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
         # preprocessing (relocating ancillary data and filtering)
-        pre_processing_ni.run(cfg)
+        pre_processing.run(cfg)
 
         # Estimate threshold for given polarizations
         initial_threshold.run(cfg)
@@ -100,7 +103,7 @@ def main():
     parser = _get_parser()
     args = parser.parse_args()
     cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_ni', args)
-    generate_log.configure_log_file(cfg.groups.log_file)
+    _generate_log.configure_log_file(cfg.groups.log_file)
 
     dswx_ni_workflow(cfg)
 

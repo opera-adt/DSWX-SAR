@@ -6,10 +6,10 @@ import time
 
 import numpy as np
 
-from dswx_sar import dswx_sar_util, filter_SAR, generate_log
-from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT, _get_parser, RunConfig
-from dswx_sar.pre_processing import pol_ratio
-from dswx_sar.masking_with_ancillary import FillMaskLandCover
+from dswx_sar.common import _dswx_sar_util
+from dswx_sar.common import _filter_SAR
+from dswx_sar.common._pre_processing import pol_ratio
+from dswx_sar.common._masking_with_ancillary import FillMaskLandCover
 
 logger = logging.getLogger('dswx_sar')
 
@@ -139,10 +139,10 @@ def run(cfg):
         err_str = f'{inundated_vege_ratio_threshold} is not valid.'
         raise ValueError(err_str)
 
-    im_meta = dswx_sar_util.get_meta_from_tif(rtc_dual_path)
+    im_meta = _dswx_sar_util.get_meta_from_tif(rtc_dual_path)
 
     pad_shape = (filter_options.block_pad, 0)
-    block_params = dswx_sar_util.block_param_generator(
+    block_params = _dswx_sar_util.block_param_generator(
         lines_per_block=line_per_block,
         data_shape=(im_meta['length'],
                     im_meta['width']),
@@ -150,7 +150,7 @@ def run(cfg):
 
     for block_param in block_params:
 
-        rtc_dual = dswx_sar_util.get_raster_block(
+        rtc_dual = _dswx_sar_util.get_raster_block(
             rtc_dual_path,
             block_param)
 
@@ -159,28 +159,28 @@ def run(cfg):
             np.squeeze(rtc_dual[crosspol_ind, :, :]))
 
         if filter_method == 'lee':
-            filtering_method = filter_SAR.lee_enhanced_filter
+            filtering_method = _filter_SAR.lee_enhanced_filter
             filter_option = vars(filter_options.lee_filter)
 
         elif filter_method == 'anisotropic_diffusion':
-            filtering_method = filter_SAR.anisotropic_diffusion
+            filtering_method = _filter_SAR.anisotropic_diffusion
             filter_option = vars(filter_options.anisotropic_diffusion)
 
         elif filter_method == 'guided_filter':
-            filtering_method = filter_SAR.guided_filter
+            filtering_method = _filter_SAR.guided_filter
             filter_option = vars(filter_options.guided_filter)
 
         elif filter_method == 'bregman':
-            filtering_method = filter_SAR.tv_bregman
+            filtering_method = _filter_SAR.tv_bregman
             filter_option = vars(filter_options.bregman)
 
         filt_ratio = filtering_method(
                         rtc_ratio, **filter_option)
         filt_ratio_db = 10 * np.log10(filt_ratio +
-                                      dswx_sar_util.Constants.negligible_value)
+                                      _dswx_sar_util.Constants.negligible_value)
         cross_db = 10 * np.log10(
             np.squeeze(rtc_dual[crosspol_ind, :, :]) +
-            dswx_sar_util.Constants.negligible_value)
+            _dswx_sar_util.Constants.negligible_value)
 
         output_data = np.zeros(filt_ratio.shape, dtype='uint8')
 
@@ -221,7 +221,7 @@ def run(cfg):
             (target_inundated_vege_class > 0)
         output_data[inundated_vegetation] = 2
 
-        dswx_sar_util.write_raster_block(
+        _dswx_sar_util.write_raster_block(
             out_raster=inundated_vege_path,
             data=output_data,
             block_param=block_param,
@@ -231,7 +231,7 @@ def run(cfg):
             cog_flag=True,
             scratch_dir=scratch_dir)
 
-        dswx_sar_util.write_raster_block(
+        _dswx_sar_util.write_raster_block(
             out_raster=target_area_path,
             data=target_inundated_vege_class,
             block_param=block_param,
@@ -241,7 +241,7 @@ def run(cfg):
             cog_flag=True,
             scratch_dir=scratch_dir)
 
-        dswx_sar_util.write_raster_block(
+        _dswx_sar_util.write_raster_block(
             out_raster=high_ratio_path,
             data=all_inundated_cand,
             block_param=block_param,
@@ -252,7 +252,7 @@ def run(cfg):
             scratch_dir=scratch_dir)
 
         if processing_cfg.debug_mode:
-            dswx_sar_util.write_raster_block(
+            _dswx_sar_util.write_raster_block(
                 out_raster=os.path.join(
                     scratch_dir, f'intensity_db_ratio_{pol_all_str}.tif'),
                 data=filt_ratio_db,
@@ -263,49 +263,10 @@ def run(cfg):
                 cog_flag=True,
                 scratch_dir=scratch_dir)
 
-    dswx_sar_util._save_as_cog(inundated_vege_path, scratch_dir)
+    _dswx_sar_util._save_as_cog(inundated_vege_path, scratch_dir)
 
     t_time_end = time.time()
 
     logger.info(
         f'total inundated vegetation mapping time: {t_time_end - t_all} sec')
 
-
-def main():
-
-    parser = _get_parser()
-
-    args = parser.parse_args()
-
-    generate_log.configure_log_file(args.log_file)
-
-    mimetypes.add_type("text/yaml", ".yaml", strict=True)
-    flag_first_file_is_text = 'text' in mimetypes.guess_type(
-        args.input_yaml[0])[0]
-
-    if len(args.input_yaml) > 1 and flag_first_file_is_text:
-        logger.info('ERROR only one runconfig file is allowed')
-        return
-
-    if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
-
-    processing_cfg = cfg.groups.processing
-    pol_mode = processing_cfg.polarization_mode
-    pol_list = processing_cfg.polarizations
-    if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['DH_POL']]
-    elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
-    else:
-        proc_pol_set = [pol_list]
-
-    for pol_set in proc_pol_set:
-        processing_cfg.polarizations = pol_set
-        run(cfg)
-
-
-if __name__ == '__main__':
-    main()

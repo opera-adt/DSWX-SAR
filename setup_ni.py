@@ -1,6 +1,6 @@
 import os
 import re
-from setuptools import setup
+from setuptools import setup, find_packages
 from setuptools import Command
 
 
@@ -76,7 +76,7 @@ setup(
     # Gather all packages located under `src`.
     # (A package is any directory containing an __init__.py file.)
     package_dir={'': 'src'},
-    packages=['dswx_sar'],
+    packages = find_packages(where='src', include=['dswx_sar', 'dswx_sar.*']),    
     package_data=package_data_dict,
     classifiers=['Programming Language :: Python',],
     scripts=['src/dswx_sar/dswx_ni.py',

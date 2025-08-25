@@ -7,22 +7,16 @@ import h5py
 import numpy as np
 import rasterio
 
-from dswx_sar.dswx_runconfig import DSWX_S1_POL_DICT
-from dswx_sar.dswx_ni_runconfig import (DSWX_NI_POL_DICT, 
-                                        DSWX_NI_SINGLE_FRAME_POL_DICT,
-                                        check_rtc_frequency,
-                                        read_rtc_polarization)
-from dswx_sar.dswx_sar_util import (band_assign_value_dict,
-                                    read_geotiff)
-from dswx_sar.mosaic_gcov_frame import RTCReader
-from dswx_sar.version import VERSION as SOFTWARE_VERSION
+from dswx_sar.sentinel1.dswx_runconfig import DSWX_S1_POL_DICT
+from dswx_sar.common._dswx_sar_util import (band_assign_value_dict,
+                                           read_geotiff)
+from dswx_sar.common.gcov_reader import RTCReader
 
 # Constants
 UNKNOWN = 'UNKNOWN'
 PRODUCT_VERSION = UNKNOWN
 DEFAULT_METADATA = {
     'DSWX_PRODUCT_VERSION': PRODUCT_VERSION,
-    'SOFTWARE_VERSION': SOFTWARE_VERSION,
     'PROJECT': 'OPERA',
     'INSTITUTION': 'NASA JPL',
     'CONTACT_INFORMATION': 'operasds@jpl.nasa.gov',
@@ -425,9 +419,13 @@ def _get_general_dswx_metadata_dict(cfg, product_version=None):
 
     if product_type == 'dswx_s1':
         set_dswx_s1_metadata(dswx_metadata_dict)
+        from dswx_sar.sentinel1.version import VERSION as SOFTWARE_VERSION
+
     elif product_type == 'dswx_ni':
         set_dswx_ni_metadata(dswx_metadata_dict)
+        from dswx_sar.nisar.version import VERSION as SOFTWARE_VERSION
 
+    dswx_metadata_dict['SOFTWARE_VERSION'] = SOFTWARE_VERSION
     # save datetime 'YYYY-MM-DDTHH:MM:SSZ'
     dswx_metadata_dict['PROCESSING_DATETIME'] = \
         datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")

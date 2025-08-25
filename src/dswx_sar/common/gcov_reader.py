@@ -1,11 +1,9 @@
-import os
-import logging
 import warnings
+import os 
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 import h5py
-import mimetypes
 import numpy as np
 from osgeo import gdal
 from osgeo.gdal import Dataset
@@ -16,19 +14,56 @@ from rasterio.windows import Window
 from typing import Any
 import math
 from collections import defaultdict
-from dswx_sar.mosaic_rtc_burst import (majority_element,
-                                       mosaic_single_output_file)
-from dswx_sar.dswx_sar_util import change_epsg_tif
-from dswx_sar.dswx_geogrid import DSWXGeogrid
-from dswx_sar.dswx_ni_runconfig import (_get_parser,
-                                        RunConfig,
-                                        get_pol_rtc_hdf5,
+
+from dswx_sar.common._mosaic import mosaic_single_output_file
+from dswx_sar.common._dswx_sar_util import change_epsg_tif, majority_element
+from dswx_sar.common._dswx_geogrid import DSWXGeogrid
+from dswx_sar.nisar.dswx_ni_runconfig import (get_pol_rtc_hdf5,
                                         check_rtc_frequency,
                                         get_rtc_spacing_list)
-from dswx_sar.dswx_sar_util import (_calculate_output_bounds,
-                                    _aggregate_10m_to_30m_conv)
+from dswx_sar.common._dswx_sar_util import (
+    _calculate_output_bounds,
+    _aggregate_10m_to_30m_conv)
 
-logger = logging.getLogger('dswx_sar')
+
+def slice_gen(total_size: int,
+              batch_size: int,
+              combine_rem: bool = True) -> Iterator[slice]:
+    """Generate slices with size defined by batch_size.
+
+    Parameters
+    ----------
+    total_size: int
+        size of data to be manipulated by slice_gen
+    batch_size: int
+        designated data chunk size in which data is sliced into.
+    combine_rem: bool
+        Combine the remaining values with the last complete block if 'True'.
+        If False, ignore the remaining values
+        Default = 'True'
+
+    Yields
+    ------
+    slice: slice obj
+        Iterable slices of data with specified input batch size,
+        bounded by start_idx and stop_idx.
+    """
+    num_complete_blks = total_size // batch_size
+    num_total_complete = num_complete_blks * batch_size
+    num_rem = total_size - num_total_complete
+
+    if combine_rem and num_rem > 0:
+        for start_idx in range(0, num_total_complete - batch_size, batch_size):
+            stop_idx = start_idx + batch_size
+            yield slice(start_idx, stop_idx)
+
+        last_blk_start = num_total_complete - batch_size
+        last_blk_stop = total_size
+        yield slice(last_blk_start, last_blk_stop)
+    else:
+        for start_idx in range(0, num_total_complete, batch_size):
+            stop_idx = start_idx + batch_size
+            yield slice(start_idx, stop_idx)
 
 
 class DataReader(ABC):
@@ -1027,113 +1062,3 @@ class RTCReader(DataReader):
                 }
 
         return dswx_metadata_dict
-
-
-def slice_gen(total_size: int,
-              batch_size: int,
-              combine_rem: bool = True) -> Iterator[slice]:
-    """Generate slices with size defined by batch_size.
-
-    Parameters
-    ----------
-    total_size: int
-        size of data to be manipulated by slice_gen
-    batch_size: int
-        designated data chunk size in which data is sliced into.
-    combine_rem: bool
-        Combine the remaining values with the last complete block if 'True'.
-        If False, ignore the remaining values
-        Default = 'True'
-
-    Yields
-    ------
-    slice: slice obj
-        Iterable slices of data with specified input batch size,
-        bounded by start_idx and stop_idx.
-    """
-    num_complete_blks = total_size // batch_size
-    num_total_complete = num_complete_blks * batch_size
-    num_rem = total_size - num_total_complete
-
-    if combine_rem and num_rem > 0:
-        for start_idx in range(0, num_total_complete - batch_size, batch_size):
-            stop_idx = start_idx + batch_size
-            yield slice(start_idx, stop_idx)
-
-        last_blk_start = num_total_complete - batch_size
-        last_blk_stop = total_size
-        yield slice(last_blk_start, last_blk_stop)
-    else:
-        for start_idx in range(0, num_total_complete, batch_size):
-            stop_idx = start_idx + batch_size
-            yield slice(start_idx, stop_idx)
-
-
-def run(cfg):
-    """Generate mosaic workflow with user-defined args stored
-    in dictionary runconfig 'cfg'
-
-    Parameters:
-    -----------
-    cfg: RunConfig
-        RunConfig object with user runconfig options
-    """
-
-    # Mosaicking parameters
-    processing_cfg = cfg.groups.processing
-
-    input_list = cfg.groups.input_file_group.input_file_path
-
-    mosaic_cfg = processing_cfg.mosaic
-    mosaic_mode = mosaic_cfg.mosaic_mode
-    mosaic_prefix = mosaic_cfg.mosaic_prefix
-    mosaic_posting_thresh = mosaic_cfg.mosaic_posting_thresh
-    nisar_uni_mode = processing_cfg.nisar_uni_mode
-
-    # Determine if resampling is required
-    if nisar_uni_mode:
-        resamp_required = False
-    else:
-        resamp_required = True
-
-    resamp_method = mosaic_cfg.resamp_method
-    resamp_out_res = mosaic_cfg.resamp_out_res
-
-    scratch_dir = cfg.groups.product_path_group.scratch_path
-    os.makedirs(scratch_dir, exist_ok=True)
-
-    row_blk_size = mosaic_cfg.read_row_blk_size
-    col_blk_size = mosaic_cfg.read_col_blk_size
-
-    # Create reader object
-    reader = RTCReader(
-        row_blk_size=row_blk_size,
-        col_blk_size=col_blk_size,
-    )
-
-    # Mosaic input RTC into output Geotiff
-    reader.process_rtc_hdf5(
-        input_list,
-        scratch_dir,
-        mosaic_mode,
-        mosaic_prefix,
-        mosaic_posting_thresh,
-        resamp_method,
-        resamp_out_res,
-        resamp_required,
-    )
-
-if __name__ == "__main__":
-    '''Run mosaic rtc products from command line'''
-    # load arguments from command line
-    parser = _get_parser()
-
-    # parse arguments
-    args = parser.parse_args()
-
-    mimetypes.add_type("text/yaml", ".yaml", strict=True)
-
-    cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_ni', args)
-
-    # Run Mosaic RTC workflow
-    run(cfg)

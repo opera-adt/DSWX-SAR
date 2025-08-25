@@ -1,6 +1,5 @@
 import copy
 import gc
-import mimetypes
 import logging
 import os
 import time
@@ -9,11 +8,8 @@ import numpy as np
 from scipy import ndimage
 from joblib import Parallel, delayed
 
-from dswx_sar import (dswx_sar_util,
-                      generate_log)
-from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
-                                     RunConfig,
-                                     _get_parser)
+from dswx_sar.common import _dswx_sar_util
+
 
 logger = logging.getLogger('dswx_sar')
 
@@ -177,11 +173,11 @@ def process_region_growing_block(block_param,
     else:
         fuzzy_map_temp = \
             f'{base_dir}/{fuzzy_base_name}_temp_loop_{loopind}.tif'
-    data_block = dswx_sar_util.get_raster_block(
+    data_block = _dswx_sar_util.get_raster_block(
         fuzzy_map_temp, block_param)
 
     if exclude_area_path is not None:
-        exclude_block = dswx_sar_util.get_raster_block(
+        exclude_block = _dswx_sar_util.get_raster_block(
             exclude_area_path, block_param)
     else:
         exclude_block = None
@@ -236,7 +232,7 @@ def run_parallel_region_growing(input_tif_path,
     maxiter: integer
         maximum number of dilation
     """
-    meta_dict = dswx_sar_util.get_meta_from_tif(input_tif_path)
+    meta_dict = _dswx_sar_util.get_meta_from_tif(input_tif_path)
     data_length = meta_dict['length']
     data_width = meta_dict['width']
     data_shape = [data_length, data_width]
@@ -264,7 +260,7 @@ def run_parallel_region_growing(input_tif_path,
         lines_per_block_loop = min(data_length,
                                    lines_per_block_loop)
         pad_shape = (0, 0)
-        block_params = dswx_sar_util.block_param_generator(
+        block_params = _dswx_sar_util.block_param_generator(
             lines_per_block_loop,
             data_shape,
             pad_shape)
@@ -290,7 +286,7 @@ def run_parallel_region_growing(input_tif_path,
             fuzzy_map_temp = \
                 f'{base_dir}/{fuzzy_base_name}_temp_loop_{loopind + 1}.tif'
 
-            dswx_sar_util.write_raster_block(
+            _dswx_sar_util.write_raster_block(
                 fuzzy_map_temp,
                 region_grow_block,
                 block_param,
@@ -302,7 +298,7 @@ def run_parallel_region_growing(input_tif_path,
 
             # In final loop, write the result to output_tif_path
             if loopind == num_loop - 1:
-                dswx_sar_util.write_raster_block(
+                _dswx_sar_util.write_raster_block(
                     output_tif_path,
                     region_grow_block,
                     block_param,
@@ -345,7 +341,7 @@ def run(cfg):
 
     fuzzy_tif_path = os.path.join(
         outputdir, f'fuzzy_image_{pol_str}.tif')
-    feature_meta = dswx_sar_util.get_meta_from_tif(fuzzy_tif_path)
+    feature_meta = _dswx_sar_util.get_meta_from_tif(fuzzy_tif_path)
     feature_tif_path = os.path.join(
         outputdir, f"region_growing_output_binary_{pol_str}.tif")
     temp_rg_tif_path = os.path.join(
@@ -361,8 +357,8 @@ def run(cfg):
         relaxed_threshold=region_growing_relaxed_threshold,
         maxiter=0)
 
-    fuzzy_map = dswx_sar_util.read_geotiff(fuzzy_tif_path)
-    temp_rg = dswx_sar_util.read_geotiff(temp_rg_tif_path)
+    fuzzy_map = _dswx_sar_util.read_geotiff(fuzzy_tif_path)
+    temp_rg = _dswx_sar_util.read_geotiff(temp_rg_tif_path)
 
     # replace the fuzzy values with 1 for the pixels
     # where the region-growing already applied
@@ -376,7 +372,7 @@ def run(cfg):
         relaxed_threshold=region_growing_relaxed_threshold,
         maxiter=0)
 
-    dswx_sar_util.save_dswx_product(
+    _dswx_sar_util.save_dswx_product(
         region_grow_map,
         feature_tif_path,
         geotransform=feature_meta['geotransform'],
@@ -386,44 +382,3 @@ def run(cfg):
     t_all_elapsed = time.time() - t_all
     logger.info(
         f"successfully ran region growing in {t_all_elapsed:.3f} seconds")
-
-
-def main():
-    'Main Function to run region growing'
-    parser = _get_parser()
-
-    args = parser.parse_args()
-
-    mimetypes.add_type("text/yaml", ".yaml", strict=True)
-    flag_first_file_is_text = 'text' in mimetypes.guess_type(
-        args.input_yaml[0])[0]
-
-    if not flag_first_file_is_text:
-        raise ValueError('input yaml file is not text')
-
-    if len(args.input_yaml) > 1 and flag_first_file_is_text:
-        logger.info('ERROR only one runconfig file is allowed')
-        return
-
-    cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
-    generate_log.configure_log_file(args.log_file)
-
-    processing_cfg = cfg.groups.processing
-    pol_mode = processing_cfg.polarization_mode
-    pol_list = processing_cfg.polarizations
-    if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['DH_POL']]
-    elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
-    else:
-        proc_pol_set = [pol_list]
-
-    for pol_set in proc_pol_set:
-        processing_cfg.polarizations = pol_set
-        run(cfg)
-
-
-if __name__ == '__main__':
-    main()

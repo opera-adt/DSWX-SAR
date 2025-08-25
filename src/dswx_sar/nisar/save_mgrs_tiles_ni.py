@@ -8,6 +8,7 @@ import os
 import time
 
 import geopandas as gpd
+from dswx_sar.common import _dswx_sar_util, _generate_log
 import h5py
 import numpy as np
 from osgeo import gdal
@@ -18,19 +19,17 @@ from shapely import wkt
 from shapely.geometry import Polygon
 from shapely.ops import transform
 
-from dswx_sar import (dswx_sar_util,
-                      generate_log,
-                      mosaic_gcov_frame)
-from dswx_sar.dswx_sar_util import (band_assign_value_dict,
+from dswx_sar.nisar import (mosaic_gcov_frame)
+from dswx_sar.common._dswx_sar_util import (band_assign_value_dict,
                                     _create_ocean_mask)
-from dswx_sar.dswx_ni_runconfig import (RunConfig,
+from dswx_sar.nisar.dswx_ni_runconfig import (RunConfig,
                                         _get_parser,
                                         get_pol_rtc_hdf5,
                                         DSWX_NI_POL_DICT)
-from dswx_sar.metadata import (create_dswx_ni_metadata,
+from dswx_sar.common._metadata import (create_dswx_ni_metadata,
                                collect_frame_id,
                                _populate_statics_metadata_datasets)
-from dswx_sar.save_mgrs_tiles import (
+from dswx_sar.common._save_mgrs_tiles import (
     get_bounding_box_from_mgrs_tile,
     get_bounding_box_from_mgrs_tile_db,
     get_intersecting_mgrs_tiles_list,
@@ -110,7 +109,7 @@ def crop_and_save_mgrs_tile_spacing(
     input_tif_obj = None
 
     if output_format == 'COG':
-        dswx_sar_util._save_as_cog(
+        _dswx_sar_util._save_as_cog(
             output_tif_file_path,
             output_dir_path,
             logger,
@@ -529,12 +528,12 @@ def run(cfg):
 
     # metadata for final product
     # e.g. geotransform, projection, length, width, utmzone, epsg
-    water_meta = dswx_sar_util.get_meta_from_tif(paths['final_water'])
+    water_meta = _dswx_sar_util.get_meta_from_tif(paths['final_water'])
 
     # repackage the water map
     # 1) water map
-    water_map = dswx_sar_util.read_geotiff(paths['final_water'])
-    no_data_raster = dswx_sar_util.read_geotiff(paths['no_data_area'])
+    water_map = _dswx_sar_util.read_geotiff(paths['final_water'])
+    no_data_raster = _dswx_sar_util.read_geotiff(paths['no_data_area'])
     no_data_raster = (no_data_raster > 0) | \
         (water_map == band_assign_value_dict['no_data'])
 
@@ -544,14 +543,14 @@ def run(cfg):
 
     if os.path.exists(layover_shadow_mask_path):
         layover_shadow_mask = \
-            dswx_sar_util.read_geotiff(layover_shadow_mask_path)
+            _dswx_sar_util.read_geotiff(layover_shadow_mask_path)
         logger.info('Layover/shadow mask found')
     else:
         layover_shadow_mask = np.zeros(np.shape(water_map), dtype='byte')
         logger.warning('No layover/shadow mask found')
 
     # 3) hand excluded
-    hand = dswx_sar_util.read_geotiff(
+    hand = _dswx_sar_util.read_geotiff(
         os.path.join(scratch_dir, 'interpolated_hand.tif'))
     hand_mask = hand > hand_mask_value
 
@@ -566,11 +565,11 @@ def run(cfg):
 
     # 4) inundated_vegetation
     if total_inundated_vege_flag:
-        inundated_vegetation = dswx_sar_util.read_geotiff(
+        inundated_vegetation = _dswx_sar_util.read_geotiff(
             paths['inundated_veg'])
-        inundated_vege_target_area = dswx_sar_util.read_geotiff(
+        inundated_vege_target_area = _dswx_sar_util.read_geotiff(
             paths['inundated_veg_target'])
-        inundated_vege_high_ratio = dswx_sar_util.read_geotiff(
+        inundated_vege_high_ratio = _dswx_sar_util.read_geotiff(
             paths['inundated_veg_high_ratio'])
         inundated_vegetation_mask = (inundated_vegetation == 2) & \
                                     (water_map == 1)
@@ -630,9 +629,9 @@ def run(cfg):
         logger.info('BWTR and WTR Files are created from pre-computed files.')
 
         region_grow_map = \
-            dswx_sar_util.read_geotiff(paths['region_growing'])
+            _dswx_sar_util.read_geotiff(paths['region_growing'])
         landcover_map =\
-            dswx_sar_util.read_geotiff(paths['landcover_mask'])
+            _dswx_sar_util.read_geotiff(paths['landcover_mask'])
 
         landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
         dark_land_mask = (landcover_map == 1) & (water_map == 0)
@@ -641,7 +640,7 @@ def run(cfg):
         # Open water/inundated vegetation
         # layover shadow mask/hand mask/no_data
         # will be saved in WTR product
-        dswx_sar_util.save_dswx_product(
+        _dswx_sar_util.save_dswx_product(
             water_map == 1,
             full_wtr_water_set_path,
             geotransform=water_meta['geotransform'],
@@ -660,7 +659,7 @@ def run(cfg):
         # layover shadow mask/hand mask/no_data
         # will be saved in BWTR product
         # Water includes open water and inundated vegetation.
-        dswx_sar_util.save_dswx_product(
+        _dswx_sar_util.save_dswx_product(
             np.logical_or(water_map == 1, inundated_vegetation == 2),
             full_bwtr_water_set_path,
             geotransform=water_meta['geotransform'],
@@ -676,7 +675,7 @@ def run(cfg):
         # Open water/landcover mask/bright water/dark land
         # layover shadow mask/hand mask/inundated vegetation
         # will be saved in CONF product
-        dswx_sar_util.save_dswx_product(
+        _dswx_sar_util.save_dswx_product(
             water_map == 1,
             full_conf_water_set_path,
             geotransform=water_meta['geotransform'],
@@ -704,9 +703,9 @@ def run(cfg):
         # Values ranging from 0 to 100 are used to represent the likelihood
         # or possibility of the presence of water. A higher value within
         # this range signifies a higher likelihood of water being present.
-        fuzzy_value = dswx_sar_util.read_geotiff(paths['fuzzy_value'])
+        fuzzy_value = _dswx_sar_util.read_geotiff(paths['fuzzy_value'])
         fuzzy_value = np.round(fuzzy_value * 100)
-        dswx_sar_util.save_dswx_product(
+        _dswx_sar_util.save_dswx_product(
             fuzzy_value,
             full_diag_water_set_path,
             geotransform=water_meta['geotransform'],
@@ -724,7 +723,7 @@ def run(cfg):
 
         # In Twele's workflow, bright water/dark land/inundated vegetation
         # is not saved.
-        dswx_sar_util.save_dswx_product(
+        _dswx_sar_util.save_dswx_product(
                 water_map == 1,
                 full_wtr_water_set_path,
                 geotransform=water_meta['geotransform'],
@@ -743,7 +742,7 @@ def run(cfg):
         new_geotransform[5] = -1 * output_spacing
 
         new_water_meta['geotransform'] = tuple(new_geotransform)
-        partial_open_water = dswx_sar_util.partial_water_product(
+        partial_open_water = _dswx_sar_util.partial_water_product(
             input_file=full_wtr_water_set_path,
             output_spacing=output_spacing,
             scratch_dir=scratch_dir,
@@ -755,7 +754,7 @@ def run(cfg):
             os.path.join(scratch_dir, 'full_water_binary_WTR_set_temp.tif')
         os.rename(full_wtr_water_set_path, temp_full_wtr_water_set_path)
 
-        dswx_sar_util.save_dswx_product(
+        _dswx_sar_util.save_dswx_product(
             partial_open_water == 1,
             full_wtr_water_set_path,
             geotransform=new_water_meta['geotransform'],
@@ -891,7 +890,7 @@ def run(cfg):
                         interpolation_method='nearest')
 
                 if browse_image_flag:
-                    dswx_sar_util.create_browse_image(
+                    _dswx_sar_util.create_browse_image(
                         water_geotiff_filename=os.path.join(
                             sas_outputdir, output_mgrs_wtr),
                         output_dir_path=sas_outputdir,
@@ -928,7 +927,7 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_ni', args)
 
-    generate_log.configure_log_file(cfg.groups.log_file)
+    _generate_log.configure_log_file(cfg.groups.log_file)
 
     run(cfg)
 

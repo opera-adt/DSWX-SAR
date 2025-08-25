@@ -4,6 +4,7 @@ import math
 import shutil
 import tempfile
 
+from collections import Counter
 import rasterio
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
@@ -1958,3 +1959,24 @@ def _aggregate_10m_to_30m_conv(image, ratio, normalize_flag):
         aggregated_data = aggregated_data /pixel_count
 
     return aggregated_data
+
+def majority_element(num_list):
+    """
+    Determine the majority element in a list
+    Parameters
+    ----------
+    num_list : List[int]
+        A list of integers where the majority element needs to be determined.
+
+    Returns
+    -------
+    int:
+        The majority element in the list. If no majority exists,
+        it may return any element from the list.
+    """
+
+    counter = Counter(np.array(num_list))
+    most_common = counter.most_common()
+    most_freq_elem = most_common[0][0]
+
+    return most_freq_elem

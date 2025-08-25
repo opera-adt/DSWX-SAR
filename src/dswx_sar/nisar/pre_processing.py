@@ -1,22 +1,26 @@
 import copy
 import logging
 import mimetypes
-import numpy as np
 import os
 import pathlib
 import time
 
+import numpy as np
+from joblib import Parallel, delayed
 from pathlib import Path
+import psutil
 
-from dswx_sar import dswx_sar_util, filter_SAR, generate_log, pre_processing
-from filter_SAR import tv_bregman
-from dswx_sar.dswx_ni_runconfig import (DSWX_NI_POL_DICT,
+from dswx_sar.common import (_dswx_sar_util,
+                             _filter_SAR,
+                             _generate_log,
+                             _pre_processing)
+
+from dswx_sar.nisar.dswx_ni_runconfig import (DSWX_NI_POL_DICT,
                                         _get_parser,
                                         RunConfig)
-from dswx_sar.dswx_sar_util import check_gdal_raster_s3
-from dswx_sar.masking_with_ancillary import get_label_landcover_esa_10
-from joblib import Parallel, delayed
-import psutil
+from dswx_sar.common._dswx_sar_util import check_gdal_raster_s3
+from dswx_sar.common._masking_with_ancillary import get_label_landcover_esa_10
+
 
 logger = logging.getLogger('dswx_sar')
 
@@ -80,10 +84,10 @@ def run(cfg):
         scratch_dir, filtered_images_str)
 
     # read metadata from Geotiff File.
-    im_meta = dswx_sar_util.get_meta_from_tif(ref_filename)
+    im_meta = _dswx_sar_util.get_meta_from_tif(ref_filename)
 
     # create instance to relocate ancillary data
-    ancillary_reloc = pre_processing.AncillaryRelocation(
+    ancillary_reloc = _pre_processing.AncillaryRelocation(
         ref_filename,
         scratch_dir)
 
@@ -94,6 +98,7 @@ def run(cfg):
         'landcover': 'interpolated_landcover.tif',
         'reference_water': 'interpolated_wbd.tif',
         'glad_classification': 'interpolated_glad.tif',
+
     }
 
     input_ancillary_filename_set = {
@@ -143,7 +148,7 @@ def run(cfg):
                 no_data=no_data)
 
         # check if relocated ancillaries are filled with invalid values
-        validation_result = pre_processing.validate_gtiff(
+        validation_result = _pre_processing.validate_gtiff(
             os.path.join(scratch_dir, anc_filename),
             [no_data, np.inf])
 
@@ -160,7 +165,7 @@ def run(cfg):
                 logger.warning(f'{anc_type} has invalid values.')
                 # update reference water if any values of reference water
                 # are invalid.
-                pre_processing.replace_reference_water_nodata_from_ancillary(
+                _pre_processing.replace_reference_water_nodata_from_ancillary(
                     os.path.join(scratch_dir,
                                  relocated_ancillary_filename_set[
                                      'reference_water']),
@@ -177,47 +182,11 @@ def run(cfg):
 
     # apply SAR filtering
     pad_shape = (filter_options.block_pad, 0)
-    block_params = dswx_sar_util.block_param_generator(
+    block_params = _dswx_sar_util.block_param_generator(
         lines_per_block=line_per_block,
         data_shape=(im_meta['length'],
                     im_meta['width']),
         pad_shape=pad_shape)
-
-
-    for block_ind, block_param in enumerate(block_params):
-        output_image_set = []
-        for polind, pol in enumerate(pol_list):
-            logger.info(f'  block processing {block_ind} - {pol}')
-            if pol in ['ratio', 'span']:
-
-                # If ratio/span is in the list,
-                # then compute the ratio from VVVV and VHVH
-                temp_pol_list = co_pol + cross_pol
-                logger.info(f'  >> computing {pol} {temp_pol_list}')
-
-                temp_raster_set = []
-                for temp_pol in temp_pol_list:
-                    filename = \
-                        f'{scratch_dir}/{mosaic_prefix}_{temp_pol}.tif'
-
-                    block_data = dswx_sar_util.get_raster_block(
-                        filename,
-                        block_param)
-
-                    temp_raster_set.append(block_data)
-
-                temp_raster_set = np.array(temp_raster_set)
-                if pol in ['ratio']:
-                    ratio = pre_processing.pol_ratio(
-                        np.squeeze(temp_raster_set[0, :, :]),
-                        np.squeeze(temp_raster_set[1, :, :]))
-                    output_image_set.append(ratio)
-                    logger.info(f'  computing ratio {co_pol}/{cross_pol}')
-
-                if pol in ['span']:
-                    span = np.squeeze(temp_raster_set[0, :, :] +
-                                      2 * temp_raster_set[1, :, :])
-                    output_image_set.append(span)
 
     # Perform Parallell Filtering
     cpu_count = os.cpu_count() - 1
@@ -232,49 +201,38 @@ def run(cfg):
     else:
         use_cpu = filter_options.n_cpus
 
-    for polind, pol in enumerate(pol_list):
-        logger.info(f'  block processing {block_ind} - {pol}')
+    results = Parallel(n_jobs=use_cpu)(
+        delayed(_filter_one_block)(
+            bp, pol_list, scratch_dir, mosaic_prefix,
+            filter_flag, filter_method, filter_options,
+            co_pol, cross_pol
+        ) for bp in block_params
+    )
 
-        intensity_path = \
-            f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
-        if filter_flag:
-            filtered_intensity = Parallel(n_jobs = use_cpu)(
-                delayed(process_sar_filter_block)(
-                block_param,
-                intensity_path,
-                filter_method,
-                filter_options)
-            for block_param in block_params)
-            filtered_intensity = np.array(filtered_intensity, dtype='float32')
-        else:
-            filtered_intensity = intensity
+    results.sort(key=lambda x: x[0].write_start_line)
+    for block_param, block_data in results:
+        _dswx_sar_util.write_raster_block(
+            out_raster=filtered_image_path,
+            data=block_data,
+            block_param=block_param,
+            geotransform=im_meta['geotransform'],
+            projection=im_meta['projection'],
+            datatype='float32',
+        )
 
-    output_image_set.append(filtered_intensity)
-
-    output_image_set = np.array(output_image_set, dtype='float32')
-    output_image_set[output_image_set == 0] = np.nan
-
-    dswx_sar_util.write_raster_block(
-        out_raster=filtered_image_path,
-        data=output_image_set,
-        block_param=block_param,
-        geotransform=im_meta['geotransform'],
-        projection=im_meta['projection'],
-        datatype='float32')
-
-    dswx_sar_util._save_as_cog(filtered_image_path, scratch_dir)
+    _dswx_sar_util._save_as_cog(filtered_image_path, scratch_dir)
 
     no_data_geotiff_path = os.path.join(
         scratch_dir, f"no_data_area_{pol_all_str}.tif")
 
-    dswx_sar_util.get_invalid_area(
+    _dswx_sar_util.get_invalid_area(
         os.path.join(scratch_dir, filtered_images_str),
         no_data_geotiff_path,
         scratch_dir=scratch_dir,
         lines_per_block=line_per_block)
 
     if processing_cfg.debug_mode:
-        filtered_intensity = dswx_sar_util.read_geotiff(filtered_image_path)
+        filtered_intensity = _dswx_sar_util.read_geotiff(filtered_image_path)
         if filtered_intensity.ndim == 2:
             filtered_intensity = np.expand_dims(filtered_intensity,
                                                 axis=0)
@@ -284,7 +242,7 @@ def run(cfg):
             else:
                 immin, immax = -30, 0
             single_intensity = np.squeeze(filtered_intensity[pol_ind, :, :])
-            dswx_sar_util.intensity_display(
+            _dswx_sar_util.intensity_display(
                 single_intensity,
                 scratch_dir,
                 pol,
@@ -292,7 +250,7 @@ def run(cfg):
                 immax)
 
             if pol in ['ratio']:
-                dswx_sar_util.save_raster_gdal(
+                _dswx_sar_util.save_raster_gdal(
                     data=single_intensity,
                     output_file=os.path.join(
                         scratch_dir, f'intensity_{pol}.tif'),
@@ -300,7 +258,7 @@ def run(cfg):
                     projection=im_meta['projection'],
                     scratch_dir=scratch_dir)
             else:
-                dswx_sar_util.save_raster_gdal(
+                _dswx_sar_util.save_raster_gdal(
                     data=10 * np.log10(single_intensity),
                     output_file=os.path.join(
                         scratch_dir, f'intensity_{pol}_db.tif'),
@@ -311,6 +269,64 @@ def run(cfg):
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran pre-processing in "
                 f"{t_all_elapsed:.3f} seconds")
+
+
+def _filter_one_block(block_param,
+                      pol_list,
+                      scratch_dir,
+                      mosaic_prefix,
+                      filter_flag,
+                      filter_method,
+                      filter_options,
+                      co_pol,
+                      cross_pol):
+    """
+    Return (block_param, stacked_float32_array) for a single block.
+
+    Handles ordinary polarisations plus synthetic ‘ratio’ and ‘span’.
+    Only reads each required raster once.
+    """
+
+    needed_pols = set(pol_list)
+    if 'ratio' in needed_pols or 'span' in needed_pols:
+        needed_pols.update({co_pol, cross_pol})
+
+    real_pol_data = {}
+    for pol in needed_pols:
+        intensity_path = f'{scratch_dir}/{mosaic_prefix}_{pol}.tif'
+
+        if filter_flag:
+            arr = process_sar_filter_block(block_param,
+                                           intensity_path,
+                                           filter_method,
+                                           filter_options)
+        else:
+            arr = _dswx_sar_util.get_raster_block(
+                intensity_path, block_param)
+
+        arr[arr == 0] = np.nan         # mask padded zeros
+        real_pol_data[pol] = arr.astype(np.float32)
+
+    band_stack = []
+    for pol in pol_list:
+        if pol == 'ratio':
+            band_stack.append(
+                _pre_processing.pol_ratio(
+                    real_pol_data[co_pol],
+                    real_pol_data[cross_pol]
+                ).astype(np.float32)
+            )
+        elif pol == 'span':
+            band_stack.append(
+                (real_pol_data[co_pol] +
+                 2 * real_pol_data[cross_pol]).astype(np.float32)
+            )
+        else:          # ordinary polarisation
+            band_stack.append(real_pol_data[pol])
+
+    data = np.stack(band_stack)
+    return block_param, data
+
 
 def process_sar_filter_block(
     block_param,
@@ -324,7 +340,7 @@ def process_sar_filter_block(
     Parameters
     ----------
     block_param: BlockParam
-        Object specifying the block start and finish lines for processing as well as 
+        Object specifying the block start and finish lines for processing as well as
         its data length
     intensity_path: str
         Data path for input mosaicked geotiff
@@ -335,37 +351,40 @@ def process_sar_filter_block(
 
     Returns
     --------
-    filtered_intenstiy: 2D numpy.ndarray 
+    filtered_intenstiy: 2D numpy.ndarray
         filtered output block data
     """
 
-    intensity = dswx_sar_util.get_raster_block(
+    intensity = _dswx_sar_util.get_raster_block(
         intensity_path, block_param)
 
     # need to replace 0 value in padded area to NaN.
     intensity[intensity == 0] = np.nan
 
     if filter_method == 'lee':
-        filtering_method = filter_SAR.lee_enhanced_filter
+        filtering_method = _filter_SAR.lee_enhanced_filter
         filter_option = vars(filter_options.lee_filter)
 
     elif filter_method == 'anisotropic_diffusion':
-        filtering_method = filter_SAR.anisotropic_diffusion
+        filtering_method = _filter_SAR.anisotropic_diffusion
         filter_option = vars(filter_options.anisotropic_diffusion)
 
     elif filter_method == 'guided_filter':
-        filtering_method = filter_SAR.guided_filter
+        filtering_method = _filter_SAR.guided_filter
         filter_option = vars(filter_options.guided_filter)
 
     elif filter_method == 'bregman':
-        filtering_method = filter_SAR.tv_bregman
+        filtering_method = _filter_SAR.tv_bregman
         filter_option = vars(filter_options.bregman)
 
-    filtered_intensity = filtering_method(
-        intensity, 
-        **filter_option,
-    ) 
-   
+    if filter_method is not None:
+        filtered_intensity = filtering_method(
+            intensity,
+            **filter_option,
+        )
+    else:
+        filtered_intensity = intensity
+
     return filtered_intensity
 
 def main():
@@ -385,7 +404,7 @@ def main():
     if flag_first_file_is_text:
         cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_ni', args)
 
-    generate_log.configure_log_file(cfg.groups.log_file)
+    _generate_log.configure_log_file(cfg.groups.log_file)
 
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode

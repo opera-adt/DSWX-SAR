@@ -5,6 +5,7 @@ import os
 import time
 
 import cv2
+from dswx_sar.common import _dswx_sar_util, _refine_with_bimodality
 import numpy as np
 import rasterio
 from osgeo import gdal
@@ -14,13 +15,7 @@ from scipy import ndimage
 from skimage.filters import threshold_multiotsu
 from typing import List, Tuple
 
-from dswx_sar import (dswx_sar_util,
-                      generate_log,
-                      refine_with_bimodality,
-                      region_growing)
-from dswx_sar.dswx_runconfig import (DSWX_S1_POL_DICT,
-                                     _get_parser,
-                                     RunConfig)
+from dswx_sar.common import _region_growing
 
 
 logger = logging.getLogger('dswx_sar')
@@ -71,7 +66,7 @@ class FillMaskLandCover:
         landcover_map : numpy.ndarray
             2 dimensional land cover map
         '''
-        landcover_map = dswx_sar_util.read_geotiff(self.landcover_file_path)
+        landcover_map = _dswx_sar_util.read_geotiff(self.landcover_file_path)
         return landcover_map
 
     def get_mask(self, mask_label, block_param=None):
@@ -90,7 +85,7 @@ class FillMaskLandCover:
         if block_param is None:
             landcover = self.open_landcover()
         else:
-            landcover = dswx_sar_util.get_raster_block(
+            landcover = _dswx_sar_util.get_raster_block(
                 self.landcover_file_path,
                 block_param)
         if self.type == 'WorldCover':
@@ -222,7 +217,7 @@ def check_water_land_mixture(args):
         invalid_mask = (np.isnan(intensity_array) | (intensity_array == 0))
 
         # check if the area has bimodality
-        metric_obj = refine_with_bimodality.BimodalityMetrics(intensity_array)
+        metric_obj = _refine_with_bimodality.BimodalityMetrics(intensity_array)
         bimodality_flag = metric_obj.compute_metric()
 
         # extract the area out of image boundary
@@ -272,7 +267,7 @@ def check_water_land_mixture(args):
                 # Check if the candidates of 'dark water' has distinct
                 # backscattering compared to the adjacent pixels
                 # using bimodality
-                metric_obj_local = refine_with_bimodality.BimodalityMetrics(
+                metric_obj_local = _refine_with_bimodality.BimodalityMetrics(
                     dark_water_linear,
                     hist_min=hist_min,
                     hist_max=hist_max)
@@ -310,7 +305,7 @@ def check_water_land_mixture(args):
                     10 * np.log10(bright_water_linear), 2)
                 hist_max = np.nanpercentile(
                     10 * np.log10(bright_water_linear), 98)
-                metric_obj_local = refine_with_bimodality.BimodalityMetrics(
+                metric_obj_local = _refine_with_bimodality.BimodalityMetrics(
                     bright_water_linear,
                     hist_min=hist_min,
                     hist_max=hist_max)
@@ -363,7 +358,7 @@ def split_extended_water_parallel(
         Saves the updated water mask with extended areas split into smaller
         subsets in the specified output path.
     """
-    meta_info = dswx_sar_util.get_meta_from_tif(water_mask_path)
+    meta_info = _dswx_sar_util.get_meta_from_tif(water_mask_path)
     # exceed the size of the block. To prevent discontinuity and incorrect
     # decisions, the block size increases within the for loop.
     # Initially, the procedure is run for the entire area using a small block
@@ -380,7 +375,7 @@ def split_extended_water_parallel(
     minimum_pixel = 5000
 
     for block_iter, lines_per_block in enumerate(lines_per_block_set):
-        block_params = dswx_sar_util.block_param_generator(
+        block_params = _dswx_sar_util.block_param_generator(
             lines_per_block,
             [meta_info['length'], meta_info['width']],
             pad_shape)
@@ -398,9 +393,9 @@ def split_extended_water_parallel(
                 f'split_extended_water_parallel block #{block_ind} '
                 f'from {block_param.read_start_line} to '
                 f'{block_param.read_start_line + block_param.read_length}')
-            water_mask = dswx_sar_util.get_raster_block(
+            water_mask = _dswx_sar_util.get_raster_block(
                 water_mask_path, block_param)
-            intensity_block = dswx_sar_util.get_raster_block(
+            intensity_block = _dswx_sar_util.get_raster_block(
                 input_dict['intensity'], block_param)
 
             # Extract bounding boxes with buffer
@@ -460,7 +455,7 @@ def split_extended_water_parallel(
                 check_output[i] = 0
 
             del results
-            dswx_sar_util.write_raster_block(
+            _dswx_sar_util.write_raster_block(
                 removed_false_water_path,
                 water_mask,
                 block_param,
@@ -480,7 +475,7 @@ def split_extended_water_parallel(
                 # processed components have 0 values.
                 check_remove_false_water_path = os.path.join(
                     outputdir, f'check_water_land_mixture_{block_iter}.tif')
-                dswx_sar_util.write_raster_block(
+                _dswx_sar_util.write_raster_block(
                     check_remove_false_water_path,
                     check_image,
                     block_param,
@@ -499,7 +494,7 @@ def split_extended_water_parallel(
         # Merge multiple results processed with different block sizes
         merged_removed_false_water_path = output_path
 
-        dswx_sar_util.merge_binary_layers(
+        _dswx_sar_util.merge_binary_layers(
             layer_list=temp_path_set,
             value_list=[1] * len(lines_per_block_set),
             merged_layer_path=merged_removed_false_water_path,
@@ -555,8 +550,8 @@ def compute_spatial_coverage_from_ancillary_parallel(
         Saves the computed water mask indicating water areas in the
         specified output file path.
     """
-    water_mask = dswx_sar_util.read_geotiff(false_water_binary_path)
-    meta_info = dswx_sar_util.get_meta_from_tif(false_water_binary_path)
+    water_mask = _dswx_sar_util.read_geotiff(false_water_binary_path)
+    meta_info = _dswx_sar_util.get_meta_from_tif(false_water_binary_path)
 
     # Extract bounding boxes with buffer
     coord_list, sizes, label_image = extract_bbox_with_buffer(
@@ -567,7 +562,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
     # processing to read sub-areas instead of reading entire image.
     water_label_filename = 'water_label_landcover_spatial_coverage.tif'
     water_label_str = os.path.join(outputdir, water_label_filename)
-    dswx_sar_util.save_raster_gdal(
+    _dswx_sar_util.save_raster_gdal(
         data=label_image,
         output_file=water_label_str,
         geotransform=meta_info['geotransform'],
@@ -582,7 +577,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
     data_shape = [meta_info['length'], meta_info['width']]
 
     pad_shape = (0, 0)
-    block_params = dswx_sar_util.block_param_generator(
+    block_params = _dswx_sar_util.block_param_generator(
         lines_per_block,
         data_shape,
         pad_shape)
@@ -590,15 +585,15 @@ def compute_spatial_coverage_from_ancillary_parallel(
     ref_land_tif_str = os.path.join(
         outputdir, "landcover_darklandcandidate_spatial_coverage.tif")
     for block_param in block_params:
-        mask_excluded = dswx_sar_util.get_raster_block(
+        mask_excluded = _dswx_sar_util.get_raster_block(
             mask_landcover_path, block_param)
-        water_block = dswx_sar_util.get_raster_block(
+        water_block = _dswx_sar_util.get_raster_block(
             reference_water_path, block_param)
 
         dry_darkland = np.logical_and(
             mask_excluded, water_block/water_max_value < 0.05)
 
-        dswx_sar_util.write_raster_block(
+        _dswx_sar_util.write_raster_block(
             out_raster=ref_land_tif_str,
             data=dry_darkland.astype(np.uint8),
             block_param=block_param,
@@ -627,7 +622,7 @@ def compute_spatial_coverage_from_ancillary_parallel(
     test_output = np.insert(test_output, 0, 0, axis=0)
     mask_water_image = test_output[kin]
 
-    dswx_sar_util.save_dswx_product(
+    _dswx_sar_util.save_dswx_product(
         mask_water_image,
         output_file_path,
         geotransform=meta_info['geotransform'],
@@ -788,7 +783,7 @@ def extend_land_cover(landcover_path,
 
     excluded_rg_path = os.path.join(
         scratch_dir, "landcover_excluded_rg.tif")
-    dswx_sar_util.save_dswx_product(
+    _dswx_sar_util.save_dswx_product(
         exclude_area_rg,
         excluded_rg_path,
         geotransform=metainfo['geotransform'],
@@ -798,7 +793,7 @@ def extend_land_cover(landcover_path,
 
     darkland_tif_str = os.path.join(
         scratch_dir, "landcover_target.tif")
-    dswx_sar_util.save_dswx_product(
+    _dswx_sar_util.save_dswx_product(
         reference_landcover_binary,
         darkland_tif_str,
         geotransform=metainfo['geotransform'],
@@ -808,7 +803,7 @@ def extend_land_cover(landcover_path,
 
     darkland_cand_tif_str = os.path.join(
         scratch_dir, "landcover_target_candidate.tif")
-    dswx_sar_util.save_raster_gdal(
+    _dswx_sar_util.save_raster_gdal(
         np.array(new_landcover, dtype='float32'),
         darkland_cand_tif_str,
         geotransform=metainfo['geotransform'],
@@ -819,7 +814,7 @@ def extend_land_cover(landcover_path,
     temp_rg_tif_path = os.path.join(
         scratch_dir, 'landcover_temp_transition.tif')
 
-    region_growing.run_parallel_region_growing(
+    _region_growing.run_parallel_region_growing(
         darkland_cand_tif_str,
         temp_rg_tif_path,
         exclude_area_path=excluded_rg_path,
@@ -828,15 +823,15 @@ def extend_land_cover(landcover_path,
         relaxed_threshold=0.7,
         maxiter=0)
 
-    fuzzy_map = dswx_sar_util.read_geotiff(darkland_cand_tif_str)
-    temp_rg = dswx_sar_util.read_geotiff(temp_rg_tif_path)
+    fuzzy_map = _dswx_sar_util.read_geotiff(darkland_cand_tif_str)
+    temp_rg = _dswx_sar_util.read_geotiff(temp_rg_tif_path)
 
     # replace the fuzzy values with 1 for the pixels
     # where the region-growing already applied
     fuzzy_map[temp_rg == 1] = 1
 
     # Run region-growing again for entire image
-    region_grow_map = region_growing.region_growing(
+    region_grow_map = _region_growing.region_growing(
         fuzzy_map,
         initial_threshold=0.9,
         relaxed_threshold=0.7,
@@ -895,7 +890,7 @@ def hand_filter_along_boundary(
     numpy.ndarray
         Binary array representing the filtered HAND data.
     """
-    target_area = dswx_sar_util.read_geotiff(target_area_path)
+    target_area = _dswx_sar_util.read_geotiff(target_area_path)
     hand_obj = gdal.Open(hand_path)
 
     coord_lists, sizes, output_water = \
@@ -969,7 +964,7 @@ def hand_filter_along_boundary(
 
     target_area[hand_filtered_binary == 0] = 0
 
-    dswx_sar_util.save_dswx_product(
+    _dswx_sar_util.save_dswx_product(
         target_area,
         output_path,
         geotransform=metainfo['geotransform'],
@@ -980,7 +975,7 @@ def hand_filter_along_boundary(
     if debug_mode:
         hand_std_path = os.path.join(
             scratch_dir, "landcover_hand_std.tif")
-        dswx_sar_util.save_raster_gdal(
+        _dswx_sar_util.save_raster_gdal(
             np.array(height_std_raster, dtype='float32'),
             hand_std_path,
             geotransform=metainfo['geotransform'],
@@ -989,7 +984,7 @@ def hand_filter_along_boundary(
             datatype='float32')
         hand_std_path = os.path.join(
             scratch_dir, "landcover_hand_std_image.tif")
-        dswx_sar_util.save_raster_gdal(
+        _dswx_sar_util.save_raster_gdal(
             np.array(hand_std_image, dtype='float32'),
             hand_std_path,
             geotransform=metainfo['geotransform'],
@@ -998,7 +993,7 @@ def hand_filter_along_boundary(
             datatype='float32')
         hand_binary_path = os.path.join(
             scratch_dir, "landcover_hand_binary.tif")
-        dswx_sar_util.save_dswx_product(
+        _dswx_sar_util.save_dswx_product(
             hand_filtered_binary,
             hand_binary_path,
             geotransform=metainfo['geotransform'],
@@ -1052,19 +1047,19 @@ def get_darkland_from_intensity_ancillary(
         The function saves the identified low backscatter areas as a binary
         raster file at `darkland_candidate_path`.
     """
-    band_meta = dswx_sar_util.get_meta_from_tif(intensity_path)
+    band_meta = _dswx_sar_util.get_meta_from_tif(intensity_path)
     data_shape = [band_meta['length'], band_meta['width']]
 
     pad_shape = (0, 0)
-    block_params = dswx_sar_util.block_param_generator(
+    block_params = _dswx_sar_util.block_param_generator(
         lines_per_block, data_shape, pad_shape)
 
     for block_param in block_params:
-        intensity_block = dswx_sar_util.get_raster_block(
+        intensity_block = _dswx_sar_util.get_raster_block(
             intensity_path, block_param)
-        mask_excluded_landcover = dswx_sar_util.get_raster_block(
+        mask_excluded_landcover = _dswx_sar_util.get_raster_block(
             landcover_path, block_param)
-        water_block = dswx_sar_util.get_raster_block(
+        water_block = _dswx_sar_util.get_raster_block(
             reference_water_path, block_param)
 
         # Reshaping the intensity block if necessary
@@ -1087,7 +1082,7 @@ def get_darkland_from_intensity_ancillary(
                 water_block / ref_water_max < dry_water_area_threshold,
                 low_backscatter_cand))
 
-        dswx_sar_util.write_raster_block(
+        _dswx_sar_util.write_raster_block(
             out_raster=darkland_candidate_path,
             data=mask_excluded,
             block_param=block_param,
@@ -1095,264 +1090,3 @@ def get_darkland_from_intensity_ancillary(
             projection=band_meta['projection'],
             datatype='byte')
 
-
-def run(cfg):
-    '''
-    Remove the false water which have low backscattering based on the
-    occurrence map and landcover map.
-    '''
-    logger.info('Starting DSWx-S1 masking with ancillary data')
-
-    t_all = time.time()
-    outputdir = cfg.groups.product_path_group.scratch_path
-    processing_cfg = cfg.groups.processing
-    pol_list = copy.deepcopy(processing_cfg.polarizations)
-    pol_options = processing_cfg.polarimetric_option
-
-    if pol_options is not None:
-        pol_list += pol_options
-
-    pol_str = '_'.join(pol_list)
-    co_pol_ind = 0
-
-    water_cfg = processing_cfg.reference_water
-    ref_water_max = water_cfg.max_value
-
-    # options for masking with ancillary data
-    masking_ancillary_cfg = processing_cfg.masking_ancillary
-    number_workers = masking_ancillary_cfg.number_cpu
-
-    dry_water_area_threshold = masking_ancillary_cfg.water_threshold
-    extended_landcover_flag = masking_ancillary_cfg.extended_darkland
-    extend_minimum = masking_ancillary_cfg.extended_darkland_minimum_pixel
-    water_buffer = masking_ancillary_cfg.extended_darkland_water_buffer
-    hand_variation_mask = masking_ancillary_cfg.hand_variation_mask
-    hand_variation_threshold = masking_ancillary_cfg.hand_variation_threshold
-    landcover_masking_list = masking_ancillary_cfg.land_cover_darkland_list
-    landcover_masking_extension_list = \
-        masking_ancillary_cfg.land_cover_darkland_extension_list
-    landcover_water_label = masking_ancillary_cfg.land_cover_water_label
-    lines_per_block = masking_ancillary_cfg.line_per_block
-
-    # Binary water map extracted from region growing
-    water_map_tif_str = os.path.join(
-        outputdir, f'region_growing_output_binary_{pol_str}.tif')
-    water_map = dswx_sar_util.read_geotiff(water_map_tif_str)
-    water_meta = dswx_sar_util.get_meta_from_tif(water_map_tif_str)
-
-    # Filtered SAR intensity image
-    filt_im_str = os.path.join(outputdir, f"filtered_image_{pol_str}.tif")
-
-    # Reference water map
-    interp_wbd_str = os.path.join(outputdir, 'interpolated_wbd.tif')
-    interp_wbd = dswx_sar_util.read_geotiff(interp_wbd_str)
-    interp_wbd = np.array(interp_wbd, dtype='float32')
-
-    # HAND
-    hand_path_str = os.path.join(outputdir, 'interpolated_hand.tif')
-
-    # Worldcover map
-    landcover_path = os.path.join(outputdir, 'interpolated_landcover.tif')
-
-    # Identify dark land candidate areas from landcover
-    mask_obj = FillMaskLandCover(landcover_path, 'WorldCover')
-    mask_excluded_landcover = mask_obj.get_mask(
-        mask_label=landcover_masking_list)
-    del mask_obj
-
-    # If `extended_landcover_flag`` is enabled, additional landcovers
-    # spatially connected with `mask_excluded_landcover` are added.
-    if extended_landcover_flag:
-        logger.info('Extending landcover enabled.')
-        rg_excluded_area = interp_wbd > dry_water_area_threshold
-
-        mask_excluded_landcover = extend_land_cover(
-            landcover_path=landcover_path,
-            reference_landcover_binary=mask_excluded_landcover,
-            target_landcover=landcover_masking_extension_list,
-            water_landcover=landcover_water_label,
-            exclude_area_rg=rg_excluded_area,
-            water_buffer=water_buffer,
-            minimum_pixel=extend_minimum,
-            metainfo=water_meta,
-            scratch_dir=outputdir)
-        logger.info('Landcover extension completed.')
-
-    mask_excluded_landcover_path = os.path.join(
-        outputdir, 'mask_excluded_landcover_ancillary.tif')
-    dswx_sar_util.save_dswx_product(
-        mask_excluded_landcover,
-        mask_excluded_landcover_path,
-        geotransform=water_meta['geotransform'],
-        projection=water_meta['projection'],
-        scratch_dir=outputdir)
-
-    # 2) Create initial mask binary
-    # mask_excluded indicates the areas satisfying all conditions which are
-    # 1: `dry_water_area_threshold` of water occurrence over 37 year (Pekel)
-    # 2: specified landcovers (bare ground, sparse vegetation, urban, moss...)
-    # 3: low backscattering area
-    # mask = intersect of landcover mask + no water + dark land
-
-    darkland_cand_path = \
-        os.path.join(outputdir,
-                     'darkland_candidate_from_landcover_water_backscatter.tif')
-
-    get_darkland_from_intensity_ancillary(
-        intensity_path=filt_im_str,
-        landcover_path=mask_excluded_landcover_path,
-        reference_water_path=interp_wbd_str,
-        darkland_candidate_path=darkland_cand_path,
-        lines_per_block=lines_per_block,
-        pol_list=pol_list,
-        co_pol_threshold=masking_ancillary_cfg.co_pol_threshold,
-        cross_pol_threshold=masking_ancillary_cfg.cross_pol_threshold,
-        ref_water_max=ref_water_max,
-        dry_water_area_threshold=dry_water_area_threshold)
-
-    # 3) The water candidates extracted in the previous step (region growing)
-    # can have dark land and water in one singe polygon where dark land and
-    # water are spatially connected. Here 'split_extended_water' checks
-    # if the backscatter splits into smaller pieces that are distinguishable.
-    # So 'split_extended_water' checks for bimodality for each polygon.
-    # If so, the code calculates a threshold and checks the bimodality
-    # for each split area.
-    input_map = np.where(water_map == 1, 1, 0)
-    del water_map
-
-    dswx_sar_util.save_dswx_product(
-        input_map,
-        os.path.join(outputdir, 'input_image_test.tif'),
-        geotransform=water_meta['geotransform'],
-        projection=water_meta['projection'],
-        scratch_dir=outputdir)
-    del input_map
-
-    input_file_dict = {'intensity': filt_im_str,
-                       'landcover': landcover_path,
-                       'reference_water': interp_wbd_str,
-                       'water_mask': water_map_tif_str}
-
-    split_mask_water_path = \
-        os.path.join(outputdir, 'split_mask_water_masking.tif')
-    split_extended_water_parallel(
-        water_mask_path=os.path.join(outputdir, 'input_image_test.tif'),
-        output_path=split_mask_water_path,
-        pol_ind=co_pol_ind,
-        outputdir=outputdir,
-        input_dict=input_file_dict,
-        number_workers=number_workers,
-        input_lines_per_block=lines_per_block)
-
-    # 4) re-define false water candidate estimated from
-    # 'split_extended_water_parallel'
-    # by considering the spatial coverage with the ancillary files
-    false_water_candidate_path = os.path.join(
-        outputdir, 'intermediate_false_water_candidate.tif')
-    dswx_sar_util.merge_binary_layers(
-        layer_list=[split_mask_water_path,
-                    water_map_tif_str],
-        value_list=[0, 1],
-        merged_layer_path=false_water_candidate_path,
-        lines_per_block=lines_per_block,
-        mode='and',
-        cog_flag=True,
-        scratch_dir=outputdir)
-
-    adjacent_false_positive_binary_path = \
-        os.path.join(outputdir, 'false_positive_connected_water.tif')
-
-    compute_spatial_coverage_from_ancillary_parallel(
-            false_water_binary_path=false_water_candidate_path,
-            reference_water_path=interp_wbd_str,
-            mask_landcover_path=mask_excluded_landcover_path,
-            output_file_path=adjacent_false_positive_binary_path,
-            outputdir=outputdir,
-            water_max_value=ref_water_max,
-            number_workers=number_workers,
-            lines_per_block=lines_per_block)
-
-    if hand_variation_mask:
-        darkland_removed_path = \
-            os.path.join(outputdir, 'masking_ancillary_darkland_removed.tif')
-        water_tif_str = \
-            os.path.join(outputdir, f"refine_landcover_binary_{pol_str}.tif")
-    else:
-        darkland_removed_path = \
-             os.path.join(outputdir, f"refine_landcover_binary_{pol_str}.tif")
-
-    dswx_sar_util.merge_binary_layers(
-        layer_list=[adjacent_false_positive_binary_path,
-                    darkland_cand_path,
-                    water_map_tif_str],
-        value_list=[0, 0, 1],
-        merged_layer_path=darkland_removed_path,
-        lines_per_block=lines_per_block,
-        mode='and',
-        cog_flag=True,
-        scratch_dir=outputdir)
-
-    if hand_variation_mask:
-        hand_filter_along_boundary(
-            target_area_path=darkland_removed_path,
-            height_std_threshold=hand_variation_threshold,
-            hand_path=hand_path_str,
-            output_path=water_tif_str,
-            debug_mode=processing_cfg.debug_mode,
-            metainfo=water_meta,
-            scratch_dir=outputdir)
-
-    if processing_cfg.debug_mode:
-        excluded_path = os.path.join(
-            outputdir, f"landcover_exclude_{pol_str}.tif")
-        dswx_sar_util.save_dswx_product(
-            mask_excluded_landcover,
-            excluded_path,
-            geotransform=water_meta['geotransform'],
-            projection=water_meta['projection'],
-            description='Water classification (WTR)',
-            scratch_dir=outputdir
-            )
-
-    t_all_elapsed = time.time() - t_all
-    logger.info("successfully ran landcover masking in "
-                f"{t_all_elapsed:.3f} seconds")
-
-
-def main():
-
-    parser = _get_parser()
-
-    args = parser.parse_args()
-
-    generate_log.configure_log_file(args.log_file)
-
-    mimetypes.add_type("text/yaml", ".yaml", strict=True)
-    flag_first_file_is_text = 'text' in mimetypes.guess_type(
-        args.input_yaml[0])[0]
-
-    if len(args.input_yaml) > 1 and flag_first_file_is_text:
-        logger.info('ERROR only one runconfig file is allowed')
-        return
-
-    if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
-
-    processing_cfg = cfg.groups.processing
-    pol_mode = processing_cfg.polarization_mode
-    pol_list = processing_cfg.polarizations
-    if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['DH_POL']]
-    elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
-    else:
-        proc_pol_set = [pol_list]
-    for pol_set in proc_pol_set:
-        processing_cfg.polarizations = pol_set
-        run(cfg)
-
-
-if __name__ == '__main__':
-    main()

@@ -1,48 +1,15 @@
-'''
-A module to mosaic Sentinel-1 geobursts from RTC workflow
-'''
-import copy
-import glob
 import logging
-import mimetypes
 import os
 import tempfile
-import time
 
-from collections import Counter
 import h5py
 import numpy as np
 from osgeo import osr, gdal
 from scipy import ndimage
 
-from dswx_sar.dswx_runconfig import _get_parser, RunConfig
-from dswx_sar import (dswx_geogrid,
-                      dswx_sar_util,
-                      generate_log)
+from dswx_sar.common import _dswx_sar_util
 
 logger = logging.getLogger('dswx_sar')
-
-
-def majority_element(num_list):
-    """
-    Determine the majority element in a list
-    Parameters
-    ----------
-    num_list : List[int]
-        A list of integers where the majority element needs to be determined.
-
-    Returns
-    -------
-    int:
-        The majority element in the list. If no majority exists,
-        it may return any element from the list.
-    """
-
-    counter = Counter(np.array(num_list))
-    most_common = counter.most_common()
-    most_freq_elem = most_common[0][0]
-
-    return most_freq_elem
 
 
 def read_metadata_epsg(h5_meta_path):
@@ -111,7 +78,7 @@ def save_h5_metadata_to_tif(h5_meta_path,
     output_dirname = os.path.dirname(output_tif_path)
 
     if epsg == epsg_output:
-        dswx_sar_util.save_raster_gdal(
+        _dswx_sar_util.save_raster_gdal(
             data,
             output_tif_path,
             geotransform,
@@ -124,7 +91,7 @@ def save_h5_metadata_to_tif(h5_meta_path,
             f'{os.path.basename(output_tif_path)}_temp.tif'
         output_tif_temp_path = os.path.join(output_tif_temp_dir_path,
                                             output_tif_temp_base_path)
-        dswx_sar_util.save_raster_gdal(
+        _dswx_sar_util.save_raster_gdal(
             data,
             output_tif_temp_path,
             geotransform,
@@ -738,228 +705,3 @@ def mosaic_multiple_output_files(
 
         # for i_band in range(num_bands):
         raster_out.GetRasterBand(1).WriteArray(arr_numerator[i_band])
-
-
-def run(cfg):
-    '''
-    Run mosaic burst workflow with user-defined
-    args stored in dictionary runconfig `cfg`
-    Parameters
-    ---------
-    cfg: RunConfig
-        RunConfig object with user runconfig options
-    '''
-    # Start tracking processing time
-    t_start = time.time()
-    logger.info("Starting the mosaic burst RTC products")
-
-    processing_cfg = cfg.groups.processing
-
-    scratch_path = cfg.groups.product_path_group.scratch_path
-    input_list = cfg.groups.input_file_group.input_file_path
-    mosaic_cfg = cfg.groups.processing.mosaic
-
-    mosaic_mode = mosaic_cfg.mosaic_mode
-    product_prefix = processing_cfg.mosaic.mosaic_prefix
-    pol_list = copy.deepcopy(processing_cfg.polarizations)
-
-    imagery_extension = 'tif'
-    os.makedirs(scratch_path, exist_ok=True)
-
-    # number of input directories and files
-    num_input_path = len(input_list)
-    if os.path.isdir(input_list[0]):
-        if num_input_path > 1:
-            logger.info('Multiple input directories are found.')
-            logger.info('Mosaic is enabled for burst RTCs ')
-            mosaic_flag = True
-        else:
-            logger.info('Single input directory is found.')
-            logger.info('Mosaic is disabled for single burst RTC ')
-            mosaic_flag = True
-    else:
-        if num_input_path == 1:
-            logger.info('Single input RTC is found.')
-            logger.info('Mosaic is disabled for input RTC')
-            mosaic_flag = False
-        else:
-            err_str = 'unable to process more than 1 images.'
-            logger.error(err_str)
-            raise ValueError(err_str)
-
-    if mosaic_flag:
-        print('Number of bursts to process:', num_input_path)
-
-        freqA_path = '/data/'
-
-        output_file_list = []
-        nlooks_list = []
-        mask_list = []
-        epsg_list = []
-
-        for ind, input_dir in enumerate(input_list):
-
-            first_rtc_path_iter = glob.iglob(f'{input_dir}/*.tif')
-            first_rtc_path = next(first_rtc_path_iter)
-            if first_rtc_path:
-                rtc_meta = dswx_sar_util.get_meta_from_tif(first_rtc_path)
-                epsg_list.append(rtc_meta['epsg'])
-            else:
-                err_msg = 'RTC files not found.'
-                raise FileExistsError(err_msg)
-
-        epsg_output = majority_element(epsg_list)
-        geogrid_in = dswx_geogrid.DSWXGeogrid()
-
-        logger.info('All RTC bursts and associated masks will be mosaicked '
-                    f'using the ESPG projection designated by {epsg_output}.')
-        # for each directory, find metadata, and RTC files.
-        for ind, input_dir in enumerate(input_list):
-
-            # find HDF5 metadata
-            layover_path = glob.glob(f'{input_dir}/*mask.tif')
-            temp_mask_path = f'{scratch_path}/layover_{ind}.tif'
-            # If both `*_mask.tif` and `*.h5` exists in RTC-S1 burst product
-            # directory:
-            # The metadata in `*_mask.tif` has priority over HDF5 file.
-            if len(layover_path) > 0:
-                logger.info('Layover/shadow GeoTIFF is found.')
-                if epsg_output != epsg_list[ind]:
-                    logger.info(f'{layover_path[0]}, '
-                                f'{epsg_list[ind]} -> {epsg_output}')
-                    dswx_sar_util.change_epsg_tif(
-                        input_tif=layover_path,
-                        output_tif=temp_mask_path,
-                        epsg_output=epsg_output,
-                        output_nodata=255)
-                    mask_list.append(temp_mask_path)
-
-                    # update geogrid using new GeoTiff file.
-                    geogrid_in.update_geogrid(temp_mask_path)
-
-                else:
-                    mask_list.append(layover_path[0])
-                    geogrid_in.update_geogrid(layover_path[0])
-
-            else:
-                # If mask GeoTiff is not available,
-                # layover/shadow mask may be saved in hdf5 metadata.
-                metadata_path = glob.glob(f'{input_dir}/*h5')[0]
-                logger.info('Metadata HDF5 is found.')
-
-                with h5py.File(metadata_path) as meta_src:
-                    if 'mask' in meta_src[freqA_path]:
-                        mask_name = 'mask'
-                    elif 'layoverShadowMask' in meta_src[freqA_path]:
-                        mask_name = 'layoverShadowMask'
-                    else:
-                        mask_name = None
-                if mask_name is not None:
-                    save_h5_metadata_to_tif(
-                        metadata_path,
-                        data_path=f'{freqA_path}/{mask_name}',
-                        output_tif_path=temp_mask_path,
-                        epsg_output=epsg_output)
-                    mask_list.append(temp_mask_path)
-            if not mask_list:
-                logger.warning('mask layer is not found!')
-
-        # Check if metadata have common values on
-        # polarization /track number/ direction fields
-        output_dir_mosaic_raster = scratch_path
-
-        # Mosaic sub-bursts imagery
-        logger.info('mosaicking files:')
-        rtc_burst_imagery_list = []
-
-        for pol in pol_list:
-            if pol in ['VV', 'VH', 'HV', 'HH']:
-                rtc_burst_imagery_list = []
-
-                for input_ind, input_dir in enumerate(input_list):
-                    rtc_path_inputs = glob.glob(
-                        f'{input_dir}/*_{pol}.tif')
-                    if rtc_path_inputs:
-                        rtc_path_input = rtc_path_inputs[0]
-
-                        if epsg_output != epsg_list[input_ind]:
-                            rtc_path_temp = \
-                                f'{scratch_path}/temp_{pol}_{input_ind}.tif'
-                            dswx_sar_util.change_epsg_tif(rtc_path_input,
-                                                          rtc_path_temp,
-                                                          epsg_output)
-                            rtc_burst_imagery_list.append(rtc_path_temp)
-
-                            # update geogrid using new GeoTiff file.
-                            geogrid_in.update_geogrid(rtc_path_temp)
-                        else:
-                            rtc_burst_imagery_list.append(rtc_path_input)
-                            geogrid_in.update_geogrid(rtc_path_input)
-                    else:
-                        print(f'polarization {pol} is not found in {input_dir}')
-                nlooks_list = []
-
-                if len(rtc_burst_imagery_list) > 0:
-                    geo_pol_filename = \
-                        (f'{output_dir_mosaic_raster}/{product_prefix}_{pol}.'
-                         f'{imagery_extension}')
-                    logger.info(f'    {geo_pol_filename}')
-                    output_file_list.append(geo_pol_filename)
-
-                    mosaic_single_output_file(
-                        rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
-                        mosaic_mode, scratch_dir=scratch_path,
-                        geogrid_in=geogrid_in, temp_files_list=None,
-                        no_data_value=0)
-
-        if mask_list:
-            geo_mask_filename = \
-                (f'{output_dir_mosaic_raster}/{product_prefix}_layovershadow_mask.'
-                 f'{imagery_extension}')
-            logger.info(f'    {geo_mask_filename}')
-            output_file_list.append(geo_mask_filename)
-            mosaic_single_output_file(
-                mask_list, nlooks_list, geo_mask_filename,
-                mosaic_mode, scratch_dir=scratch_path,
-                geogrid_in=geogrid_in, temp_files_list=None,
-                no_data_value=255)
-
-        # save files as COG format.
-        if processing_cfg.mosaic.mosaic_cog_enable:
-            logger.info('Saving files as Cloud-Optimized GeoTIFFs (COGs)')
-            for filename in output_file_list:
-                if not filename.endswith('.tif'):
-                    continue
-                logger.info(f'    processing file: {filename}')
-                dswx_sar_util._save_as_cog(
-                    filename, scratch_path, logger,
-                    compression='DEFLATE',
-                    nbits=16)
-
-            nlook_files = glob.glob(f'{scratch_path}/*nLooks_*.tif')
-            for rmfile in nlook_files:
-                os.remove(rmfile)
-
-    t_time_end = time.time()
-    logger.info(f'total processing time: {t_time_end - t_start} sec')
-
-
-if __name__ == "__main__":
-    '''Run mosaic rtc products from command line'''
-    # load arguments from command line
-    parser = _get_parser()
-
-    # parse arguments
-    args = parser.parse_args()
-
-    mimetypes.add_type("text/yaml", ".yaml", strict=True)
-    flag_first_file_is_text = 'text' in mimetypes.guess_type(
-        args.input_yaml[0])[0]
-
-    if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
-
-    generate_log.configure_log_file(cfg.groups.log_file)
-
-    # Run mosaic burst RTC workflow
-    run(cfg)

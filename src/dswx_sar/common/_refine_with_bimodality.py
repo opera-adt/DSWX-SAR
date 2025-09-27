@@ -872,6 +872,9 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                            input_lines_per_block*3,
                            input_lines_per_block*20,
                            rows]
+    # delete last iteration if rows is equal to 20 * input_lines_per_block
+    lines_per_block_set = list(dict.fromkeys(
+        [x for x in lines_per_block_set if x <= rows]))
 
     data_shape = [rows, cols]
     pad_shape = (0, 0)
@@ -880,6 +883,8 @@ def remove_false_water_bimodality_parallel(water_mask_path,
     remove_false_water_path_set = []
 
     for block_iter, lines_per_block in enumerate(lines_per_block_set):
+        is_final_pass = (block_iter == len(lines_per_block_set) - 1) or \
+            (lines_per_block == rows)
         block_params = _dswx_sar_util.block_param_generator(
             lines_per_block,
             data_shape,
@@ -893,7 +898,7 @@ def remove_false_water_bimodality_parallel(water_mask_path,
 
             logger.info(
                 'remove_false_water_bimodality_parallel '
-                f'block #{block_ind} from '
+                f'{block_iter} block #{block_ind} from '
                 f'{block_param.read_start_line} to '
                 f'{block_param.read_start_line + block_param.read_length}')
 
@@ -936,33 +941,38 @@ def remove_false_water_bimodality_parallel(water_mask_path,
             bounding_boxes = stats_water[1:, :4]
             index_set = []
             component_data = {}
-
+            block_rows, block_cols = water_mask.shape
             for ind in range(0, nb_components_water):
                 bbox_x, bbox_y, bbox_w, bbox_h = bounding_boxes[ind, :]
                 size = sizes[ind]
 
+                touches_boundary = (
+                    bbox_y == 0 or
+                    (bbox_y + bbox_h) >= block_rows
+                )
                 # Check if the component touches the boundary
-                if bbox_y != 0 and \
-                   (bbox_y + bbox_h) != block_param.block_length:
-                    margin = int((np.sqrt(2) - 1.2) * np.sqrt(size))
-                    margin = max(margin, 1)
+                if (not is_final_pass) and touches_boundary:
+                    continue
+                
+                margin = max(int((np.sqrt(2) - 1.2) * np.sqrt(size)), 1)
 
-                    sub_x_start = bbox_x - margin
-                    sub_x_end = bbox_x + bbox_w + margin
-                    sub_y_start = bbox_y - margin + block_param.read_start_line
-                    sub_y_end = bbox_y + bbox_h + margin + \
-                        block_param.read_start_line
 
-                    # Adjust the bounds to be within the valid range
-                    sub_x_start = np.maximum(sub_x_start, 0)
-                    sub_y_start = np.maximum(sub_y_start, 0)
-                    sub_x_end = np.minimum(sub_x_end, cols)
-                    sub_y_end = np.minimum(sub_y_end, rows)
+                sub_x_start = bbox_x - margin
+                sub_x_end = bbox_x + bbox_w + margin
+                sub_y_start = bbox_y - margin + block_param.read_start_line
+                sub_y_end = bbox_y + bbox_h + margin + \
+                    block_param.read_start_line
 
-                    index_set.append(ind)
-                    component_data[ind] = (ind, size,
-                                           [sub_x_start, sub_x_end,
-                                            sub_y_start, sub_y_end])
+                # Adjust the bounds to be within the valid range
+                sub_x_start = np.maximum(sub_x_start, 0)
+                sub_y_start = np.maximum(sub_y_start, 0)
+                sub_x_end = np.minimum(sub_x_end, cols)
+                sub_y_end = np.minimum(sub_y_end, rows)
+                index_set.append(ind)
+                component_data[ind] = (
+                    ind, size,
+                    [sub_x_start, sub_x_end,
+                    sub_y_start, sub_y_end])
 
             for pol_ind, pol in enumerate(pol_list):
                 if pol in ['VV', 'VH', 'HH', 'HV']:

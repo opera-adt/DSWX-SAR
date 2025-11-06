@@ -30,6 +30,7 @@ from dswx_sar.common._save_mgrs_tiles import (
     get_bounding_box_from_mgrs_tile,
     get_bounding_box_from_mgrs_tile_db,
     get_intersecting_mgrs_tiles_list,
+    get_intersecting_mgrs_tiles_list_from_db,
     merge_pol_layers)
 
 logger = logging.getLogger('dswx_sar')

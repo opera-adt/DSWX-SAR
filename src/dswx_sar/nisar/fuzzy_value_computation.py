@@ -1,21 +1,3 @@
-import logging
-import mimetypes
-
-from dswx_sar.common import _generate_log
-from dswx_sar.common import _fuzzy_value_computation, _dswx_sar_util, _masking_with_ancillary
-from dswx_sar.common._fuzzy_value_computation import (compute_slope_dem,
-                                                      create_slope_angle_geotiff,
-                                                      smf,
-                                                      zmf,
-                                                      calculate_water_area)
-
-from dswx_sar.nisar.dswx_ni_runconfig import (DSWX_NI_POL_DICT,
-                                     _get_parser,
-                                     RunConfig)
-
-logger = logging.getLogger('dswx_sar')
-
-
 import copy
 import logging
 import mimetypes
@@ -25,10 +7,19 @@ import time
 import cv2
 import numpy as np
 
-# from dswx_sar import (dswx_sar_util,
-#                       generate_log,
-#                       masking_with_ancillary)
 
+from dswx_sar.common import (_dswx_sar_util,
+                             _generate_log,
+                             _masking_with_ancillary)
+from dswx_sar.common._fuzzy_value_computation import (
+    create_slope_angle_geotiff,
+    smf,
+    zmf,
+    calculate_water_area)
+from dswx_sar.nisar.dswx_ni_runconfig import (
+    DSWX_NI_POL_DICT,
+    _get_parser,
+    RunConfig)
 
 logger = logging.getLogger('dswx_sar')
 

@@ -207,6 +207,7 @@ runconfig:
             hand_variation_threshold: 2.5
             line_per_block: 400
             number_cpu: 1
+            threshold_scale: 'linear'
 
         refine_with_bimodality:
             minimum_pixel: 4

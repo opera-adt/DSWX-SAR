@@ -42,7 +42,7 @@ def dswx_ni_workflow(cfg):
     logger.info(f"NISAR Processing Mode : {nisar_uni_mode}")
 
     # Create mosaic burst RTCs
-    # mosaic_gcov_frame.run(cfg)
+    mosaic_gcov_frame.run(cfg)
 
     if pol_mode == 'MIX_DUAL_POL':
         proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],

@@ -18,16 +18,19 @@ from rasterio.transform import Affine
 from rasterio.windows import Window
 
 from dswx_sar.sentinel1.mosaic_rtc_burst import (
-    majority_element, mosaic_single_output_file)
-from dswx_sar.common._dswx_sar_util import change_epsg_tif
+    mosaic_single_output_file)
+from dswx_sar.common._dswx_sar_util import (
+    _aggregate_10m_to_30m_conv,
+    _calculate_output_bounds,
+    change_epsg_tif,
+    majority_element)
 from dswx_sar.common._dswx_geogrid import DSWXGeogrid
 from dswx_sar.nisar.dswx_ni_runconfig import (
     _get_parser,
     RunConfig,
     get_pol_rtc_hdf5,
     check_rtc_frequency, get_rtc_spacing_list)
-from dswx_sar.common._dswx_sar_util import (
-    _calculate_output_bounds, _aggregate_10m_to_30m_conv)
+
 from dswx_sar.common.read_h5_s3 import (
     H5Reader, slice_gen, is_s3_path, file_exists
 )

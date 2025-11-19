@@ -863,7 +863,7 @@ def get_raster_block(raster_path, block_param):
         Block read from raster with shape specified in block_param.
     '''
     # Open input data using GDAL to get raster length
-    ds_data = gdal.Open(raster_path, gdal.GA_Update)
+    ds_data = gdal.Open(raster_path, gdal.GA_ReadOnly)
 
     # Number of bands in the raster
     num_bands = ds_data.RasterCount

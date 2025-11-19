@@ -24,7 +24,7 @@ def run(cfg):
     Remove the false water which have low backscattering based on the
     occurrence map and landcover map.
     '''
-    logger.info('Starting DSWx-S1 masking with ancillary data')
+    logger.info('Starting DSWx-NI masking with ancillary data')
 
     t_all = time.time()
     outputdir = cfg.groups.product_path_group.scratch_path

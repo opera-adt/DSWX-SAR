@@ -306,7 +306,7 @@ def _filter_one_block(block_param,
             arr = _dswx_sar_util.get_raster_block(
                 intensity_path, block_param)
         if mask_path is not None and mask_flag:
-            mask_block = dswx_sar_util.get_raster_block(
+            mask_block = _dswx_sar_util.get_raster_block(
                 mask_path, block_param)
             arr[mask_block == 0] = np.nan
         arr[arr == 0] = np.nan         # mask padded zeros

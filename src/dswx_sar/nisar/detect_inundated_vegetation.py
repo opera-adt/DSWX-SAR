@@ -8,13 +8,12 @@ from dswx_sar.common import _filter_SAR, _generate_log
 import numpy as np
 
 from dswx_sar.common import _dswx_sar_util
-from dswx_sar.sentinel1.dswx_runconfig import DSWX_NI_POL_DICT, _get_parser, RunConfig
+from dswx_sar.nisar.dswx_ni_runconfig import DSWX_NI_POL_DICT, _get_parser, RunConfig
 from dswx_sar.common import _detect_inundated_vegetation
 from dswx_sar.common._pre_processing import pol_ratio
 from dswx_sar.common._masking_with_ancillary import FillMaskLandCover
 
 logger = logging.getLogger('dswx_sar')
-
 
 
 def run(cfg):
@@ -232,7 +231,7 @@ def run(cfg):
                 cog_flag=True,
                 scratch_dir=scratch_dir)
 
-    _dswx_sar_util._save_as_cog(inundated_vege_path, scratch_dir)
+    # _dswx_sar_util._save_as_cog(inundated_vege_path, scratch_dir)
 
     t_time_end = time.time()
 
@@ -257,7 +256,7 @@ def main():
         return
 
     if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_ni', args)
 
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode

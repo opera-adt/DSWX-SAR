@@ -136,6 +136,13 @@ runconfig:
 
         fuzzy_value:
             line_per_block: num(min=1, required=False)
+            intensity:
+                # member min will be peak values computed from initial threshold
+                # alpha value will control of the mid point of zmf
+                # alpha=0.0 -> 0.5 of zmf  at peak
+                # alpha=0.5 -> 0.5 of zmf  midway
+                # alpha=1.0 -> 0.5 of zmf at valley
+                intensity_mid_alpha: num(required=False)
             hand:
                 # Min and max values for hand are automatically calculated
                 # from input HAND, but they are not given,

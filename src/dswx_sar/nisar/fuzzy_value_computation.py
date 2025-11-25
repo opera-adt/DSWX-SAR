@@ -3,7 +3,7 @@ import mimetypes
 
 from dswx_sar.common import _generate_log
 from dswx_sar.common import _fuzzy_value_computation
-from dswx_sar.sentinel1.dswx_runconfig import (DSWX_NI_POL_DICT,
+from dswx_sar.nisar.dswx_ni_runconfig import (DSWX_NI_POL_DICT,
                                      _get_parser,
                                      RunConfig)
 
@@ -25,7 +25,7 @@ def main():
         return
 
     if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_ni', args)
 
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode

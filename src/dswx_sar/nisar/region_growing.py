@@ -105,7 +105,7 @@ def main():
 
     _generate_log.configure_log_file(cfg.groups.log_file)
 
-    rg.run(cfg)
+    run(cfg)
 
 
 if __name__ == '__main__':

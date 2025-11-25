@@ -5,9 +5,10 @@ import numpy as np
 
 from dswx_sar.common import (_generate_log,
                              _initial_threshold)
-from dswx_sar.sentinel1.dswx_runconfig import (
-    DSWX_S1_POL_DICT,
-    _get_parser)
+from dswx_sar.nisar.dswx_ni_runconfig import (
+    DSWX_NI_POL_DICT,
+    _get_parser,
+    RunConfig)
 
 
 logger = logging.getLogger('dswx_sar')
@@ -29,25 +30,18 @@ def main():
         logger.info('ERROR only one runconfig file is allowed')
         return
 
-    if flag_first_file_is_text:
-        try:
-            from dswx_sar.sentinel1.dswx_runconfig import RunConfig
-            workflow = 'dswx_s1'
-        except:
-            from dswx_sar.nisar.dswx_ni_runconfig import RunConfig
-            workflow = 'dswx_ni'
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0],
-                                       workflow, args)
+    cfg = RunConfig.load_from_yaml(args.input_yaml[0],
+                                    'dswx_ni', args)
 
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode
     pol_list = processing_cfg.polarizations
     if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['DV_POL'],
-                        DSWX_S1_POL_DICT['DH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
+                        DSWX_NI_POL_DICT['DH_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':
-        proc_pol_set = [DSWX_S1_POL_DICT['SV_POL'],
-                        DSWX_S1_POL_DICT['SH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['SV_POL'],
+                        DSWX_NI_POL_DICT['SH_POL']]
     else:
         proc_pol_set = [pol_list]
     for pol_set in proc_pol_set:

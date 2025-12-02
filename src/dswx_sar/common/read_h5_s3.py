@@ -9,8 +9,6 @@ from botocore.config import Config as BotoConfig
 import h5py
 
 
-# --- Basics -----------------------------------------------------------------
-
 def is_s3_path(path: str) -> bool:
     return isinstance(path, str) and path.startswith("s3://")
 
@@ -23,8 +21,6 @@ def parse_s3_url(url: str) -> Tuple[str, str]:
         raise ValueError(f"Invalid S3 URL: {url}")
     return p.netloc, p.path.lstrip("/")
 
-
-# --- Existence checks -------------------------------------------------------
 
 def _discover_region(bucket: str, session: boto3.Session) -> str:
     s3 = session.client("s3", config=BotoConfig(signature_version="s3v4"))
@@ -54,48 +50,14 @@ def file_exists(path: str, *, profile: Optional[str] = None) -> bool:
     return os.path.exists(path)
 
 
-# --- HDF5 opener (local | S3 via ROS3 | HTTPS presigned) --------------------
-
 class H5Reader:
     """
     Context manager that opens an HDF5 file from:
       • local path    → h5py.File(path, "r")
       • s3://…        → h5py.File(path, "r", driver="ros3", **aws_kwargs)
       • https://…     → h5py.File(url,  "r", driver="ros3")  (presigned URL)
-
-    Credentials are taken from `profile` (default "saml-pub") or your env.
-    You can also increase the HDF5 raw chunk cache and ROS3 page buffer.
-
-    Example:
-        with H5Reader("s3://bucket/key/file.h5", profile="saml-pub",
-                      rdcc_nbytes=512<<20, page_buf_size=256<<20) as f:
-            d = f["/science/LSAR/GCOV/grids/frequencyA/HH"][:1000, :]
-
-    Parameters
-    ----------
-    path : str
-    profile : str | None
-        AWS profile name; ignored for local/https.
-    region : str | None
-        Force region; else auto-discover for the bucket.
-    use_presign_fallback : bool
-        If direct ROS3 open with creds fails, try presigning and opening via URL.
-    request_payer_requester : bool
-        Include RequestPayer=requester in presign (requester-pays buckets).
-    expires_in : int
-        Presign expiry seconds.
-
-    Performance knobs (optional)
-    ----------------------------
-    rdcc_nbytes : int
-        HDF5 raw data chunk cache bytes (e.g., 256<<20, 512<<20).
-    rdcc_nslots : int
-        Number of slots in the raw data cache hash table (e.g., 1_000_003).
-    rdcc_w0 : float
-        Eviction policy weight (0..1), default 0.75.
-    page_buf_size : int | None
-        ROS3 page buffer size (requires HDF5 built with page buffering).
     """
+
     def __init__(
         self,
         path: str,
@@ -119,30 +81,33 @@ class H5Reader:
         self.request_payer_requester = request_payer_requester
         self.expires_in = expires_in
 
-        self.rdcc_nbytes = rdcc_nbytes
-        self.rdcc_nslots = rdcc_nslots
-        self.rdcc_w0 = rdcc_w0
-        self.page_buf_size = page_buf_size
+        # Defaults
+        self.rdcc_nbytes = rdcc_nbytes if rdcc_nbytes is not None else (512 << 20)  # 512 MB
+        self.rdcc_nslots = rdcc_nslots if rdcc_nslots is not None else 1_000_003
+        self.rdcc_w0 = rdcc_w0 if rdcc_w0 is not None else 0.75
 
+        self.page_buf_size = page_buf_size
         self._f: Optional[h5py.File] = None
 
     def _open_local(self) -> h5py.File:
         return h5py.File(
             self.path, "r",
-            rdcc_nbytes=self.rdcc_nbytes or 0,
-            rdcc_nslots=self.rdcc_nslots or 0,
-            rdcc_w0=self.rdcc_w0 or 0.75,
+            rdcc_nbytes=self.rdcc_nbytes,
+            rdcc_nslots=self.rdcc_nslots,
+            rdcc_w0=self.rdcc_w0,
         )
 
     def _open_http(self) -> h5py.File:
-        # For HTTPS (e.g., presigned URL), ROS3 uses the URL; no extra kwargs
-        return h5py.File(
-            self.path, "r", driver="ros3",
-            rdcc_nbytes=self.rdcc_nbytes or 0,
-            rdcc_nslots=self.rdcc_nslots or 0,
-            rdcc_w0=self.rdcc_w0 or 0.75,
-            **({"page_buf_size": self.page_buf_size} if self.page_buf_size else {})
-        )
+        kwargs = {
+            "driver": "ros3",
+            "rdcc_nbytes": self.rdcc_nbytes,
+            "rdcc_nslots": self.rdcc_nslots,
+            "rdcc_w0": self.rdcc_w0,
+        }
+        if self.page_buf_size:
+            kwargs["page_buf_size"] = self.page_buf_size
+
+        return h5py.File(self.path, "r", **kwargs)
 
     def _open_s3_ros3(self) -> h5py.File:
         assert is_s3_path(self.path)
@@ -155,12 +120,11 @@ class H5Reader:
             raise RuntimeError("No AWS credentials available (profile/env/IMDS).")
         fc = creds.get_frozen_credentials()
 
-        # Try byte kwargs first, then str kwargs (some builds prefer one or the other)
         base_kwargs = {
             "driver": "ros3",
-            "rdcc_nbytes": self.rdcc_nbytes or 0,
-            "rdcc_nslots": self.rdcc_nslots or 0,
-            "rdcc_w0": self.rdcc_w0 or 0.75,
+            "rdcc_nbytes": self.rdcc_nbytes,
+            "rdcc_nslots": self.rdcc_nslots,
+            "rdcc_w0": self.rdcc_w0,
         }
         if self.page_buf_size:
             base_kwargs["page_buf_size"] = self.page_buf_size
@@ -197,15 +161,14 @@ class H5Reader:
             last_err = e
 
         if self.use_presign_fallback:
-            s3 = sess.client("s3", region_name=effective_region, config=BotoConfig(signature_version="s3v4"))
+            s3 = sess.client("s3", region_name=effective_region,
+                             config=BotoConfig(signature_version="s3v4"))
             params = {"Bucket": bucket, "Key": key}
             if self.request_payer_requester:
                 params["RequestPayer"] = "requester"
-            url = s3.generate_presigned_url("get_object", Params=params, ExpiresIn=self.expires_in)
-            try:
-                return self._open_http_with_url(url)
-            except Exception as e:
-                last_err = e
+            url = s3.generate_presigned_url("get_object", Params=params,
+                                            ExpiresIn=self.expires_in)
+            return self._open_http_with_url(url)
 
         raise RuntimeError(
             f"ROS3 open failed for s3://{bucket}/{key} (region={effective_region}). "
@@ -213,14 +176,15 @@ class H5Reader:
         )
 
     def _open_http_with_url(self, url: str) -> h5py.File:
-        # Same as _open_http but with provided URL
-        return h5py.File(
-            url, "r", driver="ros3",
-            rdcc_nbytes=self.rdcc_nbytes or 0,
-            rdcc_nslots=self.rdcc_nslots or 0,
-            rdcc_w0=self.rdcc_w0 or 0.75,
-            **({"page_buf_size": self.page_buf_size} if self.page_buf_size else {})
-        )
+        kwargs = {
+            "driver": "ros3",
+            "rdcc_nbytes": self.rdcc_nbytes,
+            "rdcc_nslots": self.rdcc_nslots,
+            "rdcc_w0": self.rdcc_w0,
+        }
+        if self.page_buf_size:
+            kwargs["page_buf_size"] = self.page_buf_size
+        return h5py.File(url, "r", **kwargs)
 
     def __enter__(self) -> h5py.File:
         if is_s3_path(self.path):
@@ -235,8 +199,6 @@ class H5Reader:
         if self._f is not None:
             self._f.close()
 
-
-# --- Simple block slicer you already use ------------------------------------
 
 def slice_gen(total_size: int, batch_size: int, combine_rem: bool = True) -> Iterator[slice]:
     n_full = total_size // batch_size

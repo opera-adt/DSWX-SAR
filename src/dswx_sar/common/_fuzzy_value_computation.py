@@ -625,32 +625,6 @@ def run(cfg):
                     cog_flag=True,
                     scratch_dir=outputdir)
 
-    if processing_cfg.debug_mode:
-
-        for raster_name, _ in rasters_to_save:
-            filename = os.path.join(
-                outputdir,
-                f"fuzzy_{raster_name}_{pol_all_str}.tif")
-            if not filename.endswith('.tif'):
-                continue
-            logger.info(f'    processing file: {filename}')
-            _dswx_sar_util._save_as_cog(
-                filename,
-                outputdir,
-                logger,
-                compression='DEFLATE',
-                nbits=16)
-
-        for pol in pol_list:
-            filename = os.path.join(
-                outputdir, f"fuzzy_intensity_{pol}.tif")
-            _dswx_sar_util._save_as_cog(
-                filename,
-                outputdir,
-                logger,
-                compression='DEFLATE',
-                nbits=16)
-
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran fuzzy processing in "
                 f"{t_all_elapsed:.3f} seconds")

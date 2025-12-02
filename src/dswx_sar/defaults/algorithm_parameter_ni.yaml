@@ -24,7 +24,7 @@ runconfig:
             drought_erosion_pixel: 10
             # number of pixel to apply dilation for flood case
             flood_dilation_pixel: 16
-        # 
+
         partial_surface_water:
             enabled: True
             threshold: 5
@@ -139,6 +139,13 @@ runconfig:
 
         fuzzy_value:
             line_per_block: 200
+            intensity:
+                # member min will be peak values computed from initial threshold
+                # alpha value will control of the mid point of zmf
+                # alpha=0.0 -> 0.5 of zmf  at peak
+                # alpha=0.5 -> 0.5 of zmf  midway
+                # alpha=1.0 -> 0.5 of zmf at valley
+                intensity_mid_alpha: 1
             hand:
                 # The units of the HAND is meters.
                 member_min: 0

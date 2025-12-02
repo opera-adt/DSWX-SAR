@@ -560,7 +560,10 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
                             break
                         else:
                             rfi_found = False
-                    
+                            num_frames_rfi = None
+                    else:
+                        rfi_found = False
+                        num_frames_rfi = None
                 if rfi_found:
                     num_frames_rfi += 1
                     break

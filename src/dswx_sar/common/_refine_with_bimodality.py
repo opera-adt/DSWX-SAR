@@ -956,7 +956,6 @@ def remove_false_water_bimodality_parallel(water_mask_path,
                 
                 margin = max(int((np.sqrt(2) - 1.2) * np.sqrt(size)), 1)
 
-
                 sub_x_start = bbox_x - margin
                 sub_x_end = bbox_x + bbox_w + margin
                 sub_y_start = bbox_y - margin + block_param.read_start_line

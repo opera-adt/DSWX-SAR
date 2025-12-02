@@ -263,7 +263,7 @@ def run(cfg):
                 cog_flag=True,
                 scratch_dir=scratch_dir)
 
-    _dswx_sar_util._save_as_cog(inundated_vege_path, scratch_dir)
+    # _dswx_sar_util._save_as_cog(inundated_vege_path, scratch_dir)
 
     t_time_end = time.time()
 

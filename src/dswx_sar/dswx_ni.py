@@ -3,8 +3,6 @@
 import logging
 import time
 
-from dswx_sar.common import (detect_inundated_vegetation,)
-
 from dswx_sar.nisar.dswx_ni_runconfig import (_get_parser,
                                         RunConfig,
                                         DSWX_NI_POL_DICT)
@@ -17,7 +15,8 @@ from dswx_sar.nisar import (mosaic_gcov_frame,
                             pre_processing, 
                             save_mgrs_tiles_ni, 
                             refine_with_bimodality,
-                            region_growing)
+                            region_growing,
+                            detect_inundated_vegetation)
 from dswx_sar.nisar import masking_with_ancillary
 
 logger = logging.getLogger('dswx_sar')

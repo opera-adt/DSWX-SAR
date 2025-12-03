@@ -1115,6 +1115,9 @@ class RTCReader(DataReader):
                 track_number = track_number.decode("utf-8")
             abs_orbit_number = src_h5[
                 dswx_meta_mapping['RTC_ABSOLUTE_ORBIT_NUMBER']][()]
+            track_number = int(track_number)
+            frame_number = int(frame_number)
+            abs_orbit_number = int(abs_orbit_number)
             try:
                 input_slc_granules = os.path.basename(src_h5[
                     dswx_meta_mapping['RTC_INPUT_L1_SLC_GRANULES']][(0)].decode())

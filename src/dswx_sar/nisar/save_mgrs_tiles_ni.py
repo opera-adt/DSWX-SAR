@@ -251,7 +251,7 @@ def get_intersecting_mgrs_tiles_list_from_db(
 
     # If track number is given, then search MGRS tile collection with
     # track number
-    if track_number is not None and track_number != 0:
+    if track_number is not None and track_number != 0 and track_number != 1:
         vector_gdf = vector_gdf[
             vector_gdf['track_number'] ==
             track_number].to_crs("EPSG:4326")
@@ -394,8 +394,7 @@ def run(cfg):
         # Find HDF5 metadata
 
         rtc_metadata = rtc_reader.read_metadata_hdf5(input_h5)
-        # tags = src.tags(0)
-        # date_str = tags['ZERO_DOPPLER_START_TIME']
+
         platform = 'LSAR'
         track_number = rtc_metadata['TRACK_NUMBER']
         resolution = int(output_spacing)

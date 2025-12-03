@@ -30,6 +30,9 @@ RUN ${CONDA_PREFIX}/bin/conda init bash
 COPY --chown=dswx_user:dswx_user . /home/dswx_user/OPERA/DSWX-SAR
 
 # create CONDA environment
+RUN conda config --remove channels defaults || true
+RUN conda config --add channels conda-forge
+RUN conda config --set channel_priority strict
 RUN conda create --name "DSWX-SAR" --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock &&  conda clean -afy
 
 SHELL ["conda", "run", "-n", "DSWX-SAR", "/bin/bash", "-c"]

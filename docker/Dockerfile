@@ -1,8 +1,8 @@
 FROM oraclelinux:8
 
 LABEL author="OPERA ADT" \
-    description="DSWX-SAR final patch release R4.1" \
-    version="1.1-final-patch"
+    description="DSWX-SAR final patch2 release R4.2" \
+    version="1.2-final-patch2"
 
 RUN yum -y update &&\
     yum -y install curl &&\

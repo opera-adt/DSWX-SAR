@@ -10,6 +10,8 @@ import numpy as np
 from dswx_sar.common import (_dswx_sar_util,
                              _masking_with_ancillary,
                              _generate_log)
+from dswx_sar.common._detect_inundated_vegetation import parse_ranges
+
 from dswx_sar.nisar.dswx_ni_runconfig import (
     DSWX_NI_POL_DICT,
     _get_parser,
@@ -88,7 +90,7 @@ def run(cfg):
     del mask_obj
 
     glad_obj = _masking_with_ancillary.FillMaskLandCover(glad_path, 'GLAD')
-    from common._detect_inundated_vegetation import parse_ranges
+
     target_glad_class = ['1-24']
     inundated_vege_target = parse_ranges(target_glad_class)
     glad_mask_excluded_landcover = glad_obj.get_mask(

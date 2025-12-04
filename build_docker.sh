@@ -1,7 +1,7 @@
 #!/bin/bash
 
 IMAGE=opera/dswx-s1
-tag=final_patch_1.1
+tag=final_patch2_1.2
 echo "IMAGE is $IMAGE:$tag"
 
 # fail on any non-zero exit codes

@@ -15,13 +15,13 @@ RUN chmod -R 755 /home/dswx_user &&\
 
 USER dswx_user
 
-ENV CONDA_PREFIX=/home/dswx_user/miniconda3
+ENV CONDA_PREFIX=/opt/conda
 
 # install Miniconda
 WORKDIR /home/dswx_user
-RUN curl -sSL https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -o miniconda.sh &&\
-    bash miniconda.sh -b -p ${CONDA_PREFIX} &&\
-    rm $HOME/miniconda.sh
+RUN curl -sSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o miniforge.sh \
+    && bash miniforge.sh -b -p /opt/conda \
+    && rm miniforge.sh
 
 ENV PATH=${CONDA_PREFIX}/bin:${PATH}
 RUN ${CONDA_PREFIX}/bin/conda init bash
@@ -30,6 +30,9 @@ RUN ${CONDA_PREFIX}/bin/conda init bash
 COPY --chown=dswx_user:dswx_user . /home/dswx_user/OPERA/DSWX-SAR
 
 # create CONDA environment
+RUN conda config --add channels conda-forge \
+ && conda config --set channel_priority strict
+
 RUN conda create --name "DSWX-SAR" --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock &&  conda clean -afy
 
 SHELL ["conda", "run", "-n", "DSWX-SAR", "/bin/bash", "-c"]

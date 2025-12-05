@@ -15,12 +15,12 @@ RUN chmod -R 755 /home/dswx_user &&\
 
 USER dswx_user
 
-ENV CONDA_PREFIX=/opt/conda
+ENV CONDA_PREFIX=/home/dswx_user/miniforge3
 
-# install Miniconda
+# install Miniconda $CONDA_PREFIX
 WORKDIR /home/dswx_user
 RUN curl -sSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o miniforge.sh \
-    && bash miniforge.sh -b -p /opt/conda \
+    && bash miniforge.sh -b -p ${CONDA_PREFIX} \
     && rm miniforge.sh
 
 ENV PATH=${CONDA_PREFIX}/bin:${PATH}

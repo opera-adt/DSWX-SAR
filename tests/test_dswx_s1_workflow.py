@@ -3,8 +3,8 @@ import requests
 import zipfile
 
 from types import SimpleNamespace
-from dswx_sar.dswx_runconfig import RunConfig
-from dswx_sar import generate_log
+from dswx_sar.sentinel1.dswx_runconfig import RunConfig
+from dswx_sar.common import _generate_log
 
 from dswx_sar import dswx_s1
 
@@ -43,7 +43,7 @@ def test_workflow():
                            log_file=log_path)
 
     cfg = RunConfig.load_from_yaml(runconfig_path, 'dswx_s1', args)
-    generate_log.configure_log_file(cfg.groups.log_file)
+    _generate_log.configure_log_file(cfg.groups.log_file)
 
     dswx_s1.dswx_s1_workflow(cfg)
 

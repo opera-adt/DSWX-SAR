@@ -121,6 +121,105 @@ def region_growing(likelihood_image,
     return binary_image
 
 
+def region_growing_fast(
+    likelihood_image: np.ndarray,
+    initial_threshold: float = 0.6,
+    relaxed_threshold: float = 0.45,
+    maxiter: int = 200,  # kept for API compatibility; unused in fast path
+    exclude_area: np.ndarray | None = None,
+    mode: str = 'descending',
+    verbose: bool = True,
+    structure: np.ndarray | None = None,  # connectivity kernel (e.g., 3x3 ones)
+    logger: logging.Logger | None = None,
+) -> np.ndarray:
+    """
+    Grow regions from seeds into neighbors that satisfy a relaxed threshold.
+
+    Parameters
+    ----------
+    likelihood_image : np.ndarray
+        Float array in [0, 1] expressing likelihood (e.g., of water).
+    initial_threshold : float
+        Seed threshold. For 'descending', seeds are > initial_threshold.
+        For 'ascending', seeds are < initial_threshold.
+    relaxed_threshold : float
+        Growth eligibility threshold. For 'descending', eligible are > relaxed_threshold.
+        For 'ascending', eligible are < relaxed_threshold.
+    maxiter : int
+        Ignored in the fast path (propagation converges in one call).
+        Kept only for backward compatibility.
+    exclude_area : np.ndarray or None
+        Boolean mask; True where growth is forbidden.
+    mode : {'ascending','descending'}
+        Controls the inequality direction.
+    verbose : bool
+        If True, emits a short log message.
+    structure : np.ndarray or None
+        Binary structuring element for connectivity (None → default 8-connected in 2D).
+    logger : logging.Logger or None
+        Optional logger for messages.
+
+    Returns
+    -------
+    np.ndarray of dtype bool
+        True where grown; False elsewhere.
+    """
+    if mode not in ('ascending', 'descending'):
+        raise ValueError(f"mode must be 'ascending' or 'descending', got {mode!r}")
+
+    if mode == 'descending' and not (initial_threshold > relaxed_threshold):
+        raise ValueError(
+            f"Initial threshold {initial_threshold} should be larger than relaxed threshold {relaxed_threshold} "
+            "for 'descending' mode."
+        )
+    if mode == 'ascending' and not (initial_threshold < relaxed_threshold):
+        raise ValueError(
+            f"Initial threshold {initial_threshold} should be smaller than relaxed threshold {relaxed_threshold} "
+            "for 'ascending' mode."
+        )
+
+    if likelihood_image.dtype.kind == 'f':
+        if np.isnan(likelihood_image).any():
+            # Treat NaNs as ineligible for growth
+            likelihood = np.nan_to_num(likelihood_image, nan=-np.inf if mode=='descending' else np.inf)
+        else:
+            likelihood = likelihood_image
+    else:
+        likelihood = likelihood_image.astype(float, copy=False)
+
+    # Seeds S
+    if mode == 'descending':
+        seeds = likelihood > initial_threshold
+        eligible = likelihood > relaxed_threshold
+    else:
+        seeds = likelihood < initial_threshold
+        eligible = likelihood < relaxed_threshold
+
+    if exclude_area is not None:
+        if exclude_area.shape != likelihood.shape:
+            raise ValueError("exclude_area shape must match likelihood_image")
+        ex = exclude_area.astype(bool, copy=False)
+        seeds = seeds & (~ex)
+        eligible = eligible & (~ex)
+
+    if not seeds.any():
+        if verbose and logger:
+            logger.info("region_growing: no initial seeds; returning empty mask.")
+        return np.zeros_like(seeds, dtype=bool)
+
+    # Default to 8-connected neighbors in 2D if not provided
+    if structure is None:
+        structure = ndimage.generate_binary_structure(seeds.ndim, 1)
+
+    # One-shot growth to convergence within eligible mask
+    grown = ndimage.binary_propagation(seeds, structure=structure, mask=eligible)
+
+    if verbose and logger:
+        logger.info(f"region_growing: grown pixels: {int(grown.sum()):,d}")
+
+    return grown
+
+
 def process_region_growing_block(block_param,
                                  loopind,
                                  base_dir,
@@ -129,7 +228,8 @@ def process_region_growing_block(block_param,
                                  exclude_area_path,
                                  initial_threshold,
                                  relaxed_threshold,
-                                 maxiter):
+                                 maxiter,
+                                 rg_method='normal'):
     """Process region growing for blocks
 
     Parameters
@@ -183,12 +283,16 @@ def process_region_growing_block(block_param,
         exclude_block = None
 
     # Run region growing for fuzzy values
-    region_grow_sub = region_growing(data_block,
-                                     initial_threshold=initial_threshold,
-                                     relaxed_threshold=relaxed_threshold,
-                                     maxiter=maxiter,
-                                     exclude_area=exclude_block,
-                                     verbose=False)
+    if rg_method == 'normal':
+        rg_algorithm = region_growing
+    elif rg_method == 'fast':
+        rg_algorithm = region_growing_fast
+    region_grow_sub = rg_algorithm(data_block,
+                                   initial_threshold=initial_threshold,
+                                   relaxed_threshold=relaxed_threshold,
+                                   maxiter=maxiter,
+                                   exclude_area=exclude_block,
+                                   verbose=False)
 
     # replace fuzzy values with 1 for the pixels included by region growing
     data_block[region_grow_sub == 1] = 1
@@ -205,7 +309,8 @@ def run_parallel_region_growing(input_tif_path,
                                 lines_per_block=200,
                                 initial_threshold=0.6,
                                 relaxed_threshold=0.45,
-                                maxiter=200):
+                                maxiter=200,
+                                rg_method='normal'):
     """Perform region growing in parallel
 
     Parameters
@@ -279,7 +384,8 @@ def run_parallel_region_growing(input_tif_path,
                 exclude_area_path,
                 initial_threshold,
                 relaxed_threshold,
-                maxiter)
+                maxiter,
+                rg_method=rg_method)
             for block_param in block_params)
 
         for block_param, region_grow_block in result:

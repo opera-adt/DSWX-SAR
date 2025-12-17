@@ -1198,7 +1198,8 @@ def extend_land_cover_v2(
         lines_per_block=1000,
         initial_threshold=0.9,
         relaxed_threshold=0.7,
-        maxiter=0)
+        maxiter=0,
+        rg_method='fast')
 
     fuzzy_map = _dswx_sar_util.read_geotiff(darkland_cand_tif_str)
     temp_rg = _dswx_sar_util.read_geotiff(temp_rg_tif_path)
@@ -1208,7 +1209,7 @@ def extend_land_cover_v2(
     fuzzy_map[temp_rg == 1] = 1
 
     # Run region-growing again for entire image
-    region_grow_map = _region_growing.region_growing(
+    region_grow_map = _region_growing.region_growing_fast(
         likelihood_image = fuzzy_map,
         initial_threshold=0.9,
         relaxed_threshold=0.7,

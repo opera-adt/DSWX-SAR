@@ -22,6 +22,7 @@ from rasterio.merge import merge
 from shapely import wkt
 from shapely.geometry import Polygon
 from shapely.ops import transform
+import warnings
 
 from dswx_sar.common import _dswx_sar_util
 
@@ -60,6 +61,15 @@ def get_bounding_box_from_mgrs_tile_db(
     # Filter the MGRS database using the provided "mgrs_tile_name"
     filtered_gdf = vector_gdf[vector_gdf['mgrs_tile'] ==
                               mgrs_tile_name]
+    # Check existence
+    if filtered_gdf.empty:
+        warnings.warn(
+            f"MGRS tile '{mgrs_tile_name}' not found in database: "
+            f"{mgrs_db_path}",
+            UserWarning,
+            stacklevel=2
+        )
+        return None, None, None, None, None
 
     # Get the bounding box coordinates and
     # EPSG code from the filtered data

@@ -360,7 +360,7 @@ def compute_mosaic_array(list_rtc_images,
         print('        width:', dim_mosaic[1])
         print('        length:', dim_mosaic[0])
         print('        projection:', wkt_projection)
-        print('        number of bands: {num_bands}')
+        print(f'        number of bands: {num_bands}')
 
     if mosaic_mode.lower() == 'average':
         arr_numerator = np.zeros((num_bands, dim_mosaic[0], dim_mosaic[1]),

@@ -17,8 +17,8 @@ import rasterio
 from rasterio.transform import Affine
 from rasterio.windows import Window
 
-from dswx_sar.sentinel1.mosaic_rtc_burst import (
-    mosaic_single_output_file)
+from dswx_sar.common._mosaic import mosaic_single_output_file
+
 from dswx_sar.common._dswx_sar_util import (
     _aggregate_10m_to_30m_conv,
     _calculate_output_bounds,
@@ -518,6 +518,7 @@ class RTCReader(DataReader):
                 scratch_dir=scratch_dir,
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
+                no_data_value=255,
                 )
 
         # Mosaic layover shadow mask
@@ -537,6 +538,7 @@ class RTCReader(DataReader):
                 scratch_dir=scratch_dir,
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
+                no_data_value=255,
             )
 
     def resample_rtc(

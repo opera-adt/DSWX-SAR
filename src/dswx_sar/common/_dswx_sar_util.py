@@ -166,33 +166,34 @@ def get_interpreted_dswx_s1_ctable():
     return dswx_ctable
 
 
-def read_geotiff(input_tif_str, band_ind=None, verbose=True):
-    """Read band from geotiff
-
-    Parameters
-    ----------
-    input_tif_str: str
-        geotiff file path to read the band
-    band_ind: int
-        Index of the band to read, starts from 0
-
-    Returns
-    -------
-    tifdata: numpy.ndarray
-        image from geotiff
+def read_geotiff(input_tif_str, band_ind=None, window=None, verbose=True):
     """
-    tif = gdal.Open(input_tif_str)
-    if band_ind is None:
-        tifdata = tif.ReadAsArray()
-    else:
-        tifdata = tif.GetRasterBand(band_ind + 1).ReadAsArray()
+    window: (xoff, yoff, xsize, ysize) in pixel coords
+    """
+    ds = gdal.Open(input_tif_str, gdal.GA_ReadOnly)
+    if ds is None:
+        raise RuntimeError(f"Failed to open: {input_tif_str}")
 
-    tif.FlushCache()
-    tif = None
-    del tif
+    if band_ind is None:
+        # ReadAsArray supports window args too, but be explicit for clarity
+        if window is None:
+            arr = ds.ReadAsArray()
+        else:
+            xoff, yoff, xsize, ysize = window
+            arr = ds.ReadAsArray(xoff, yoff, xsize, ysize)
+    else:
+        band = ds.GetRasterBand(band_ind + 1)
+        if window is None:
+            arr = band.ReadAsArray()
+        else:
+            xoff, yoff, xsize, ysize = window
+            arr = band.ReadAsArray(xoff, yoff, xsize, ysize)
+
     if verbose:
-        print(f" -- Reading {input_tif_str} ... {tifdata.shape}")
-    return tifdata
+        print(f" -- Reading {input_tif_str} ... {arr.shape}")
+
+    ds = None
+    return arr
 
 
 def save_raster_gdal(data, output_file, geotransform,
@@ -277,7 +278,10 @@ def save_dswx_product(wtr, output_file, geotransform,
     """
     shape = wtr.shape
     driver = gdal.GetDriverByName("GTiff")
-    wtr = np.asarray(wtr, dtype=datatype)
+    wtr = np.asarray(wtr)
+    if wtr.dtype != np.dtype(datatype):
+        # Only cast if needed (this may copy)
+        wtr = wtr.astype(datatype, copy=False)
     dswx_processed_bands_keys = dswx_processed_bands.keys()
 
     msg = f'Saving dswx product : {output_file} '
@@ -292,36 +296,83 @@ def save_dswx_product(wtr, output_file, geotransform,
         key=lambda x: x.lower() == 'inundated_vegetation')
 
     for band_key in sorted_band_keys:
-        if band_key.lower() in dswx_processed_bands_keys:
-            dswx_product_value = band_value_dict[band_key]
-            wtr[dswx_processed_bands[band_key.lower()] == 1] = \
-                dswx_product_value
-            msg = f'    {band_key.lower()} found {dswx_product_value}'
+        key = band_key.lower()
+        if key not in dswx_processed_bands_keys:
+            continue
+        mask = dswx_processed_bands.get(key, None)
+        if mask is None:
+            # Optional: log once
             if logger is not None:
-                logger.info(msg)
-            else:
-                print(msg)
+                logger.debug(f"    {key} mask is None; skipping")
+            continue
+        if mask.dtype != np.bool_:
+            mask = mask.astype(np.bool_, copy=False)
+        if mask.shape != wtr.shape:
+            raise ValueError(f"Mask '{key}' shape {mask.shape} != wtr shape {wtr.shape}")
+
+        dswx_product_value = band_value_dict[band_key]
+        np.putmask(wtr, mask, dswx_product_value)
+
+        msg = f'    {band_key.lower()} found {dswx_product_value}'
+        if logger is not None:
+            logger.info(msg)
+        else:
+            print(msg)
 
     gdal_type = np2gdal_conversion[str(datatype)]
 
+    create_opts = [
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE",
+        "PREDICTOR=2",
+        "ZLEVEL=6",
+        "BIGTIFF=IF_SAFER",
+    ]
+    if datatype in ("uint8", "byte"):
+        nbits = 8
+        create_opts.append("NBITS=8")
+    elif datatype in ("uint16",):
+        nbits = 16
+        create_opts.append("NBITS=16")
+
+    if not is_diag:
+        create_opts.append("PHOTOMETRIC=PALETTE")
+
+    if create_opts is None:
+        create_opts = []
+    elif isinstance(create_opts, (tuple, list)):
+        # remove None and ensure all are strings
+        bad = [x for x in create_opts if not isinstance(x, str)]
+        if bad:
+            raise TypeError(f"GTiff create_opts must be strings, found: {bad!r}")
+        create_opts = [x for x in create_opts if x]  # drop empty strings
+    else:
+        raise TypeError(f"create_opts must be list/tuple of strings, got {type(create_opts)}: {create_opts!r}")
     gdal_ds = driver.Create(output_file,
-                            shape[1], shape[0], 1, gdal_type)
+                            shape[1], shape[0], 1, gdal_type,
+                            options=create_opts)
     gdal_ds.SetGeoTransform(geotransform)
     gdal_ds.SetProjection(projection)
 
     gdal_band = gdal_ds.GetRasterBand(1)
-    gdal_band.WriteArray(wtr)
-    gdal_band.SetNoDataValue(band_value_dict['no_data'])
-    gdal_band.SetMetadata(metadata)
+
     # set color table and color interpretation
     if not is_diag:
         dswx_ctable = get_interpreted_dswx_s1_ctable()
         gdal_band.SetRasterColorTable(dswx_ctable)
         gdal_band.SetRasterColorInterpretation(
             gdal.GCI_PaletteIndex)
+    gdal_band.SetNoDataValue(band_value_dict['no_data'])
+
+    if metadata is not None:
+        gdal_band.SetMetadata(metadata)
 
     if description is not None:
         gdal_band.SetDescription(description)
+
+    gdal_band.WriteArray(wtr)
 
     gdal_band.FlushCache()
     gdal_band = None
@@ -330,7 +381,7 @@ def save_dswx_product(wtr, output_file, geotransform,
     gdal_ds = None
     del gdal_ds  # close the dataset (Python object and pointers)
 
-    _save_as_cog(output_file, scratch_dir)
+    _save_as_cog(output_file, scratch_dir, nbits=nbits)
 
 
 def _save_as_cog(filename,

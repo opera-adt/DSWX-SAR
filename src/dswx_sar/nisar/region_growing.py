@@ -8,7 +8,7 @@ import time
 from dswx_sar.common import _generate_log
 from dswx_sar.common import (_dswx_sar_util)
 from dswx_sar.common._region_growing import (run_parallel_region_growing,
-                                             region_growing)
+                                             region_growing_fast)
 from dswx_sar.nisar.dswx_ni_runconfig import (DSWX_NI_POL_DICT,
                                      RunConfig,
                                      _get_parser)
@@ -59,7 +59,8 @@ def run(cfg):
         lines_per_block=region_growing_line_per_block,
         initial_threshold=region_growing_seed,
         relaxed_threshold=region_growing_relaxed_threshold,
-        maxiter=0)
+        maxiter=0,
+        rg_method='fast')
 
     fuzzy_map = _dswx_sar_util.read_geotiff(fuzzy_tif_path)
     temp_rg = _dswx_sar_util.read_geotiff(temp_rg_tif_path)
@@ -70,7 +71,7 @@ def run(cfg):
     del temp_rg
 
     # Run region-growing again for entire image
-    region_grow_map = region_growing(
+    region_grow_map = region_growing_fast(
         fuzzy_map,
         initial_threshold=region_growing_seed,
         relaxed_threshold=region_growing_relaxed_threshold,

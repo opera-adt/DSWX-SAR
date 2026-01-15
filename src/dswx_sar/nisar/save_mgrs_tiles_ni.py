@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ast
 import copy
 import datetime
@@ -6,6 +8,11 @@ import logging
 import mimetypes
 import os
 import time
+
+from dataclasses import dataclass
+from typing import Iterable, List, Optional, Tuple, Dict
+
+from shapely.ops import transform as shp_transform
 
 import geopandas as gpd
 from dswx_sar.common import _dswx_sar_util, _generate_log
@@ -18,6 +25,7 @@ from rasterio.warp import transform_bounds
 from shapely import wkt
 from shapely.geometry import Polygon
 from shapely.ops import transform
+from shapely.prepared import prep
 
 from dswx_sar.nisar import (mosaic_gcov_frame)
 from dswx_sar.common._dswx_sar_util import (band_assign_value_dict,
@@ -36,6 +44,99 @@ from dswx_sar.common._save_mgrs_tiles import (
     merge_pol_layers)
 
 logger = logging.getLogger('dswx_sar')
+
+
+
+@dataclass(frozen=True)
+class RTCFootprint:
+    frame_name: str
+    path: str
+    polygon_4326: object  # shapely geometry (Polygon/MultiPolygon)
+
+
+def _read_h5_string(ds) -> str:
+    """Read h5py dataset and return a Python str."""
+    val = ds[()]
+    if isinstance(val, (bytes, bytearray)):
+        return val.decode("utf-8")
+    # sometimes val is numpy scalar string-like
+    return str(val)
+
+
+def load_rtc_footprints(
+    input_rtc_files: Iterable[str],
+    polygon_path: str = "/science/LSAR/identification/boundingPolygon",
+    frame_name_path: Optional[str] = None,
+) -> List[RTCFootprint]:
+    """
+    Read RTC bounding polygons (assumed EPSG:4326) and frame names once.
+
+    - polygon_path: HDF5 dataset containing WKT polygon (EPSG:4326)
+    - frame_name_path: optional HDF5 dataset for frame id/name.
+      If None or missing, fallback to filename stem.
+    """
+    footprints: List[RTCFootprint] = []
+
+    for path in input_rtc_files:
+        frame_name = os.path.splitext(os.path.basename(path))[0]
+
+        with h5py.File(path, "r") as src:
+            # polygon
+            if polygon_path not in src:
+                raise KeyError(f"{polygon_path} not found in {path}")
+            poly_wkt = _read_h5_string(src[polygon_path])
+            poly = wkt.loads(poly_wkt)
+
+            # frame name (optional)
+            if frame_name_path is not None and frame_name_path in src:
+                frame_name = _read_h5_string(src[frame_name_path])
+
+        footprints.append(RTCFootprint(frame_name=frame_name, path=path, polygon_4326=poly))
+
+    return footprints
+
+
+def bbox_to_polygon(bbox: List[float]) -> Polygon:
+    minx, miny, maxx, maxy = bbox
+    return Polygon([(minx, miny), (minx, maxy), (maxx, maxy), (maxx, miny)])
+
+
+def transform_polygon(poly: Polygon, src_epsg: int, dst_epsg: int) -> Polygon:
+    if src_epsg == dst_epsg:
+        return poly
+    transformer = Transformer.from_crs(f"EPSG:{src_epsg}", f"EPSG:{dst_epsg}", always_xy=True)
+    # manual transform to avoid shapely.ops.transform import overhead
+    x, y = poly.exterior.coords.xy
+    xy = list(zip(x, y))
+    xy_t = [transformer.transform(xx, yy) for xx, yy in xy]
+    return Polygon(xy_t)
+
+
+def find_overlapping_rtc_frames(
+    ref_bbox: List[float],
+    ref_epsg: int,
+    rtc_footprints_4326: Iterable[RTCFootprint],
+    return_paths: bool = False,
+) -> Optional[List[str]]:
+    """
+    Return RTC frame names overlapped with the tile bbox.
+
+    - ref_bbox is in ref_epsg (often UTM)
+    - rtc polygons are stored in EPSG:4326
+    - We transform ref_bbox polygon to EPSG:4326, then intersect.
+    """
+    ref_poly = bbox_to_polygon(ref_bbox)
+    ref_poly_4326 = transform_polygon(ref_poly, src_epsg=ref_epsg, dst_epsg=4326)
+
+    # Prepared geometry speeds up many intersections
+    ref_prepped = prep(ref_poly_4326)
+
+    overlapped = []
+    for fp in rtc_footprints_4326:
+        if ref_prepped.intersects(fp.polygon_4326):
+            overlapped.append(fp.path if return_paths else fp.frame_name)
+
+    return overlapped if overlapped else None
 
 
 def crop_and_save_mgrs_tile_spacing(
@@ -94,7 +195,9 @@ def crop_and_save_mgrs_tile_spacing(
         outputBounds=output_bbox,
         resampleAlg=interpolation_method,
         dstNodata=no_data_value,
-        format='GTIFF')
+        format='GTIFF',
+        multithread=True,
+        warpOptions=["NUM_THREADS=ALL_CPUS"])
 
     gdal.Warp(output_tif_file_path,
               source_tif_path,
@@ -115,62 +218,6 @@ def crop_and_save_mgrs_tile_spacing(
             logger,
             compression=cog_compression,
             nbits=cog_nbits)
-
-
-def find_intersecting_frames_with_bbox(ref_bbox,
-                                       ref_epsg,
-                                       input_rtc_files):
-    """Find frames overlapped with the reference bbox.
-
-    Parameters
-    ----------
-    ref_bbox: list
-        Bounding box, minx, miny, maxx, maxy
-    ref_epsg: int
-        reference EPSG code.
-    input_rtc_dirs: list
-        List of rtc directories
-
-    Returns
-    -------
-    overlapped_rtc_dir_list: list
-        List of rtc frames overlapped with given bbox
-    """
-    minx, miny, maxx, maxy = ref_bbox
-    ref_polygon = Polygon([(minx, miny),
-                           (minx, maxy),
-                           (maxx, maxy),
-                           (maxx, miny)])
-
-    overlapped_rtc_dir_list = []
-    for input_file in input_rtc_files:
-
-        with h5py.File(input_file) as src:
-            rtc_polygon_str = src[
-                '/science/LSAR/identification/boundingPolygon']
-            epsg_code = 4326
-            rtc_polygon = wkt.loads(rtc_polygon_str)
-
-            # Reproject to EPSG 4326 if the current EPSG is not 4326
-            if epsg_code != ref_epsg:
-                # # Create a transformer
-                transformer = Transformer.from_crs(f'EPSG:{epsg_code}',
-                                                   f'EPSG:{ref_epsg}',
-                                                   always_xy=True)
-
-                # Transform the polygon
-                rtc_polygon = transform(transformer.transform, rtc_polygon)
-
-        # Check if frames intersect the reference polygon
-        if ref_polygon.intersects(rtc_polygon) or \
-           ref_polygon.overlaps(rtc_polygon):
-            overlapped_rtc_dir_list.append(input_file)
-
-    if not overlapped_rtc_dir_list:
-        logger.warning('fail to find the overlapped rtc')
-        overlapped_rtc_dir_list = None
-
-    return overlapped_rtc_dir_list
 
 
 def get_intersecting_mgrs_tiles_list_from_db(
@@ -399,6 +446,11 @@ def run(cfg):
         track_number = rtc_metadata['TRACK_NUMBER']
         resolution = int(output_spacing)
         date_str_list.append(rtc_metadata['ZERO_DOPPLER_START_TIME'])
+
+        logger.info('')
+        logger.info(f'GCOV track number : {track_number}')
+        logger.info(f'GCOV resolution : {resolution}')
+        logger.info('')
 
     input_date_format = "%Y-%m-%dT%H:%M:%S"
     output_date_format = "%Y%m%dT%H%M%SZ"
@@ -813,6 +865,12 @@ def run(cfg):
     unique_mgrs_tile_list = list(set(mgrs_tile_list))
     logger.info(f'MGRS tiles: {unique_mgrs_tile_list}')
 
+    rtc_footprints = load_rtc_footprints(
+        input_list,
+        polygon_path="/science/LSAR/identification/boundingPolygon",
+        frame_name_path=None,  # set if you know the dataset path
+    )
+
     processing_time = datetime.datetime.now().strftime("%Y%m%dT%H%M%SZ")
     if dswx_workflow == 'opera_dswx_ni':
 
@@ -829,11 +887,19 @@ def run(cfg):
                  y_value_min, y_value_max, epsg_output) = \
                     get_bounding_box_from_mgrs_tile_db(mgrs_tile_id,
                                                        mgrs_db_path)
+                if any(v is None for v in (x_value_min,
+                                           x_value_max,
+                                           y_value_min,
+                                           y_value_max)):
+                    continue
             mgrs_bbox = [x_value_min, y_value_min, x_value_max, y_value_max]
-            overlapped_frame = find_intersecting_frames_with_bbox(
+
+            overlapped_frame = find_overlapping_rtc_frames(
                 ref_bbox=mgrs_bbox,
                 ref_epsg=epsg_output,
-                input_rtc_files=input_list)
+                rtc_footprints_4326=rtc_footprints,
+                return_paths=True,   # if create_dswx_ni_metadata expects file paths
+            )
             logger.info(f'overlapped_bursts: {overlapped_frame}')
 
             # Metadata

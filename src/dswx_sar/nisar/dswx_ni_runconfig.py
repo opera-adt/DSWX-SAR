@@ -860,9 +860,9 @@ class RunConfig:
 
         # Determine highest resolution in an RTC input
         res_list, res_highest = get_rtc_spacing_list(input_dir_list, freq_list)
-
-        algorithm_cfg[
-            'runconfig']['processing']['mosaic']['resamp_out_res'] = res_highest
+        if not nisar_uni_mode:
+            algorithm_cfg[
+                'runconfig']['processing']['mosaic']['resamp_out_res'] = res_highest
 
         algorithm_sns = wrap_namespace(
             algorithm_cfg['runconfig']['processing'])

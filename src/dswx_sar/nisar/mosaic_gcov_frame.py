@@ -35,16 +35,18 @@ def run(cfg):
     mosaic_prefix = mosaic_cfg.mosaic_prefix
     mosaic_posting_thresh = mosaic_cfg.mosaic_posting_thresh
     nisar_uni_mode = processing_cfg.nisar_uni_mode
+    resamp_required = mosaic_cfg.resamp_required
 
     # Determine if resampling is required
-    if nisar_uni_mode:
-        resamp_required = False
-    else:
+    if not nisar_uni_mode:
         resamp_required = True
 
     resamp_method = mosaic_cfg.resamp_method
     resamp_out_res = mosaic_cfg.resamp_out_res
 
+    logger.info(f"Resampling : {resamp_required}")
+    logger.info(f"Resampling : {resamp_method}")
+    logger.info(f"Resampling : {resamp_out_res}")
     scratch_dir = cfg.groups.product_path_group.scratch_path
     os.makedirs(scratch_dir, exist_ok=True)
 

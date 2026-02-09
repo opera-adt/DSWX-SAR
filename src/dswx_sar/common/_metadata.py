@@ -541,33 +541,40 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
     num_frames_rfi = 0
 
     for input_idx, rtc_file in enumerate(h5_list):
+        rfi_found_in_frame = False
+
         with h5py.File(rtc_file) as src:
+            if freq_path_list not in src:
+                # if listOfFrequencies missing, we can't evaluate; skip this file
+                continue
             freq_group_list = src[freq_path_list][()]
 
             for freq_idx, freq_group in enumerate(freq_group_list):
-                freq_group = freq_group.decode('utf-8')
+                freq_group = freq_group.decode('utf-8') if isinstance(freq_group, (bytes, np.bytes_)) else str(freq_group)
 
                 for pol_idx, pol in enumerate(pol_list):
                     rfi_likelihood_path = (
                         f'/science/LSAR/GCOV/metadata/calibrationInformation/'
                         f'frequency{freq_group}/{pol}/rfiLikelihood'
                     )
+                    if rfi_likelihood_path not in src:
+                        continue
+
                     # make threshold a configurable
-                    if rfi_likelihood_path in src:
-                        rfi_likelihood = src[rfi_likelihood_path][()]
-                        if not np.isnan(rfi_likelihood) and rfi_likelihood > rfi_likelihood_thresh:
-                            rfi_found = True
-                            break
-                        else:
-                            rfi_found = False
-                            num_frames_rfi = None
-                    else:
-                        rfi_found = False
-                        num_frames_rfi = None
-                if rfi_found:
-                    num_frames_rfi += 1
+                    rfi_likelihood = src[rfi_likelihood_path][()]
+                    rfi_likelihood = float(np.asarray(rfi_likelihood))
+
+                    if np.isfinite(rfi_likelihood) and rfi_likelihood > rfi_likelihood_thresh:
+                        rfi_found_in_frame = True
+                        break
+
+                if rfi_found_in_frame:
                     break
 
+                if rfi_found_in_frame:
+                    break
+        if rfi_found_in_frame:
+            num_frames_rfi += 1
     return num_frames_rfi
 
 def create_dswx_s1_metadata(cfg,

@@ -180,11 +180,10 @@ class RTCReader(DataReader):
                         )
             else:
                 layover_exist = False
+        if len(mask_gtiff_list) > 0:
+            mask_exist = True
         else:
-            if len(mask_gtiff_list) > 0:
-                mask_exist = True
-            else:
-                mask_exist = True
+            mask_exist = True
 
         # Mosaic intermediate geotiffs
         nlooks_list = []

@@ -1230,6 +1230,92 @@ def merge_binary_layers(layer_list, value_list, merged_layer_path,
             scratch_dir=scratch_dir)
 
 
+def merge_binary_layers_fast(
+    layer_list,
+    value_list,
+    merged_layer_path,
+    lines_per_block,
+    mode="or",
+    cog_flag=False,          # IMPORTANT: do not COG per block
+    scratch_dir=".",
+    out_blockx=512,
+    out_blocky=512,
+):
+    if len(layer_list) != len(value_list):
+        raise ValueError("Number of layers does not match number of values")
+
+    meta_info = get_meta_from_tif(layer_list[0])
+    ysize = meta_info["length"]
+    xsize = meta_info["width"]
+
+    # open all inputs once
+    in_ds = []
+    in_band = []
+    for p in layer_list:
+        ds = gdal.Open(p, gdal.GA_ReadOnly)
+        if ds is None:
+            raise RuntimeError(f"Failed to open: {p}")
+        if ds.RasterXSize != xsize or ds.RasterYSize != ysize:
+            raise ValueError(f"Size mismatch for {p}")
+        in_ds.append(ds)
+        in_band.append(ds.GetRasterBand(1))
+
+    # create output once
+    driver = gdal.GetDriverByName("GTiff")
+    create_opts = [
+        "TILED=YES",
+        f"BLOCKXSIZE={out_blockx}",
+        f"BLOCKYSIZE={out_blocky}",
+        "COMPRESS=DEFLATE",
+        "PREDICTOR=2",
+        "ZLEVEL=6",
+        "BIGTIFF=IF_SAFER",
+        "NBITS=8",
+    ]
+    out_ds = driver.Create(merged_layer_path, xsize, ysize, 1, gdal.GDT_Byte, options=create_opts)
+    if out_ds is None:
+        raise RuntimeError(f"Failed to create output: {merged_layer_path}")
+    out_ds.SetGeoTransform(meta_info["geotransform"])
+    out_ds.SetProjection(meta_info["projection"])
+    out_band = out_ds.GetRasterBand(1)
+    out_band.SetNoDataValue(0)
+
+    # block loop (full width strips, matching your current approach)
+    for yoff in range(0, ysize, lines_per_block):
+        ywin = min(lines_per_block, ysize - yoff)
+        xoff = 0
+        xwin = xsize
+
+        combined = None  # bool
+        for b, val in zip(in_band, value_list):
+            arr = b.ReadAsArray(xoff, yoff, xwin, ywin)
+            m = (arr == val)  # bool
+
+            if combined is None:
+                combined = m
+            else:
+                if mode == "or":
+                    np.logical_or(combined, m, out=combined)
+                elif mode == "and":
+                    np.logical_and(combined, m, out=combined)
+                else:
+                    raise ValueError("mode must be 'or' or 'and'")
+
+        out_band.WriteArray(combined.astype(np.uint8, copy=False), xoff, yoff)
+
+    out_band.FlushCache()
+    out_ds.FlushCache()
+
+    # close all
+    out_band = None
+    out_ds = None
+    for ds in in_ds:
+        ds = None
+
+    # optional: do ONE COG conversion at the end
+    if cog_flag:
+        _save_as_cog(merged_layer_path, scratch_dir, nbits=8)
+
 def intensity_display(intensity, outputdir, pol, immin=-30, immax=0):
     """save intensity images into png file
 

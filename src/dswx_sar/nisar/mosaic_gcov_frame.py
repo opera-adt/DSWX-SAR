@@ -10,9 +10,7 @@ from dswx_sar.nisar.dswx_ni_runconfig import (
     _get_parser,
     RunConfig)
 
-
 logger = logging.getLogger('dswx_sar')
-
 
 def run(cfg):
     """Generate mosaic workflow with user-defined args stored
@@ -34,6 +32,7 @@ def run(cfg):
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix
     mosaic_posting_thresh = mosaic_cfg.mosaic_posting_thresh
+    gdal_cache_max_mb = mosaic_cfg.gdal_cache_max_mb
     nisar_uni_mode = processing_cfg.nisar_uni_mode
 
     # Determine if resampling is required
@@ -64,6 +63,7 @@ def run(cfg):
         mosaic_mode,
         mosaic_prefix,
         mosaic_posting_thresh,
+        gdal_cache_max_mb,
         resamp_method,
         resamp_out_res,
         resamp_required,

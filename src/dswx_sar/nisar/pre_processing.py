@@ -98,7 +98,6 @@ def run(cfg):
         'landcover': 'interpolated_landcover.tif',
         'reference_water': 'interpolated_wbd.tif',
         'glad_classification': 'interpolated_glad.tif',
-
     }
 
     input_ancillary_filename_set = {
@@ -108,6 +107,7 @@ def run(cfg):
         'reference_water': wbd_file,
         'glad_classification': glad_file,
     }
+    mask_path = f'{scratch_dir}/mosaic_mask.tif'
 
     landcover_label = get_label_landcover_esa_10()
 
@@ -205,7 +205,7 @@ def run(cfg):
         delayed(_filter_one_block)(
             bp, pol_list, scratch_dir, mosaic_prefix,
             filter_flag, filter_method, filter_options,
-            co_pol, cross_pol
+            co_pol, cross_pol, mask_path, mask_flag=True,
         ) for bp in block_params
     )
 
@@ -279,7 +279,9 @@ def _filter_one_block(block_param,
                       filter_method,
                       filter_options,
                       co_pol,
-                      cross_pol):
+                      cross_pol,
+                      mask_path = None,
+                      mask_flag = False):
     """
     Return (block_param, stacked_float32_array) for a single block.
 
@@ -303,7 +305,10 @@ def _filter_one_block(block_param,
         else:
             arr = _dswx_sar_util.get_raster_block(
                 intensity_path, block_param)
-
+        if mask_path is not None and mask_flag:
+            mask_block = _dswx_sar_util.get_raster_block(
+                mask_path, block_param)
+            arr[mask_block == 0] = np.nan
         arr[arr == 0] = np.nan         # mask padded zeros
         real_pol_data[pol] = arr.astype(np.float32)
 

@@ -24,7 +24,7 @@ def configure_log_file(log_file):
         file_handler = logging.FileHandler(log_file)
 
         # Log file format
-        msgfmt = ('%(asctime)s.%(msecs)03d, %(levelname)s, DSWx-S1, '
+        msgfmt = ('%(asctime)s.%(msecs)03d, %(levelname)s, DSWx-SAR, '
                   '%(module)s, %(lineno)d, "%(message)s"')
 
         log_file_formatter = logging.Formatter(msgfmt, "%Y-%m-%d %H:%M:%S")
@@ -102,7 +102,7 @@ def create_logger(log_file, full_log_formatting=None):
     # create formatter
     # configure full log format, if enabled
     if full_log_formatting:
-        msgfmt = ('%(asctime)s.%(msecs)03d, %(levelname)s, DSWx-HLS, '
+        msgfmt = ('%(asctime)s.%(msecs)03d, %(levelname)s, DSWx-SAR, '
                   '%(module)s, 999999, %(pathname)s:%(lineno)d, "%(message)s"')
 
         formatter = logging.Formatter(msgfmt, "%Y-%m-%d %H:%M:%S")

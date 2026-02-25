@@ -17,13 +17,14 @@ from skimage.filters import threshold_multiotsu, threshold_otsu
 from dswx_sar.common import (
     _dswx_sar_util,
     _generate_log,
+    _initial_threshold,
     _refine_with_bimodality,
     _region_growing)
+
 from dswx_sar.nisar.dswx_ni_runconfig import (
     DSWX_NI_POL_DICT,
-    _get_parser)
-from dswx_sar.common import (_generate_log,
-                             _initial_threshold)
+    _get_parser,
+    RunConfig)
 
 
 logger = logging.getLogger('dswx_sar')
@@ -1548,12 +1549,9 @@ def main():
         logger.info('ERROR only one runconfig file is allowed')
         return
 
-    if flag_first_file_is_text:
 
-        from dswx_sar.nisar.dswx_ni_runconfig import RunConfig
-        workflow = 'dswx_ni'
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0],
-                                       workflow, args)
+    cfg = RunConfig.load_from_yaml(args.input_yaml[0],
+                                    'dswx_ni', args)
 
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode

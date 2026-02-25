@@ -19,7 +19,7 @@ def run(cfg):
     '''
     Run region growing with parameters in cfg dictionary
     '''
-    logger.info('Starting DSWx-S1 Region-Growing')
+    logger.info('Starting DSWx-NI Region-Growing')
 
     t_all = time.time()
 
@@ -105,7 +105,7 @@ def main():
 
     _generate_log.configure_log_file(cfg.groups.log_file)
 
-    rg.run(cfg)
+    run(cfg)
 
 
 if __name__ == '__main__':

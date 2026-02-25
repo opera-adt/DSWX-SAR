@@ -32,6 +32,68 @@ def masked_convolve2d(array, window, *args, **kwargs):
 
     return convolved_array
 
+import numpy as np
+from scipy.ndimage import uniform_filter
+
+def compute_window_mean_std_fast(arr, winsize, nan_frac_thresh=0.2):
+    """
+    Faster version of compute_window_mean_std using uniform_filter
+    while preserving the behavior:
+      - window is winsize x winsize box, normalized by area
+      - NaNs do NOT spread; pixels with > nan_frac_thresh NaNs in the window
+        are set to NaN in the output.
+    """
+    # Work in float64 for numeric stability
+    arr = np.asarray(arr, dtype=np.float64)
+
+    # Valid mask: True where finite, False where NaN/inf
+    valid = np.isfinite(arr)
+
+    # Replace invalid values with 0 for sums
+    arr0 = np.where(valid, arr, 0.0)
+
+    # uniform_filter returns the average over the window.
+    # With zeros for invalid pixels, this matches your original
+    # real-part behavior in masked_convolve2d.
+    window_mean = uniform_filter(
+        arr0,
+        size=winsize,
+        mode='constant',
+        cval=0.0
+    )
+
+    # Second moment <x^2>
+    arr_sq0 = np.where(valid, arr * arr, 0.0)
+    c2 = uniform_filter(
+        arr_sq0,
+        size=winsize,
+        mode='constant',
+        cval=0.0
+    )
+
+    # Fraction of valid pixels in the window
+    valid_frac = uniform_filter(
+        valid.astype(np.float64),
+        size=winsize,
+        mode='constant',
+        cval=0.0
+    )
+    nan_frac = 1.0 - valid_frac
+
+    # Variance
+    var = c2 - window_mean * window_mean
+
+    # Replace small negative variances with a negligible value
+    var = np.where(var < 0, Constants.negligible_value, var)
+    window_std = np.sqrt(var)
+
+    # Apply the same "too many NaNs → output NaN" rule
+    bad = nan_frac > nan_frac_thresh
+    window_mean[bad] = np.nan
+    window_std[bad] = np.nan
+
+    return window_mean.astype(np.float32), window_std.astype(np.float32)
+
 
 def compute_window_mean_std(arr, winsize):
     '''
@@ -52,19 +114,21 @@ def compute_window_mean_std(arr, winsize):
     std: numpy.ndarray
         std array
     '''
-    window = np.ones([winsize, winsize]) / (winsize * winsize)
-    arr_masked = np.ma.masked_equal(arr, np.nan)
-    mean = masked_convolve2d(arr_masked, window, mode='same')
-    c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
+    return compute_window_mean_std_fast(arr, winsize)
 
-    var = c2 - mean * mean
+    # window = np.ones([winsize, winsize]) / (winsize * winsize)
+    # arr_masked = np.ma.masked_equal(arr, np.nan)
+    # mean = masked_convolve2d(arr_masked, window, mode='same')
+    # c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
 
-    # The negative number in sqrt is replaced
-    # with the negligibly small number to avoid numpy warning message.
-    var = np.where(var < 0, Constants.negligible_value, var)
-    std = var ** .5
+    # var = c2 - mean * mean
 
-    return mean, std
+    # # The negative number in sqrt is replaced
+    # # with the negligibly small number to avoid numpy warning message.
+    # var = np.where(var < 0, Constants.negligible_value, var)
+    # std = var ** .5
+
+    # return mean, std
 
 
 def weightingarr(im, winsize, k=K_DEFAULT,
@@ -94,11 +158,17 @@ def weightingarr(im, winsize, k=K_DEFAULT,
     # ci is the variation coefficient in the window
     ci = window_std / window_mean
     w_t_arr = np.zeros(im.shape)
-    w_t_arr[ci <= cu] = 1
-    w_t_arr[(ci > cu) & (ci < cmax)] =\
-        np.exp((-k * (ci[(ci > cu) & (ci < cmax)] - cu))
-               / (cmax - ci[(ci > cu) & (ci < cmax)]))
-    w_t_arr[ci >= cmax] = 0
+    mask1 = ci <= cu
+    mask2 = (ci > cu) & (ci < cmax)
+    mask3 = ci >= cmax
+
+    w_t_arr[mask1] = 1.0
+
+    # Only compute the exponential where needed
+    ci2 = ci[mask2]
+    w_t_arr[mask2] = np.exp(
+        (-k * (ci2 - cu)) / (cmax - ci2)
+    )
 
     return w_t_arr, window_mean, window_std
 

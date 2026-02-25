@@ -11,7 +11,7 @@ from dswx_sar.sentinel1 import (masking_with_ancillary, mosaic_rtc_burst,
                                 )
 from dswx_sar.common import _initial_threshold as initial_threshold
 from dswx_sar.common import _fuzzy_value_computation as fuzzy_value_computation
-from dswx_sar.common import detect_inundated_vegetation
+from dswx_sar.common import _detect_inundated_vegetation as detect_inundated_vegetation
 from dswx_sar.sentinel1.dswx_runconfig import (_get_parser,
                                      RunConfig,
                                      DSWX_S1_POL_DICT)

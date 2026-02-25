@@ -381,7 +381,7 @@ def set_dswx_s1_metadata(metadata_dict):
     metadata_dict.update({
         'PRODUCT_TYPE': 'DSWx-S1',
         'PRODUCT_SOURCE': 'OPERA_RTC_S1',
-        'SPACECRAFT_NAME': 'Sentinel-1A/B',
+        'SPACECRAFT_NAME': 'Sentinel-1',
         'SENSOR': 'IW'
     })
 
@@ -560,7 +560,10 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
                             break
                         else:
                             rfi_found = False
-                    
+                            num_frames_rfi = None
+                    else:
+                        rfi_found = False
+                        num_frames_rfi = None
                 if rfi_found:
                     num_frames_rfi += 1
                     break

@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 
 from collections.abc import Iterator
 import mimetypes
@@ -22,7 +23,8 @@ def run(cfg):
     cfg: RunConfig
         RunConfig object with user runconfig options
     """
-
+    logger.info('Starting DSWx-NI mosaic GCOV frames')
+    t_all = time.time()
     # Mosaicking parameters
     processing_cfg = cfg.groups.processing
 
@@ -66,6 +68,9 @@ def run(cfg):
         resamp_out_res,
         resamp_required,
     )
+    t_all_elapsed = time.time() - t_all
+    logger.info("successfully ran mosaic GCOV in "
+                f"{t_all_elapsed:.3f} seconds")
 
 if __name__ == "__main__":
     '''Run mosaic rtc products from command line'''

@@ -412,6 +412,11 @@ class RunConfig:
         """
         cfg = load_validate_yaml(yaml_path, workflow_name)
 
+        # Ensure input_file_path list is always sorted, regardless of YAML order
+        input_group = cfg['runconfig']['groups'].get('input_file_group', None)
+        if input_group is not None and 'input_file_path' in input_group:
+            input_group['input_file_path'] = sorted(input_group['input_file_path'])
+
         groups_cfg = cfg['runconfig']['groups']
 
         # Convert runconfig dict to SimpleNamespace

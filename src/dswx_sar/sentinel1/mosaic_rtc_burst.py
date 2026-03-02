@@ -603,6 +603,9 @@ def run(cfg):
     product_prefix = processing_cfg.mosaic.mosaic_prefix
     pol_list = copy.deepcopy(processing_cfg.polarizations)
 
+    row_blk_size = mosaic_cfg.read_row_blk_size
+    col_blk_size = mosaic_cfg.read_col_blk_size
+
     imagery_extension = 'tif'
     os.makedirs(scratch_path, exist_ok=True)
 
@@ -747,10 +750,17 @@ def run(cfg):
                     output_file_list.append(geo_pol_filename)
 
                     mosaic_single_output_file(
-                        rtc_burst_imagery_list, nlooks_list, geo_pol_filename,
-                        mosaic_mode, scratch_dir=scratch_path,
-                        geogrid_in=geogrid_in, temp_files_list=None,
-                        no_data_value=0)
+                        rtc_burst_imagery_list, 
+                        nlooks_list, 
+                        geo_pol_filename,
+                        mosaic_mode, 
+                        row_blk_size,
+                        col_blk_size,
+                        scratch_dir=scratch_path,
+                        geogrid_in=geogrid_in, 
+                        temp_files_list=None,
+                        no_data_value=0
+                    )
 
         if mask_list:
             geo_mask_filename = \
@@ -759,10 +769,17 @@ def run(cfg):
             logger.info(f'    {geo_mask_filename}')
             output_file_list.append(geo_mask_filename)
             mosaic_single_output_file(
-                mask_list, nlooks_list, geo_mask_filename,
-                mosaic_mode, scratch_dir=scratch_path,
-                geogrid_in=geogrid_in, temp_files_list=None,
-                no_data_value=255)
+                mask_list, 
+                nlooks_list, 
+                geo_mask_filename,
+                mosaic_mode, 
+                row_blk_size,
+                col_blk_size,
+                scratch_dir=scratch_path,
+                geogrid_in=geogrid_in, 
+                temp_files_list=None,
+                no_data_value=255
+            )
 
         # save files as COG format.
         if processing_cfg.mosaic.mosaic_cog_enable:

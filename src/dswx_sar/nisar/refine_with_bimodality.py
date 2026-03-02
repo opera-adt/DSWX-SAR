@@ -10,7 +10,8 @@ import gc
 from dswx_sar.common import _masking_with_ancillary
 from dswx_sar.common._refine_with_bimodality import (
     remove_false_water_bimodality_parallel,
-    fill_gap_water_bimodality_parallel
+    fill_gap_water_bimodality_parallel,
+    write_ref_land_from_landcover_and_wbd_streaming
 )
 from dswx_sar.nisar.dswx_ni_runconfig import (
     _get_parser,
@@ -57,29 +58,25 @@ def run(cfg):
     # read landcover map
     landcover_map_tif_str = os.path.join(
         outputdir, 'interpolated_landcover.tif')
-    landcover_map = _dswx_sar_util.read_geotiff(landcover_map_tif_str)
+
+    landcover_map_tif_str = os.path.join(outputdir, "interpolated_landcover.tif")
+    reference_water_gdal_str = os.path.join(outputdir, "interpolated_wbd.tif")
+
     landcover_label = _masking_with_ancillary.get_label_landcover_esa_10()
 
-    reference_water_gdal_str = os.path.join(outputdir, 'interpolated_wbd.tif')
+    ref_land_str = os.path.join(outputdir, f"landcover_not_water_{pol_str}.tif")
 
-    # Identify the non-water area from Landcover map
-    if 'openSea' in landcover_label:
-        landcover_not_water = (landcover_map != landcover_label['openSea']) &\
-             (landcover_map != landcover_label['Permanent water bodies'])
-    else:
-        landcover_not_water = \
-            (landcover_map != landcover_label['Permanent water bodies']) &\
-            (landcover_map != landcover_label['No_data'])
-
-    ref_land_str = os.path.join(outputdir,
-                                f'landcover_not_water_{pol_str}.tif')
-    _dswx_sar_util.save_raster_gdal(
-                    data=landcover_not_water,
-                    output_file=ref_land_str,
-                    geotransform=im_meta['geotransform'],
-                    projection=im_meta['projection'],
-                    scratch_dir=outputdir)
-    del landcover_not_water, landcover_map
+    write_ref_land_from_landcover_and_wbd_streaming(
+        landcover_path=landcover_map_tif_str,
+        wbd_path=reference_water_gdal_str,
+        out_path=ref_land_str,
+        geotransform=im_meta["geotransform"],
+        projection=im_meta["projection"],
+        landcover_label=landcover_label,
+        wbd_threshold=5.0,
+        block_x=2048,
+        block_y=2048,
+    )
 
     # If the landcover is non-water,
     # compute the bimnodality one more time
@@ -168,7 +165,7 @@ def main():
         return
 
     if flag_first_file_is_text:
-        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
+        cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_ni', args)
 
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode

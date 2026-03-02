@@ -928,6 +928,23 @@ def get_raster_block(raster_path, block_param):
             block_param.data_width,
             block_param.read_length)
 
+        if data_block is None:
+            raise RuntimeError(f"ReadAsArray returned None for {raster_path=}, "
+                            f"{block_param.read_start_line=}, {block_param.data_width=}, {block_param.read_length=}")
+
+        try:
+            shp = data_block.shape
+            ndim = data_block.ndim
+        except Exception:
+            raise RuntimeError(f"Unexpected ReadAsArray return type: {type(data_block)}")
+
+        if ndim == 0:
+            raise RuntimeError(
+                f"ReadAsArray returned 0-D array for {raster_path=}, band={i+1}, "
+                f"{block_param.read_start_line=}, {block_param.data_width=}, {block_param.read_length=}, "
+                f"{block_param.block_pad=}. shape={shp}"
+            )
+
         # Pad data_block with zeros according to pad_length/pad_width
         data_block = np.pad(data_block, block_param.block_pad,
                             mode='constant', constant_values=0)
@@ -2117,3 +2134,34 @@ def majority_element(num_list):
     most_freq_elem = most_common[0][0]
 
     return most_freq_elem
+
+
+def iter_windows(xsize, ysize, block_x, block_y):
+    for yoff in range(0, ysize, block_y):
+        ywin = min(block_y, ysize - yoff)
+        for xoff in range(0, xsize, block_x):
+            xwin = min(block_x, xsize - xoff)
+            yield xoff, yoff, xwin, ywin
+
+
+def create_gtiff_1band(path, xsize, ysize, gdal_type, geotransform, projection,
+                       nodata=None, tiled=True, blockx=512, blocky=512,
+                       compress="DEFLATE", zlevel=6, predictor=2, bigtiff="IF_SAFER",
+                       nbits=None):
+    drv = gdal.GetDriverByName("GTiff")
+    opts = []
+    if tiled:
+        opts += ["TILED=YES", f"BLOCKXSIZE={blockx}", f"BLOCKYSIZE={blocky}"]
+    opts += [f"COMPRESS={compress}", f"PREDICTOR={predictor}", f"ZLEVEL={zlevel}", f"BIGTIFF={bigtiff}"]
+    if nbits is not None:
+        opts.append(f"NBITS={nbits}")
+
+    ds = drv.Create(path, xsize, ysize, 1, gdal_type, options=opts)
+    if ds is None:
+        raise RuntimeError(f"Failed to create {path}")
+    ds.SetGeoTransform(geotransform)
+    ds.SetProjection(projection)
+    band = ds.GetRasterBand(1)
+    if nodata is not None:
+        band.SetNoDataValue(nodata)
+    return ds, band

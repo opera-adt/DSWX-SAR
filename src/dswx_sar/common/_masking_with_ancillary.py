@@ -16,7 +16,10 @@ from skimage.filters import threshold_multiotsu
 from typing import List, Tuple
 
 from dswx_sar.common import _region_growing
-
+from dswx_sar.common._dswx_sar_util import (
+    iter_windows,
+    create_gtiff_1band
+)
 
 logger = logging.getLogger('dswx_sar')
 
@@ -517,7 +520,7 @@ def split_extended_water_parallel_v2(
     # delete last iteration if rows is equal to 20 * input_lines_per_block
     lines_per_block_set = list(dict.fromkeys(
         [x for x in lines_per_block_set if x <= meta_info['length']]))
-    print('here ', lines_per_block_set)
+
     pad_shape = (0, 0)
 
     temp_prefix = 'split_extended_water_parallel_temp'
@@ -1804,35 +1807,6 @@ def _make_kernel(radius: int):
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
 
 
-def iter_windows(xsize, ysize, block_x, block_y):
-    for yoff in range(0, ysize, block_y):
-        ywin = min(block_y, ysize - yoff)
-        for xoff in range(0, xsize, block_x):
-            xwin = min(block_x, xsize - xoff)
-            yield xoff, yoff, xwin, ywin
-
-
-def create_gtiff_1band(path, xsize, ysize, gdal_type, geotransform, projection,
-                       nodata=None, tiled=True, blockx=512, blocky=512,
-                       compress="DEFLATE", zlevel=6, predictor=2, bigtiff="IF_SAFER",
-                       nbits=None):
-    drv = gdal.GetDriverByName("GTiff")
-    opts = []
-    if tiled:
-        opts += ["TILED=YES", f"BLOCKXSIZE={blockx}", f"BLOCKYSIZE={blocky}"]
-    opts += [f"COMPRESS={compress}", f"PREDICTOR={predictor}", f"ZLEVEL={zlevel}", f"BIGTIFF={bigtiff}"]
-    if nbits is not None:
-        opts.append(f"NBITS={nbits}")
-
-    ds = drv.Create(path, xsize, ysize, 1, gdal_type, options=opts)
-    if ds is None:
-        raise RuntimeError(f"Failed to create {path}")
-    ds.SetGeoTransform(geotransform)
-    ds.SetProjection(projection)
-    band = ds.GetRasterBand(1)
-    if nodata is not None:
-        band.SetNoDataValue(nodata)
-    return ds, band
 
 def worldcover_names_to_codes(mask_label_names):
     """Convert WorldCover label names -> integer codes."""

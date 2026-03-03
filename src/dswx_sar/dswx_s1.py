@@ -3,19 +3,19 @@
 import logging
 import time
 
-from dswx_sar import (detect_inundated_vegetation,
-                      fuzzy_value_computation,
-                      initial_threshold,
-                      masking_with_ancillary,
-                      mosaic_rtc_burst,
-                      pre_processing,
-                      save_mgrs_tiles,
-                      refine_with_bimodality,
-                      region_growing,)
-from dswx_sar.dswx_runconfig import (_get_parser,
+from dswx_sar.sentinel1 import (masking_with_ancillary, mosaic_rtc_burst,
+                                pre_processing, save_mgrs_tiles,
+                                initial_threshold,
+                                region_growing,
+                                refine_with_bimodality,
+                                )
+from dswx_sar.common import _initial_threshold as initial_threshold
+from dswx_sar.common import _fuzzy_value_computation as fuzzy_value_computation
+from dswx_sar.common import _detect_inundated_vegetation as detect_inundated_vegetation
+from dswx_sar.sentinel1.dswx_runconfig import (_get_parser,
                                      RunConfig,
                                      DSWX_S1_POL_DICT)
-from dswx_sar import generate_log
+from dswx_sar.common import _generate_log
 
 logger = logging.getLogger('dswx_sar')
 
@@ -93,7 +93,7 @@ def main():
     parser = _get_parser()
     args = parser.parse_args()
     cfg = RunConfig.load_from_yaml(args.input_yaml[0], 'dswx_s1', args)
-    generate_log.configure_log_file(cfg.groups.log_file)
+    _generate_log.configure_log_file(cfg.groups.log_file)
 
     dswx_s1_workflow(cfg)
 

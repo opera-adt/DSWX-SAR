@@ -1,6 +1,6 @@
 import os
 import re
-from setuptools import setup
+from setuptools import setup, find_packages
 from setuptools import Command
 
 
@@ -13,7 +13,7 @@ def _get_version():
             PROTEUS software version
     """
 
-    version_file = os.path.join('src', 'dswx_sar', 'version_ni.py')
+    version_file = os.path.join('src', 'dswx_sar', 'nisar', 'version.py')
 
     with open(version_file, 'r') as f:
         text = f.read()
@@ -76,7 +76,7 @@ setup(
     # Gather all packages located under `src`.
     # (A package is any directory containing an __init__.py file.)
     package_dir={'': 'src'},
-    packages=['dswx_sar'],
+    packages = find_packages(where='src', include=['dswx_sar', 'dswx_sar.*']),    
     package_data=package_data_dict,
     classifiers=['Programming Language :: Python',],
     scripts=['src/dswx_sar/dswx_ni.py',

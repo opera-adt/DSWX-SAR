@@ -1,6 +1,6 @@
 import os
 import re
-from setuptools import setup
+from setuptools import setup, find_packages
 from setuptools import Command
 
 
@@ -13,7 +13,7 @@ def _get_version():
             PROTEUS software version
     """
 
-    version_file = os.path.join('src', 'dswx_sar', 'version.py')
+    version_file = os.path.join('src', 'dswx_sar', 'sentinel1', 'version.py')
 
     with open(version_file, 'r') as f:
         text = f.read()
@@ -69,26 +69,26 @@ package_data_dict['dswx_sar'] = [
 setup(
     name='dswx-s1',
     version=version,
-    description='Compute Dynamic Surface Water Extent (DSWx)'
-                ' from SAR data',
+    description = 'Compute Dynamic Surface Water Extent (DSWx)'
+                  ' from SAR data',
     # Gather all packages located under `src`.
     # (A package is any directory containing an __init__.py file.)
-    package_dir={'': 'src'},
-    packages=['dswx_sar'],
-    package_data=package_data_dict,
-    classifiers=['Programming Language :: Python',],
-    scripts=['src/dswx_sar/dswx_s1.py',
-             'src/dswx_sar/dswx_ni.py',
-             'src/dswx_sar/dswx_comparison.py'],
-    install_requires=['argparse', 'numpy', 'yamale',
-                      'scipy', 'pytest', 'requests',
-                      'h5py', 'scikit-image', 'mgrs', 'pyproj',
-                      'opencv-python'],
-    url='https://github.com/opera-adt/DSWX-SAR',
-    license='Copyright by the California Institute of Technology.'
+    package_dir = {'': 'src'},
+    packages = find_packages(where='src', include=['dswx_sar', 'dswx_sar.*']),    
+    package_data = package_data_dict,
+    classifiers = ['Programming Language :: Python',],
+    scripts = ['src/dswx_sar/dswx_s1.py',
+               'src/dswx_sar/dswx_ni.py',
+               'src/dswx_sar/dswx_comparison.py'],
+    install_requires = ['argparse', 'numpy', 'yamale',
+                        'scipy', 'pytest', 'requests',
+                        'h5py', 'scikit-image', 'mgrs', 'pyproj',
+                        'opencv-python'],
+    url = 'https://github.com/opera-adt/DSWX-SAR',
+    license = 'Copyright by the California Institute of Technology.'
     ' ALL RIGHTS RESERVED.',
     long_description=long_description,
-    cmdclass={
+    cmdclass = {
         'clean': CleanCommand,
         }
 )

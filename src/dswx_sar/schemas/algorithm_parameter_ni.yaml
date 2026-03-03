@@ -133,6 +133,7 @@ runconfig:
             # -1 represents the all available threads
             number_cpu: num(required=False)
             line_per_block: num(min=1, required=False)
+            threshold_scale: str(required=False)
 
         fuzzy_value:
             line_per_block: num(min=1, required=False)

@@ -172,10 +172,13 @@ def requires_reprojection(geogrid_mosaic,
         # check spacing
         if dx != geogrid_mosaic.spacing_x:
             flag_requires_reprojection = True
+            print(f"dx {dx} != geogrid_mosaic.spacing_x {geogrid_mosaic.spacing_x}" )
             return flag_requires_reprojection
 
         if dy != geogrid_mosaic.spacing_y:
             flag_requires_reprojection = True
+            print('dy != geogrid_mosaic.spacing_y')
+            print(dy, geogrid_mosaic.spacing_y)
             return flag_requires_reprojection
 
         # check projection
@@ -185,17 +188,22 @@ def requires_reprojection(geogrid_mosaic,
 
             if epsg_raster != epsg_mosaic:
                 flag_requires_reprojection = True
+                print(f"epsg_raster {epsg_raster} != epsg_mosaic {epsg_mosaic}")
+
                 return flag_requires_reprojection
 
         # check the coordinates
         if (abs((x0 - geogrid_mosaic.start_x) % geogrid_mosaic.spacing_x) >
                 maxerr_coord):
             flag_requires_reprojection = True
+            print(f"{x0-geogrid_mosaic.start_x} is not multiple of spacing")
             return flag_requires_reprojection
 
         if (abs((y0 - geogrid_mosaic.start_y) % geogrid_mosaic.spacing_y) >
                 maxerr_coord):
             flag_requires_reprojection = True
+            print(f"{y0-geogrid_mosaic.start_y} is not multiple of spacing")
+
             return flag_requires_reprojection
 
     flag_requires_reprojection = False
@@ -231,6 +239,31 @@ def _compute_distance_to_burst_center(image, geotransform):
                        (dx * (x_distance_image - center_of_mass[1])) ** 2)
 
     return distance
+
+
+def _overlap_slices(offset_x, offset_y, src_h, src_w, mos_h, mos_w):
+    """
+    Compute paired slices for placing a src array into a mosaic array.
+    offset_* are src upper-left pixel indices in mosaic coordinates.
+    Returns (mos_y, mos_x, src_y, src_x) slices, or None if no overlap.
+    """
+    # Mosaic window (destination) in mosaic coords
+    x0_m = max(offset_x, 0)
+    y0_m = max(offset_y, 0)
+    x1_m = min(offset_x + src_w, mos_w)
+    y1_m = min(offset_y + src_h, mos_h)
+
+    if x0_m >= x1_m or y0_m >= y1_m:
+        return None
+
+    # Corresponding source window
+    x0_s = x0_m - offset_x
+    y0_s = y0_m - offset_y
+    x1_s = x1_m - offset_x
+    y1_s = y1_m - offset_y
+
+    return (slice(y0_m, y1_m), slice(x0_m, x1_m),
+            slice(y0_s, y1_s), slice(x0_s, x1_s))
 
 
 def compute_mosaic_array(list_rtc_images,
@@ -449,8 +482,10 @@ def compute_mosaic_array(list_rtc_images,
                     dstNodata=np.nan)
                 path_nlooks = relocated_file_nlooks
 
-            offset_imgx = 0
-            offset_imgy = 0
+            offset_imgx = int((list_geo_transform[i, 0] - xmin_mosaic) /
+                              posting_x + 0.5)
+            offset_imgy = int((list_geo_transform[i, 3] - ymax_mosaic) /
+                              posting_y + 0.5)
         else:
 
             # calculate the burst RTC's offset wrt. the output mosaic in
@@ -479,38 +514,41 @@ def compute_mosaic_array(list_rtc_images,
             band_ds = rtc_image_gdal_ds.GetRasterBand(i_band + 1)
             arr_rtc = band_ds.ReadAsArray()
 
-            if i_band == 0:
-                length = min(arr_rtc.shape[0], dim_mosaic[0] - offset_imgy)
-                width = min(arr_rtc.shape[1], dim_mosaic[1] - offset_imgx)
+            src_h, src_w = arr_rtc.shape
+            ol = _overlap_slices(offset_imgx,
+                                 offset_imgy,
+                                 src_h, src_w,
+                                 dim_mosaic[0],
+                                 dim_mosaic[1])
+            if ol is None:
+                continue  # this raster doesn't overlap mosaic at all
 
-            if (length != arr_rtc.shape[0] or
-                    width != arr_rtc.shape[1]):
-                # Image needs to be cropped to fit in the mosaic
-                arr_rtc = arr_rtc[0:length, 0:width]
+            mos_y, mos_x, src_y, src_x = ol
+            arr_rtc = arr_rtc[src_y, src_x]
 
             if mosaic_mode.lower() == 'average':
                 # Replace NaN values with 0
                 arr_rtc[np.isnan(arr_rtc)] = 0.0
 
                 arr_numerator[i_band,
-                              offset_imgy: offset_imgy + length,
-                              offset_imgx: offset_imgx + width] += \
+                              mos_y,
+                              mos_x] += \
                     arr_rtc * arr_nlooks
 
                 if path_nlooks is not None:
                     arr_denominator[
-                        offset_imgy: offset_imgy + length,
-                        offset_imgx: offset_imgx + width] += arr_nlooks
+                        mos_y,
+                        mos_x] += arr_nlooks
                 else:
                     arr_denominator[
-                        offset_imgy: offset_imgy + length,
-                        offset_imgx: offset_imgx + width] += np.asarray(
+                        mos_y,
+                        mos_x] += np.asarray(
                         arr_rtc > 0, dtype=np.byte)
 
                 continue
 
-            arr_temp = arr_numerator[i_band, offset_imgy: offset_imgy + length,
-                                     offset_imgx: offset_imgx + width].copy()
+            arr_temp = arr_numerator[i_band, mos_y,
+                                     mos_x].copy()
             if not np.isnan(no_data_value):
                 arr_temp[arr_temp == no_data_value] = np.nan
 
@@ -523,22 +561,22 @@ def compute_mosaic_array(list_rtc_images,
                     arr_rtc, geotransform)
 
                 arr_distance_temp = arr_distance[
-                    offset_imgy: offset_imgy + length,
-                    offset_imgx: offset_imgx + width]
+                    mos_y,
+                    mos_x]
                 ind = np.logical_or(np.isnan(arr_distance_temp),
                                     arr_new_distance <= arr_distance_temp)
 
                 arr_distance_temp[ind] = arr_new_distance[ind]
                 arr_distance[
-                    offset_imgy: offset_imgy + length,
-                    offset_imgx: offset_imgx + width] = arr_distance_temp
+                    mos_y,
+                    mos_x] = arr_distance_temp
 
                 del arr_distance_temp
 
             arr_temp[ind] = arr_rtc[ind]
             arr_numerator[i_band,
-                          offset_imgy: offset_imgy + length,
-                          offset_imgx: offset_imgx + width] = arr_temp
+                          mos_y,
+                          mos_x] = arr_temp
 
         rtc_image_gdal_ds = None
         nlooks_gdal_ds = None

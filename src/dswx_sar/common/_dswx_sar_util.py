@@ -12,6 +12,7 @@ import numpy as np
 from osgeo import gdal, osr, ogr
 from pyproj import Transformer
 from scipy.signal import convolve2d
+from scipy.ndimage import uniform_filter
 
 gdal.DontUseExceptions()
 
@@ -1905,27 +1906,31 @@ def _calculate_output_bounds(geotransform,
     list
         Adjusted bounding box coordinates [x_min, y_min, x_max, y_max].
     """
-    x_min = geotransform[0]
-    x_max = x_min + width * geotransform[1] 
+    gt0, gt1, gt2, gt3, gt4, gt5 = geotransform
 
-    if geotransform[5] < 0:
-        y_max = geotransform[3]
-        y_min = y_max + length * geotransform[5]
-    else:
-        y_min = geotransform[3]
-        y_max = y_min + length * geotransform[5]
+    # Corner coordinates derived from geotransform + raster size
+    # (no rotation assumed; if rotation exists, this needs a different approach)
+    x0 = gt0
+    y0 = gt3
+    x1 = gt0 + width  * gt1
+    y1 = gt3 + length * gt5
 
-    x_diff = x_max - x_min
-    y_diff = y_max - y_min
+    xmin = min(x0, x1)
+    xmax = max(x0, x1)
+    ymin = min(y0, y1)
+    ymax = max(y0, y1)
 
-    if x_diff % output_spacing != 0:
-        x_max = x_min + (x_diff // output_spacing + 1) * output_spacing
+    s = float(abs(output_spacing))
+    if not np.isfinite(s) or s <= 0:
+        raise ValueError(f"Invalid output_spacing: {output_spacing}")
 
-    output_spacing = -1 * np.abs(output_spacing)
-    if y_diff % output_spacing != 0:
-        y_min = y_max + (y_diff // np.abs(output_spacing) + 1) * output_spacing
+    # Snap outward so the bounds fully cover the original area
+    xmin_s = math.floor(xmin / s) * s
+    ymin_s = math.floor(ymin / s) * s
+    xmax_s = math.ceil (xmax / s) * s
+    ymax_s = math.ceil (ymax / s) * s
 
-    return [x_min, y_min, x_max, y_max]
+    return [xmin_s, ymin_s, xmax_s, ymax_s]
 
 
 def _perform_warp_in_memory(input_file,
@@ -2113,6 +2118,37 @@ def _aggregate_10m_to_30m_conv(image, ratio, normalize_flag):
         aggregated_data = aggregated_data /pixel_count
 
     return aggregated_data
+
+
+def _aggregate_10m_to_30m_fast(image: np.ndarray, ratio: int, normalize_flag: bool):
+    """
+    Fast box-sum aggregation + stride sampling.
+    Matches: convolve2d(image, ones, mode='same') then [ratio//2::ratio, ratio//2::ratio]
+    """
+    # Make sure we are working in float for normalization robustness
+    img = image.astype(np.float32, copy=False)
+
+    # uniform_filter gives the mean; multiply by area to get sum
+    area = float(ratio * ratio)
+    summed = uniform_filter(img, size=ratio, mode="constant", cval=0.0) * area
+
+    s = ratio // 2
+    aggregated = summed[s::ratio, s::ratio]
+
+    if normalize_flag:
+        valid = (img > 0).astype(np.float32, copy=False)
+        count = uniform_filter(valid, size=ratio, mode="constant", cval=0.0) * area
+        count = count[s::ratio, s::ratio]
+
+        # avoid divide-by-zero
+        aggregated = np.divide(
+            aggregated, count,
+            out=np.zeros_like(aggregated, dtype=np.float32),
+            where=(count > 0)
+        )
+
+    return aggregated
+
 
 def majority_element(num_list):
     """

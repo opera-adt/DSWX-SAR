@@ -13,6 +13,7 @@ from ruamel.yaml import YAML
 
 import dswx_sar
 from dswx_sar.common._dswx_sar_util import check_gdal_raster_s3
+from dswx_sar.common.read_h5_s3 import open_h5, file_exists
 
 logger = logging.getLogger('dswx_sar')
 
@@ -196,11 +197,13 @@ def check_file_path(file_path: str) -> None:
     if file_path.startswith('/vsis3/'):
         check_gdal_raster_s3(file_path, raise_error=True)
 
-    else:
-        if not os.path.exists(file_path):
-            err_str = f'{file_path} not found'
-            logger.error(err_str)
-            raise FileNotFoundError(err_str)
+    if file_path.startswith('s3://'):
+        if not file_exists(file_path, profile="saml-pub"):
+            raise FileNotFoundError(f"{file_path} not found (S3 head_object failed)")
+        return
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"{file_path} not found")
 
 
 def get_pol_rtc_hdf5(input_rtc, freq_group):
@@ -224,7 +227,7 @@ def get_pol_rtc_hdf5(input_rtc, freq_group):
     """
     path_pol = f'/science/LSAR/GCOV/grids/frequency{freq_group}/listOfPolarizations'
 
-    with h5py.File(input_rtc) as src:
+    with open_h5(input_rtc) as src:
         pols = src[path_pol][()]
         pols = [pol.decode('utf-8') for pol in pols]
 
@@ -246,7 +249,7 @@ def get_freq_rtc_hdf5(input_rtc):
     """
     path_freq = f'/science/LSAR/identification/listOfFrequencies'
 
-    with h5py.File(input_rtc) as src_h5:
+    with open_h5(input_rtc) as src_h5:
         freq_group_list = src_h5[path_freq][()]
         freq = [freq_group.decode('utf-8') for freq_group in freq_group_list]
     return freq
@@ -269,7 +272,7 @@ def get_x_spacing_rtc_hdf5(input_rtc, freq_group):
     """
     x_posting = f'/science/LSAR/GCOV/grids/frequency{freq_group}/xCoordinateSpacing'
 
-    with h5py.File(input_rtc, 'r') as src:
+    with open_h5(input_rtc) as src:
         res = src[x_posting][()]
 
     return res
@@ -332,7 +335,7 @@ def read_rtc_polarization(input_h5_list, freq_list):
     Returns
     -------
     pol_list: list
-       polarizations of all frequency groups from all inputs 
+       polarizations of all frequency groups from all inputs
     """
     num_input_files = len(input_h5_list)
     pol_list = np.empty((num_input_files, 2) , dtype=object)
@@ -342,7 +345,7 @@ def read_rtc_polarization(input_h5_list, freq_list):
         if freq_list[input_idx]:
             for freq_idx, freq_group in enumerate(freq_list[input_idx]):
                 pol_list[input_idx, freq_idx] = get_pol_rtc_hdf5(input_h5, freq_group)
-                
+
     return pol_list
 
 
@@ -361,7 +364,7 @@ def get_rtc_spacing_list(input_h5_list, freq_list):
     -------
     res_list: list
         Input resolution of each frequency group of each input file
-        
+
     res_highest: float
         Highest resolution of each input RTC
     """
@@ -601,7 +604,7 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_PROC_POL_DICT):
     input_dir_list : list
         List of the input directories with RTC GeoTIFF files.
     DSWX_NI_PROC_POL_DICT: dictionary
-        Dictionary which captures possible polarization scenarios for NISAR RTC inputs   
+        Dictionary which captures possible polarization scenarios for NISAR RTC inputs
 
     Returns
     -------
@@ -685,11 +688,10 @@ def extract_bandwidth(input_dir_list):
 
     for input_idx, input_rtc in enumerate(input_dir_list):
         # Check if the file exists
-        if not os.path.exists(input_rtc):
-            raise FileNotFoundError(
-                f"The file '{input_rtc}' does not exist.")
+        if not file_exists(input_rtc, profile="saml-pub"):
+            raise FileNotFoundError(f"The file '{input_rtc}' does not exist or is not accessible.")
 
-        with h5py.File(input_rtc, 'r') as src_h5:
+        with open_h5(input_rtc) as src_h5:
             freq_group_list = src_h5[freq_path_list][()]
             freq_group_list = [freq_group.decode('utf-8') for freq_group in freq_group_list]
 
@@ -825,6 +827,45 @@ class RunConfig:
         # sort the order of the polarizations.
         input_dir_list = \
             cfg['runconfig']['groups']['input_file_group']['input_file_path']
+
+        # Check if all input data is valid and finer than threshold.
+        # If some of GCOVs has coarser resolution, those will be removed.
+        (
+            flag_freq_equal,
+            flag_pol_freq_a_equal,
+            flag_pol_freq_b_equal,
+            freq_list,
+            res_freq_b_equal,
+            res_freq_b_equal,
+            res_highest,
+            nisar_uni_mode
+        ) = verify_nisar_mode(input_dir_list)
+        # Determine highest resolution in an RTC input
+        res_list, res_highest = get_rtc_spacing_list(input_dir_list, freq_list)
+
+        # Generate valid data paths
+        new_input_list = []
+        mosaic_posting_thresh = algorithm_cfg[
+                'runconfig']['processing']['mosaic']['mosaic_posting_thresh']
+        # Remove dataset from processing based on minimum image resolution/posting
+        for input_idx, input_rtc in enumerate(input_dir_list):
+            valid_freqs = []
+
+            for freq_idx, freq_group in enumerate(freq_list[input_idx]):
+
+                if res_list[input_idx][freq_idx] is not None and \
+                    res_list[input_idx][freq_idx] <= mosaic_posting_thresh:
+                    valid_freqs.append(freq_group)
+            if valid_freqs:
+                new_input_list.append(input_rtc)
+
+        if len(new_input_list) != len(input_dir_list):
+            logger.info("Invalid input GCOV found. The input list will change from")
+            logger.info(f"{input_dir_list}")
+            logger.info("to")
+            logger.info(f"{new_input_list}")
+            input_dir_list = new_input_list
+
         requested_pol = algorithm_cfg[
             'runconfig']['processing']['polarizations']
 
@@ -844,11 +885,11 @@ class RunConfig:
 
         # Determine NISAR input RTC mode of operation
         (
-            flag_freq_equal, 
+            flag_freq_equal,
             flag_pol_freq_a_equal,
             flag_pol_freq_b_equal,
             freq_list,
-            res_freq_b_equal,
+            res_freq_a_equal,
             res_freq_b_equal,
             res_highest,
             nisar_uni_mode
@@ -860,7 +901,13 @@ class RunConfig:
 
         # Determine highest resolution in an RTC input
         res_list, res_highest = get_rtc_spacing_list(input_dir_list, freq_list)
-        if not nisar_uni_mode:
+
+        resamp_required = algorithm_cfg[
+                'runconfig']['processing']['mosaic']['resamp_required']
+        # If more than two GCOVs have different spacing, then we resample one of them
+        # to match the spacing with highest one
+        if not nisar_uni_mode and not resamp_required:
+
             algorithm_cfg[
                 'runconfig']['processing']['mosaic']['resamp_out_res'] = res_highest
 

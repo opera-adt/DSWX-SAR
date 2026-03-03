@@ -11,6 +11,7 @@ from dswx_sar.sentinel1.dswx_runconfig import DSWX_S1_POL_DICT
 from dswx_sar.common._dswx_sar_util import (band_assign_value_dict,
                                            read_geotiff)
 from dswx_sar.common.gcov_reader import RTCReader
+from dswx_sar.common.read_h5_s3 import open_h5
 
 # Constants
 UNKNOWN = 'UNKNOWN'
@@ -511,7 +512,7 @@ def collect_frame_id(h5_list):
     frame_id_list = []
     frame_path = '/science/LSAR/identification/frameNumber'
     for rtc_file in h5_list:
-        with h5py.File(rtc_file) as src:
+        with open_h5(rtc_file) as src:
             frame = src[frame_path][()]
             frame_id_list.append(frame)
     return list(set(frame_id_list))
@@ -543,7 +544,7 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
     for input_idx, rtc_file in enumerate(h5_list):
         rfi_found_in_frame = False
 
-        with h5py.File(rtc_file) as src:
+        with open_h5(rtc_file) as src:
             if freq_path_list not in src:
                 # if listOfFrequencies missing, we can't evaluate; skip this file
                 continue

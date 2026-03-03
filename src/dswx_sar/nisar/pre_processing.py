@@ -28,7 +28,7 @@ logger = logging.getLogger('dswx_sar')
 def run(cfg):
 
     logger.info("")
-    logger.info('Starting DSWx-S1 Preprocessing')
+    logger.info('Starting DSWx-NI Preprocessing')
 
     t_all = time.time()
     processing_cfg = cfg.groups.processing

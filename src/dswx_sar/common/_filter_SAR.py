@@ -358,7 +358,6 @@ def tv_bregman(X: np.ndarray, **kwargs) -> np.ndarray:
     https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.denoise_tv_bregman
     """
     lamb = kwargs.get('lambda_value', -1)
-    print('bregman', kwargs)
     X_db = np.log10(X, out=np.full(X.shape, np.nan), where=(~np.isnan(X)))
     X_db[np.isnan(X)] = -30
     X_db_dspkl = denoise_tv_bregman(X_db, weight=lamb)

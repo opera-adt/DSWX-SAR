@@ -13,6 +13,7 @@ from ruamel.yaml import YAML
 
 import dswx_sar
 from dswx_sar.common._dswx_sar_util import check_gdal_raster_s3
+from dswx_sar.common.read_h5_s3 import open_h5, file_exists
 
 logger = logging.getLogger('dswx_sar')
 
@@ -196,11 +197,13 @@ def check_file_path(file_path: str) -> None:
     if file_path.startswith('/vsis3/'):
         check_gdal_raster_s3(file_path, raise_error=True)
 
-    else:
-        if not os.path.exists(file_path):
-            err_str = f'{file_path} not found'
-            logger.error(err_str)
-            raise FileNotFoundError(err_str)
+    if file_path.startswith('s3://'):
+        if not file_exists(file_path, profile="saml-pub"):
+            raise FileNotFoundError(f"{file_path} not found (S3 head_object failed)")
+        return
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"{file_path} not found")
 
 
 def get_pol_rtc_hdf5(input_rtc, freq_group):
@@ -224,7 +227,7 @@ def get_pol_rtc_hdf5(input_rtc, freq_group):
     """
     path_pol = f'/science/LSAR/GCOV/grids/frequency{freq_group}/listOfPolarizations'
 
-    with h5py.File(input_rtc) as src:
+    with open_h5(input_rtc) as src:
         pols = src[path_pol][()]
         pols = [pol.decode('utf-8') for pol in pols]
 
@@ -246,7 +249,7 @@ def get_freq_rtc_hdf5(input_rtc):
     """
     path_freq = f'/science/LSAR/identification/listOfFrequencies'
 
-    with h5py.File(input_rtc) as src_h5:
+    with open_h5(input_rtc) as src_h5:
         freq_group_list = src_h5[path_freq][()]
         freq = [freq_group.decode('utf-8') for freq_group in freq_group_list]
     return freq
@@ -269,7 +272,7 @@ def get_x_spacing_rtc_hdf5(input_rtc, freq_group):
     """
     x_posting = f'/science/LSAR/GCOV/grids/frequency{freq_group}/xCoordinateSpacing'
 
-    with h5py.File(input_rtc, 'r') as src:
+    with open_h5(input_rtc) as src:
         res = src[x_posting][()]
 
     return res
@@ -685,11 +688,10 @@ def extract_bandwidth(input_dir_list):
 
     for input_idx, input_rtc in enumerate(input_dir_list):
         # Check if the file exists
-        if not os.path.exists(input_rtc):
-            raise FileNotFoundError(
-                f"The file '{input_rtc}' does not exist.")
+        if not file_exists(input_rtc, profile="saml-pub"):
+            raise FileNotFoundError(f"The file '{input_rtc}' does not exist or is not accessible.")
 
-        with h5py.File(input_rtc, 'r') as src_h5:
+        with open_h5(input_rtc) as src_h5:
             freq_group_list = src_h5[freq_path_list][()]
             freq_group_list = [freq_group.decode('utf-8') for freq_group in freq_group_list]
 
@@ -887,7 +889,7 @@ class RunConfig:
             flag_pol_freq_a_equal,
             flag_pol_freq_b_equal,
             freq_list,
-            res_freq_b_equal,
+            res_freq_a_equal,
             res_freq_b_equal,
             res_highest,
             nisar_uni_mode
@@ -905,6 +907,7 @@ class RunConfig:
         # If more than two GCOVs have different spacing, then we resample one of them
         # to match the spacing with highest one
         if not nisar_uni_mode and not resamp_required:
+
             algorithm_cfg[
                 'runconfig']['processing']['mosaic']['resamp_out_res'] = res_highest
 

@@ -21,6 +21,7 @@ from dswx_sar.common._mosaic import mosaic_single_output_file
 
 from dswx_sar.common._dswx_sar_util import (
     _aggregate_10m_to_30m_conv,
+    _aggregate_10m_to_30m_fast,
     _calculate_output_bounds,
     change_epsg_tif,
     majority_element)
@@ -99,24 +100,34 @@ class RTCReader(DataReader):
         flag_freq_equal, freq_list = check_rtc_frequency(input_list)
 
         num_input_files = len(input_list)
-        
+
         # Extract resolution information
         res_list, res_highest = get_rtc_spacing_list(input_list, freq_list)
 
         # Generate valid data paths
         data_path = self.generate_nisar_dataset_name(input_list, freq_list)
+        new_input_list = []
 
         # Remove dataset from processing based on minimum image resolution/posting
         for input_idx, input_rtc in enumerate(input_list):
-            for freq_idx, freq_group in enumerate(freq_list[input_idx]):
-                print('freq', freq_group)
-                if res_list[input_idx][freq_idx] is not None and \
-                    res_list[input_idx][freq_idx] > mosaic_posting_thresh:
+            valid_freqs = []
 
-                        del data_path[input_rtc][freq_group]
+            for freq_idx, freq_group in enumerate(freq_list[input_idx]):
+
+                if res_list[input_idx][freq_idx] is not None and \
+                    res_list[input_idx][freq_idx] <= mosaic_posting_thresh:
+                    valid_freqs.append(freq_group)
+            if valid_freqs:
+                data_path[input_rtc] = {f: data_path[input_rtc][f] for f in valid_freqs}
+                new_input_list.append(input_rtc)
+            else:
+                data_path.pop(input_rtc, None)
                 # if freq_group == 'B':
                 #     del data_path[input_rtc][freq_group]
-        print(data_path)
+
+        input_list = new_input_list
+        logger.info('data path for mosaic')
+        logger.info(data_path)
         # Generate layover mask path
         layover_mask_name = 'mask'
         layover_path = str(self.generate_nisar_layover_name(layover_mask_name))
@@ -169,7 +180,7 @@ class RTCReader(DataReader):
                             resamp_method,
                             )
             if len(mask_gtiff_list) > 0:
-                layover_exist = True
+                mask_exist = True
                 for idx, layover_geotiff in enumerate(mask_gtiff_list):
                     self.resample_rtc(
                         layover_geotiff,
@@ -179,7 +190,7 @@ class RTCReader(DataReader):
                         'nearest',
                         )
             else:
-                layover_exist = False
+                mask_exist = False
         else:
             if len(mask_gtiff_list) > 0:
                 mask_exist = True
@@ -430,28 +441,20 @@ class RTCReader(DataReader):
                 yield slice(r, min(r + blk, n_rows))
                 r += blk
 
-        print(output_gtiff)
         chunk = h5_dset.chunks or (512, 512)  # fallback if unchunked
         chunk_rows = chunk[0]
-        print(chunk, chunk_rows)
+
         # Read K chunk-rows at a time (tune K by RAM; 4–16 is a good start)
         K = 8
         row_blk_size = K * chunk_rows
         col_blk_size = num_cols  # full width stripes
-    
+
         with rasterio.open(output_gtiff, 'w', **profile) as dst:
             # for slice_row in slice_gen(num_rows, row_blk_size):
             for s in aligned_ranges(num_rows, row_blk_size, chunk_rows):
 
-                # rs = slice_row.start
-                # re = slice_row.stop
                 rs, re = s.start, s.stop
-                print(rs, re)
-                # for slice_col in slice_gen(num_cols, col_blk_size):
-                #     cs = slice_col.start
-                #     ce = slice_col.stop
 
-                    # h5py slicing is [rows, cols]
                 ds_blk = h5_dset[rs:re, 0:num_cols] # cs:ce]
 
                 if is_mask:
@@ -638,10 +641,24 @@ class RTCReader(DataReader):
         output_geotiff = f'{full_path.parent}/{full_path.stem}_multi_look.tif'
 
         # Multi-look parameters
-        interm_upsamp_res = math.gcd(int(input_res_x), int(output_res))
-        downsamp_ratio = output_res // interm_upsamp_res  # ratio = 3
-        normalized_flag = True
+        input_res_x_i = int(round(input_res_x))
+        output_res_i = int(round(output_res))
+        if input_res_x_i == output_res_i:
+            logger.info(f'multi-look is not necessary because output_spacing {output_res_i}'
+                        f'is same as input_spacing {input_res_x_i}')
+            return None
 
+        interm_upsamp_res = math.gcd(input_res_x_i, output_res_i)
+        output_res_i = int(round(output_res))
+
+        downsamp_ratio = output_res_i // interm_upsamp_res  # ratio = 3
+
+        normalized_flag = True
+        if output_res_i % interm_upsamp_res != 0:
+            raise ValueError(
+                f"output_res ({output_res_i}) not divisible by "
+                f"interm_upsamp_res ({interm_upsamp_res})"
+            )
         if input_res_x == 20:
             # Perform upsampling to 10 meter resolution
             # Compute upsampled data output bounds
@@ -668,7 +685,7 @@ class RTCReader(DataReader):
 
             # Aggregate pixel values in a image to lower resolution to achieve
             # multi-looking effect
-            multi_look_output = _aggregate_10m_to_30m_conv(
+            multi_look_output = _aggregate_10m_to_30m_fast(
                 data_upsamp,
                 downsamp_ratio,
                 normalized_flag,
@@ -685,6 +702,7 @@ class RTCReader(DataReader):
         elif input_res_x == 10:
             # Directly average 10m resolution input to 30m resolution output
             ds_array = ds_input.GetRasterBand(1).ReadAsArray()
+
             multi_look_output = _aggregate_10m_to_30m_conv(
                 ds_array,
                 downsamp_ratio,
@@ -867,7 +885,7 @@ class RTCReader(DataReader):
                 warnings.warn(f'\nFrequency group {freq_group} does not exist.'
                               , RuntimeWarning)
                 continue
-                    
+
 
         return h5_path_dict
 
@@ -906,17 +924,27 @@ class RTCReader(DataReader):
             A flag which indicates whether all input EPSG are the same
             if True, all input EPSG are the same and vice versa.
         """
-        proj = '/science/LSAR/GCOV/grids/frequencyA/projection'
+        projA = '/science/LSAR/GCOV/grids/frequencyA/projection'
+        projB = '/science/LSAR/GCOV/grids/frequencyB/projection'
 
         epsg_array = np.zeros(len(input_list), dtype=int)
         for input_idx, input_rtc in enumerate(input_list):
-            with H5Reader(input_rtc) as src_h5:
-                epsg_array[input_idx] = src_h5[proj][()]
 
-        if (epsg_array == epsg_array[0]).all():
-            epsg_same_flag = True
-        else:
-            epsg_same_flag = False
+            with H5Reader(input_rtc) as src_h5:
+
+                if projA in src_h5:
+                    epsg_array[input_idx] = src_h5[projA][()]
+
+                elif projB in src_h5:
+                    epsg_array[input_idx] = src_h5[projB][()]
+
+                else:
+                    raise KeyError(
+                        f"No projection dataset found in {input_rtc}. "
+                        f"Neither {projA} nor {projB} exists."
+                    )
+
+        epsg_same_flag = np.all(epsg_array == epsg_array[0])
 
         return epsg_array, epsg_same_flag
 
@@ -1000,7 +1028,7 @@ class RTCReader(DataReader):
                     if is_mask:
                         # Keep 0/1 (or general categorical) as-is,
                         # map invalids to 255 if any
-                        # If the dataset has >1 values for "valid", 
+                        # If the dataset has >1 values for "valid",
                         # we leave them; caller can binarize upstream if needed.
                         ds_blk = ds_blk.astype(np.int32)  # safe cast before setting nodata
                         ds_blk = np.where(np.isfinite(ds_blk), ds_blk, 255)
@@ -1043,28 +1071,68 @@ class RTCReader(DataReader):
         crs: str
             Coordinate Reference System object in EPSG representation
         """
-        frequency_a_path = '/science/LSAR/GCOV/grids/frequencyA'
-        geo_name_mapping = {
-            'xcoord': f'{frequency_a_path}/xCoordinates',
-            'ycoord': f'{frequency_a_path}/yCoordinates',
-            'xposting': f'{frequency_a_path}/xCoordinateSpacing',
-            'yposting': f'{frequency_a_path}/yCoordinateSpacing',
-            'proj': f'{frequency_a_path}/projection'
+        freq_paths = {
+            "frequencyA": "/science/LSAR/GCOV/grids/frequencyA",
+            "frequencyB": "/science/LSAR/GCOV/grids/frequencyB",
         }
 
+        # Dataset names we require under each frequency group
+        required = {
+            "xcoord": "xCoordinates",
+            "ycoord": "yCoordinates",
+            "xposting": "xCoordinateSpacing",
+            "yposting": "yCoordinateSpacing",
+            "proj": "projection",
+        }
+
+        def _mapping(base: str) -> dict[str, str]:
+            return {k: f"{base}/{v}" for k, v in required.items()}
+
         with H5Reader(input_rtc) as src_h5:
-            xmin = src_h5[f"{geo_name_mapping['xcoord']}"][:][0]
-            ymin = src_h5[f"{geo_name_mapping['ycoord']}"][:][0]
-            xres = src_h5[f"{geo_name_mapping['xposting']}"][()]
-            yres = src_h5[f"{geo_name_mapping['yposting']}"][()]
-            epsg = src_h5[f"{geo_name_mapping['proj']}"][()]
+
+            used_freq = None
+            geo = None
+
+            # Try A then B
+            for freq_name, base in freq_paths.items():
+                m = _mapping(base)
+                missing = [path for path in m.values() if path not in src_h5]
+                if not missing:
+                    used_freq = freq_name
+                    geo = m
+                    break
+
+            if geo is None:
+                # Build a helpful error message listing what's missing for each frequency
+                details = []
+                for freq_name, base in freq_paths.items():
+                    m = _mapping(base)
+                    missing = [path for path in m.values() if path not in src_h5]
+                    details.append(f"{freq_name} missing: {missing}")
+                raise KeyError(
+                    f"Geodata datasets not found in {input_rtc}. "
+                    f"Neither frequencyA nor frequencyB contains a complete geo set. "
+                    + " | ".join(details)
+                )
+
+            # Read values
+            x = src_h5[geo["xcoord"]][:]
+            y = src_h5[geo["ycoord"]][:]
+            xmin = float(x[0])
+            ymin = float(y[0])
+
+            xres = float(src_h5[geo["xposting"]][()])
+            yres = float(src_h5[geo["yposting"]][()])
+            epsg = int(src_h5[geo["proj"]][()])
 
         # Geo transformation
-        geotransform = Affine.translation(
-            xmin - xres/2, ymin - yres/2) * Affine.scale(xres, yres)
+        geotransform = Affine.translation(xmin - xres / 2.0, ymin - yres / 2.0) * Affine.scale(xres, yres)
 
-        # Coordinate Reference System
-        crs = f'EPSG:{epsg}'
+        # CRS
+        crs = f"EPSG:{epsg}"
+
+        # debug log hook if you have logger:
+        logger.info(f"read_geodata_hdf5: used {used_freq} for {input_rtc}")
 
         return geotransform, crs
 

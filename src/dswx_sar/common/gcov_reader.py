@@ -1,4 +1,3 @@
-from __future__ import annotations
 import os
 import logging
 import warnings
@@ -10,15 +9,16 @@ from typing import Any
 import math
 import mimetypes
 
-import numpy as np
 import h5py
-from osgeo import gdal
+from h5py import Dataset
+import numpy as np
+from osgeo import gdal, osr
+from pyproj import Transformer
 import rasterio
 from rasterio.transform import Affine
 from rasterio.windows import Window
 
 from dswx_sar.common._mosaic import mosaic_single_output_file
-
 from dswx_sar.common._dswx_sar_util import (
     _aggregate_10m_to_30m_conv,
     _calculate_output_bounds,
@@ -36,6 +36,14 @@ from dswx_sar.common.read_h5_s3 import (
 )
 
 logger = logging.getLogger('dswx_sar')
+
+
+def reproject_bbox(bbox, src_epsg: int, dst_epsg: int):
+    xmin, ymin, xmax, ymax = bbox
+    tf = Transformer.from_crs(f"EPSG:{src_epsg}", f"EPSG:{dst_epsg}", always_xy=True)
+    x1, y1 = tf.transform(xmin, ymin)
+    x2, y2 = tf.transform(xmax, ymax)
+    return [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
 
 
 class DataReader(ABC):
@@ -67,6 +75,8 @@ class RTCReader(DataReader):
             resamp_method: str,
             resamp_out_res: float,
             resamp_required: bool,
+            bbox=None,
+            bbox_epsg=None
     ):
         """Read data from input HDF5s in blocks and generate mosaicked output
            Geotiff
@@ -99,7 +109,7 @@ class RTCReader(DataReader):
         flag_freq_equal, freq_list = check_rtc_frequency(input_list)
 
         num_input_files = len(input_list)
-        
+
         # Extract resolution information
         res_list, res_highest = get_rtc_spacing_list(input_list, freq_list)
 
@@ -109,21 +119,19 @@ class RTCReader(DataReader):
         # Remove dataset from processing based on minimum image resolution/posting
         for input_idx, input_rtc in enumerate(input_list):
             for freq_idx, freq_group in enumerate(freq_list[input_idx]):
-                print('freq', freq_group)
+
                 if res_list[input_idx][freq_idx] is not None and \
                     res_list[input_idx][freq_idx] > mosaic_posting_thresh:
 
                         del data_path[input_rtc][freq_group]
                 # if freq_group == 'B':
                 #     del data_path[input_rtc][freq_group]
-        print(data_path)
+
         # Generate layover mask path
         layover_mask_name = 'mask'
         layover_path = str(self.generate_nisar_layover_name(layover_mask_name))
 
         mask_path = self.generate_nisar_mask_name()
-
-        # Collect EPSG
         epsg_array, epsg_same_flag = self.get_nisar_epsg(input_list)
 
         # Write all RTC HDF5 inputs to intermeidate Geotiff first and re-use
@@ -139,6 +147,8 @@ class RTCReader(DataReader):
                 epsg_array,
                 data_path,
                 mask_path,
+                bbox=bbox,
+                bbox_epsg=bbox_epsg,
             )
 
         # To Do: Use flag_mosaic_freq_a and flag_mosaic_freq_b flags to
@@ -146,6 +156,7 @@ class RTCReader(DataReader):
 
         # Choose Resampling methods
         if resamp_required:
+            resampled_geogrid_in = DSWXGeogrid()
             # Apply multi-look technique
             if resamp_method == 'multilook':
                 if len(input_gtiff_list) > 0:
@@ -154,8 +165,9 @@ class RTCReader(DataReader):
                             input_geotiff,
                             scratch_dir,
                             resamp_out_res,
-                            geogrid_in,
+                            resampled_geogrid_in,
                         )
+
             else:
                 # Apply resampling using GDAL.Warp() based on
                 # resampling methods
@@ -165,7 +177,7 @@ class RTCReader(DataReader):
                             input_geotiff,
                             scratch_dir,
                             resamp_out_res,
-                            geogrid_in,
+                            resampled_geogrid_in,
                             resamp_method,
                             )
             if len(mask_gtiff_list) > 0:
@@ -175,16 +187,39 @@ class RTCReader(DataReader):
                         layover_geotiff,
                         scratch_dir,
                         resamp_out_res,
-                        geogrid_in,
+                        resampled_geogrid_in,
                         'nearest',
                         )
             else:
                 layover_exist = False
+
+            if bbox is not None:
+                # bbox is (xmin, ymin, xmax, ymax) in bbox_epsg
+                if bbox_epsg is None:
+                    raise ValueError("bbox was provided but bbox_epsg is None")
+
+                target_epsg = int(getattr(geogrid_in, "epsg", None))
+
+                # Reproject bbox to target_epsg if needed
+                if int(bbox_epsg) != target_epsg:
+                    bbox_use = reproject_bbox(bbox, int(bbox_epsg), target_epsg)
+                else:
+                    bbox_use = bbox
+                # Ensure geogrid EPSG matches target_epsg
+                ge_epsg = getattr(resampled_geogrid_in, "epsg", None)
+                if ge_epsg is None or int(ge_epsg) != target_epsg:
+                    resampled_geogrid_in.epsg = target_epsg
+                # Now bbox_use is in target_epsg, so pass bbox_epsg=target_epsg
+                resampled_geogrid_in.clip_to_bbox(bbox_use, bbox_epsg=target_epsg, snap=True)
+
+                bx = resampled_geogrid_in.bounds()
+                print(f"[BBox clip] final geogrid bounds: {bx}, epsg={geogrid_in.epsg}")
+            geogrid_in = resampled_geogrid_in
+
+        if len(mask_gtiff_list) > 0:
+            mask_exist = True
         else:
-            if len(mask_gtiff_list) > 0:
-                mask_exist = True
-            else:
-                mask_exist = True
+            mask_exist = True
 
         # Mosaic intermediate geotiffs
         nlooks_list = []
@@ -206,6 +241,8 @@ class RTCReader(DataReader):
             epsg_array: np.ndarray,
             data_path: dict,
             mask_path: list,
+            bbox=None,
+            bbox_epsg=None
     ):
         """ Create intermediate Geotiffs from a list of input RTCs
 
@@ -380,6 +417,30 @@ class RTCReader(DataReader):
 
             geogrid_in.update_geogrid(output_mask_gtiff)
 
+        # --- Apply DB bbox constraint AFTER geogrid union is built ---
+        if bbox is not None:
+            # bbox is (xmin, ymin, xmax, ymax) in bbox_epsg
+            if bbox_epsg is None:
+                raise ValueError("bbox was provided but bbox_epsg is None")
+
+            target_epsg = int(getattr(geogrid_in, "epsg", None))
+
+            # Reproject bbox to target_epsg if needed
+            if int(bbox_epsg) != target_epsg:
+                bbox_use = reproject_bbox(bbox, int(bbox_epsg), target_epsg)
+            else:
+                bbox_use = bbox
+            # Ensure geogrid EPSG matches target_epsg (after harmonization it should)
+            # If it doesn't, that's a bug earlier — but we can force it here safely.
+            ge_epsg = getattr(geogrid_in, "epsg", None)
+            if ge_epsg is None or int(ge_epsg) != target_epsg:
+                geogrid_in.epsg = target_epsg
+
+            # Now bbox_use is in target_epsg, so pass bbox_epsg=target_epsg
+            geogrid_in.clip_to_bbox(bbox_use, bbox_epsg=target_epsg, snap=True)
+
+            bx = geogrid_in.bounds()
+            logger.info(f"[BBox clip] final geogrid bounds: {bx}, epsg={geogrid_in.epsg}")
         return geogrid_in, output_gtiff_list, mask_gtiff_list, pol_gtiff_list
 
     def read_write_rtc_h5py(
@@ -430,15 +491,13 @@ class RTCReader(DataReader):
                 yield slice(r, min(r + blk, n_rows))
                 r += blk
 
-        print(output_gtiff)
         chunk = h5_dset.chunks or (512, 512)  # fallback if unchunked
         chunk_rows = chunk[0]
-        print(chunk, chunk_rows)
         # Read K chunk-rows at a time (tune K by RAM; 4–16 is a good start)
         K = 8
         row_blk_size = K * chunk_rows
         col_blk_size = num_cols  # full width stripes
-    
+
         with rasterio.open(output_gtiff, 'w', **profile) as dst:
             # for slice_row in slice_gen(num_rows, row_blk_size):
             for s in aligned_ranges(num_rows, row_blk_size, chunk_rows):
@@ -446,7 +505,7 @@ class RTCReader(DataReader):
                 # rs = slice_row.start
                 # re = slice_row.stop
                 rs, re = s.start, s.stop
-                print(rs, re)
+
                 # for slice_col in slice_gen(num_cols, col_blk_size):
                 #     cs = slice_col.start
                 #     ce = slice_col.stop
@@ -628,7 +687,8 @@ class RTCReader(DataReader):
 
         input_res_x = np.abs(geotransform_input[1])
         input_res_y = np.abs(geotransform_input[5])
-
+        xsign = 1.0 if geotransform_input[1] >= 0 else -1.0
+        ysign = 1.0 if geotransform_input[5] >= 0 else -1.0
         if input_res_x != input_res_y:
             raise ValueError(
                 "x and y resolutions of the input must be the same."
@@ -654,8 +714,8 @@ class RTCReader(DataReader):
 
             # Perform GDAL.warp() in memory for upsampled data
             warp_options = gdal.WarpOptions(
-                xRes=interm_upsamp_res,
-                yRes=-interm_upsamp_res,
+                xRes=xsign * interm_upsamp_res,
+                yRes=ysign * interm_upsamp_res,
                 outputBounds=upsamp_bounds,
                 resampleAlg='nearest',
                 format='MEM'  # Use memory as the output format
@@ -712,62 +772,80 @@ class RTCReader(DataReader):
     def write_array_to_geotiff(
         self,
         ds_input,
-        output_data,
-        output_bounds,
-        output_res,
-        output_geotiff,
+        output_data: np.ndarray,
+        output_bounds,   # [xmin, ymin, xmax, ymax] or None
+        output_res: float,
+        output_geotiff: str,
+        *,
+        nodata=None,
+        compress="DEFLATE",
+        predictor=2,
     ):
-        """Create output geotiff using gdal.CreateCopy()
-
-        Parameters
-        ----------
-        ds_input: gdal dataset
-            input dataset opened by GDAL
-        output_data: numpy.ndarray
-            output_data to be written into output geotiff
-        output_bounds: list
-            The bounding box coordinates where the output will be clipped.
-        output_res: float
-            User define output resolution for resampled Geotiff
-        downsamp_ratio: int
-            downsampling factor for dataset in the input geotiff
-        output_geotiff: str
-            Output geotiff to be created.
         """
+        Write output_data to GeoTIFF with correct geotransform.
+        Keeps the sign of x/y pixel sizes from ds_input.
+        Assumes north-up (no rotation). If rotation exists, use gdal.Warp instead.
+        """
+        gt_in = ds_input.GetGeoTransform()
+        rot_x, rot_y = gt_in[2], gt_in[4]
+        if rot_x != 0 or rot_y != 0:
+            raise ValueError("Input geotransform has rotation; use GDAL.Warp for correct georeferencing.")
 
-        # Update Geotransformation
-        geotransform_input = ds_input.GetGeoTransform()
-        geotransform_output = (
-            geotransform_input[0],
-            output_res,
-            geotransform_input[2],
-            geotransform_input[3],
-            geotransform_input[4],
-            output_res,
-        )
+        # Keep sign convention from input
+        xsign = 1.0 if gt_in[1] >= 0 else -1.0
+        ysign = 1.0 if gt_in[5] >= 0 else -1.0
+        px = xsign * float(output_res)
+        py = ysign * float(output_res)
 
-        # Calculate the output raster size
-        output_y_size, output_x_size = output_data.shape
+        # Normalize output_data shape to (bands, rows, cols)
+        arr = np.asarray(output_data)
+        if arr.ndim == 2:
+            arr = arr[None, :, :]
+        elif arr.ndim == 3:
+            pass
+        else:
+            raise ValueError(f"output_data must be 2D or 3D, got shape {arr.shape}")
 
-        driver = gdal.GetDriverByName('GTiff')
-        ds_output = driver.Create(
+        bands, rows, cols = arr.shape
+
+        # Decide origin: from bounds if provided, else from input origin
+        if output_bounds is not None:
+            xmin, ymin, xmax, ymax = output_bounds
+            # For north-up (py < 0): origin Y should be ymax
+            # For south-up (py > 0): origin Y should be ymin
+            origin_x = xmin
+            origin_y = ymax if py < 0 else ymin
+        else:
+            origin_x = gt_in[0]
+            origin_y = gt_in[3]
+
+        gt_out = (origin_x, px, 0.0, origin_y, 0.0, py)
+
+        creation_opts = [f"COMPRESS={compress}"]
+        if compress.upper() in ("DEFLATE", "LZW"):
+            creation_opts.append(f"PREDICTOR={predictor}")
+
+        driver = gdal.GetDriverByName("GTiff")
+        ds_out = driver.Create(
             output_geotiff,
-            output_x_size,
-            output_y_size,
-            ds_input.RasterCount,
-            gdal.GDT_Float32
+            cols,
+            rows,
+            bands,
+            gdal.GDT_Float32,
+            options=creation_opts,
         )
+        ds_out.SetGeoTransform(gt_out)
+        ds_out.SetProjection(ds_input.GetProjection())
 
-        # Set Geotransform and Projection
-        ds_output.SetGeoTransform(geotransform_output)
-        ds_output.SetProjection(ds_input.GetProjection())
+        if nodata is not None:
+            for b in range(1, bands + 1):
+                ds_out.GetRasterBand(b).SetNoDataValue(float(nodata))
 
-        # Write output data to raster
-        ds_output.GetRasterBand(1).WriteArray(output_data)
+        for b in range(bands):
+            ds_out.GetRasterBand(b + 1).WriteArray(arr[b])
 
-        ds_input = None
-        ds_output = None
-
+        ds_out.FlushCache()
+        ds_out = None
 
     def extract_file_name(self, input_rtc):
         """Extract file name identifier from input file name
@@ -867,7 +945,6 @@ class RTCReader(DataReader):
                 warnings.warn(f'\nFrequency group {freq_group} does not exist.'
                               , RuntimeWarning)
                 continue
-                    
 
         return h5_path_dict
 
@@ -1000,7 +1077,7 @@ class RTCReader(DataReader):
                     if is_mask:
                         # Keep 0/1 (or general categorical) as-is,
                         # map invalids to 255 if any
-                        # If the dataset has >1 values for "valid", 
+                        # If the dataset has >1 values for "valid",
                         # we leave them; caller can binarize upstream if needed.
                         ds_blk = ds_blk.astype(np.int32)  # safe cast before setting nodata
                         ds_blk = np.where(np.isfinite(ds_blk), ds_blk, 255)

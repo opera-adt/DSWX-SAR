@@ -928,6 +928,23 @@ def get_raster_block(raster_path, block_param):
             block_param.data_width,
             block_param.read_length)
 
+        if data_block is None:
+            raise RuntimeError(f"ReadAsArray returned None for {raster_path=}, "
+                            f"{block_param.read_start_line=}, {block_param.data_width=}, {block_param.read_length=}")
+
+        try:
+            shp = data_block.shape
+            ndim = data_block.ndim
+        except Exception:
+            raise RuntimeError(f"Unexpected ReadAsArray return type: {type(data_block)}")
+
+        if ndim == 0:
+            raise RuntimeError(
+                f"ReadAsArray returned 0-D array for {raster_path=}, band={i+1}, "
+                f"{block_param.read_start_line=}, {block_param.data_width=}, {block_param.read_length=}, "
+                f"{block_param.block_pad=}. shape={shp}"
+            )
+
         # Pad data_block with zeros according to pad_length/pad_width
         data_block = np.pad(data_block, block_param.block_pad,
                             mode='constant', constant_values=0)
@@ -1802,27 +1819,31 @@ def _calculate_output_bounds(geotransform,
     list
         Adjusted bounding box coordinates [x_min, y_min, x_max, y_max].
     """
-    x_min = geotransform[0]
-    x_max = x_min + width * geotransform[1] 
+    gt0, gt1, gt2, gt3, gt4, gt5 = geotransform
 
-    if geotransform[5] < 0:
-        y_max = geotransform[3]
-        y_min = y_max + length * geotransform[5]
-    else:
-        y_min = geotransform[3]
-        y_max = y_min + length * geotransform[5]
+    # Corner coordinates derived from geotransform + raster size
+    # (no rotation assumed; if rotation exists, this needs a different approach)
+    x0 = gt0
+    y0 = gt3
+    x1 = gt0 + width  * gt1
+    y1 = gt3 + length * gt5
 
-    x_diff = x_max - x_min
-    y_diff = y_max - y_min
+    xmin = min(x0, x1)
+    xmax = max(x0, x1)
+    ymin = min(y0, y1)
+    ymax = max(y0, y1)
 
-    if x_diff % output_spacing != 0:
-        x_max = x_min + (x_diff // output_spacing + 1) * output_spacing
+    s = float(abs(output_spacing))
+    if not np.isfinite(s) or s <= 0:
+        raise ValueError(f"Invalid output_spacing: {output_spacing}")
 
-    output_spacing = -1 * np.abs(output_spacing)
-    if y_diff % output_spacing != 0:
-        y_min = y_max + (y_diff // np.abs(output_spacing) + 1) * output_spacing
+    # Snap outward so the bounds fully cover the original area
+    xmin_s = math.floor(xmin / s) * s
+    ymin_s = math.floor(ymin / s) * s
+    xmax_s = math.ceil (xmax / s) * s
+    ymax_s = math.ceil (ymax / s) * s
 
-    return [x_min, y_min, x_max, y_max]
+    return [xmin_s, ymin_s, xmax_s, ymax_s]
 
 
 def _perform_warp_in_memory(input_file,

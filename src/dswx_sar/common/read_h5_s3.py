@@ -1,5 +1,4 @@
 # s3_h5_min.py
-from __future__ import annotations
 import os
 from typing import Optional, Tuple, Iterator
 from urllib.parse import urlparse
@@ -7,6 +6,7 @@ from urllib.parse import urlparse
 import boto3
 from botocore.config import Config as BotoConfig
 import h5py
+from contextlib import contextmanager
 
 
 def is_s3_path(path: str) -> bool:
@@ -213,3 +213,15 @@ def slice_gen(total_size: int, batch_size: int, combine_rem: bool = True) -> Ite
             yield slice(start, start + batch_size)
         if n_rem:
             yield slice(n_total_full, total_size)
+
+
+@contextmanager
+def open_h5(path: str):
+    # Use your ROS3-aware reader for s3/http; local uses h5py directly inside H5Reader too
+    with H5Reader(
+        path,
+        profile="saml-pub",
+        use_presign_fallback=False,  # set True if you want fallback
+        request_payer_requester=False,
+    ) as f:
+        yield f

@@ -12,6 +12,7 @@ import numpy as np
 from osgeo import gdal, osr, ogr
 from pyproj import Transformer
 from scipy.signal import convolve2d
+from scipy.ndimage import uniform_filter
 
 gdal.DontUseExceptions()
 
@@ -2031,6 +2032,37 @@ def _aggregate_10m_to_30m_conv(image, ratio, normalize_flag):
         aggregated_data = aggregated_data /pixel_count
 
     return aggregated_data
+
+
+def _aggregate_10m_to_30m_fast(image: np.ndarray, ratio: int, normalize_flag: bool):
+    """
+    Fast box-sum aggregation + stride sampling.
+    Matches: convolve2d(image, ones, mode='same') then [ratio//2::ratio, ratio//2::ratio]
+    """
+    # Make sure we are working in float for normalization robustness
+    img = image.astype(np.float32, copy=False)
+
+    # uniform_filter gives the mean; multiply by area to get sum
+    area = float(ratio * ratio)
+    summed = uniform_filter(img, size=ratio, mode="constant", cval=0.0) * area
+
+    s = ratio // 2
+    aggregated = summed[s::ratio, s::ratio]
+
+    if normalize_flag:
+        valid = (img > 0).astype(np.float32, copy=False)
+        count = uniform_filter(valid, size=ratio, mode="constant", cval=0.0) * area
+        count = count[s::ratio, s::ratio]
+
+        # avoid divide-by-zero
+        aggregated = np.divide(
+            aggregated, count,
+            out=np.zeros_like(aggregated, dtype=np.float32),
+            where=(count > 0)
+        )
+
+    return aggregated
+
 
 def majority_element(num_list):
     """

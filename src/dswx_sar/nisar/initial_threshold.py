@@ -178,7 +178,7 @@ def determine_threshold(
         step_histogram=0.1,
         bounds=None,
         method='ki',
-        mutli_threshold=True,
+        multi_threshold=True,
         adjust_if_nonoverlap=True,
         adjust_thresh_low_dist_percent=None,
         adjust_thresh_high_dist_percent=None,
@@ -321,7 +321,7 @@ def determine_threshold(
 
         # if estimated threshold is higher than bounds,
         # re-estimate threshold assuming tri-mode distribution
-        if threshold > bounds[1] and mutli_threshold:
+        if threshold > bounds[1] and multi_threshold:
             try:
                 thresholds = threshold_multiotsu(intensity_sub)
 
@@ -755,7 +755,7 @@ def run_sub_block(intensity,
     threshold_cfg = processing_cfg.initial_threshold
     tile_selection_method = threshold_cfg.selection_method
     threshold_method = threshold_cfg.threshold_method
-    mutli_threshold_flag = threshold_cfg.multi_threshold
+    multi_threshold_flag = threshold_cfg.multi_threshold
     threshold_bounds_co_pol = threshold_cfg.threshold_bounds.co_pol
     threshold_bounds_cross_pol = threshold_cfg.threshold_bounds.cross_pol
 
@@ -853,7 +853,7 @@ def run_sub_block(intensity,
                 step_histogram=step_histogram,
                 bounds=[threshold_temp_min, threshold_temp_max],
                 method=threshold_method,
-                mutli_threshold=mutli_threshold_flag,
+                multi_threshold=multi_threshold_flag,
                 adjust_if_nonoverlap=adjust_threshold_flag,
                 adjust_thresh_low_dist_percent=low_dist_percentile,
                 adjust_thresh_high_dist_percent=high_dist_percentile,

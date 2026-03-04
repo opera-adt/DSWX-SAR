@@ -28,7 +28,7 @@ logger = logging.getLogger('dswx_sar')
 def run(cfg):
 
     logger.info("")
-    logger.info('Starting DSWx-S1 Preprocessing')
+    logger.info('Starting DSWx-NI Preprocessing')
 
     t_all = time.time()
     processing_cfg = cfg.groups.processing
@@ -308,7 +308,7 @@ def _filter_one_block(block_param,
         if mask_path is not None and mask_flag:
             mask_block = _dswx_sar_util.get_raster_block(
                 mask_path, block_param)
-            arr[mask_block != 1] = np.nan
+            arr[(mask_block == 0) | (mask_block == 255)] = np.nan
         arr[arr == 0] = np.nan         # mask padded zeros
         real_pol_data[pol] = arr.astype(np.float32)
 

@@ -48,6 +48,7 @@ runconfig:
             #   - first : choose one burst without average.
             mosaic_mode: 'first'
             mosaic_posting_thresh: 40
+            mosaic_margin: 20
             resamp_required: True
             resamp_method: 'nearest'
             resamp_out_res: 30
@@ -215,6 +216,7 @@ runconfig:
             hand_variation_threshold: 2.5
             line_per_block: 400
             number_cpu: 1
+            threshold_scale: 'linear'
 
         refine_with_bimodality:
             minimum_pixel: 4

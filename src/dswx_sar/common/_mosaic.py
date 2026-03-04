@@ -169,10 +169,13 @@ def requires_reprojection(geogrid_mosaic,
         # check spacing
         if dx != geogrid_mosaic.spacing_x:
             flag_requires_reprojection = True
+            print(f"dx {dx} != geogrid_mosaic.spacing_x {geogrid_mosaic.spacing_x}" )
             return flag_requires_reprojection
 
         if dy != geogrid_mosaic.spacing_y:
             flag_requires_reprojection = True
+            print('dy != geogrid_mosaic.spacing_y')
+            print(dy, geogrid_mosaic.spacing_y)
             return flag_requires_reprojection
 
         # check projection
@@ -182,17 +185,22 @@ def requires_reprojection(geogrid_mosaic,
 
             if epsg_raster != epsg_mosaic:
                 flag_requires_reprojection = True
+                print(f"epsg_raster {epsg_raster} != epsg_mosaic {epsg_mosaic}")
+
                 return flag_requires_reprojection
 
         # check the coordinates
         if (abs((x0 - geogrid_mosaic.start_x) % geogrid_mosaic.spacing_x) >
                 maxerr_coord):
             flag_requires_reprojection = True
+            print(f"{x0-geogrid_mosaic.start_x} is not multiple of spacing")
             return flag_requires_reprojection
 
         if (abs((y0 - geogrid_mosaic.start_y) % geogrid_mosaic.spacing_y) >
                 maxerr_coord):
             flag_requires_reprojection = True
+            print(f"{y0-geogrid_mosaic.start_y} is not multiple of spacing")
+
             return flag_requires_reprojection
 
     flag_requires_reprojection = False
@@ -227,6 +235,32 @@ def _compute_distance_to_burst_center(image, geotransform):
                        (dx * (x_distance_image - center_of_mass[1])) ** 2)
 
     return distance
+
+  
+def _overlap_slices(offset_x, offset_y, src_h, src_w, mos_h, mos_w):
+    """
+    Compute paired slices for placing a src array into a mosaic array.
+    offset_* are src upper-left pixel indices in mosaic coordinates.
+    Returns (mos_y, mos_x, src_y, src_x) slices, or None if no overlap.
+    """
+    # Mosaic window (destination) in mosaic coords
+    x0_m = max(offset_x, 0)
+    y0_m = max(offset_y, 0)
+    x1_m = min(offset_x + src_w, mos_w)
+    y1_m = min(offset_y + src_h, mos_h)
+
+    if x0_m >= x1_m or y0_m >= y1_m:
+        return None
+
+    # Corresponding source window
+    x0_s = x0_m - offset_x
+    y0_s = y0_m - offset_y
+    x1_s = x1_m - offset_x
+    y1_s = y1_m - offset_y
+
+    return (slice(y0_m, y1_m), slice(x0_m, x1_m),
+            slice(y0_s, y1_s), slice(x0_s, x1_s))
+
 
 def compute_mosaic_array(
     list_rtc_images,
@@ -449,8 +483,10 @@ def compute_mosaic_array(
                 )
                 path_nlooks = relocated_file_nlooks
 
-            offset_col = 0
-            offset_row = 0
+            offset_imgx = int((list_geo_transform[i, 0] - xmin_mosaic) /
+                              posting_x + 0.5)
+            offset_imgy = int((list_geo_transform[i, 3] - ymax_mosaic) /
+                              posting_y + 0.5)
         else:
             offset_col = int((list_geo_transform[i, 0] - xmin_mosaic) / posting_x + 0.5)
             offset_row = int((list_geo_transform[i, 3] - ymax_mosaic) / posting_y + 0.5)
@@ -474,6 +510,32 @@ def compute_mosaic_array(
             nlooks_gdal_ds = None
             nlooks_band = None
 
+        gt = rtc_ds.GetGeoTransform()
+        src_h = rtc_ds.RasterYSize
+        src_w = rtc_ds.RasterXSize
+        offset_col = int((gt[0] - xmin_mosaic) / posting_x + 0.5)
+        offset_row = int((gt[3] - ymax_mosaic) / posting_y + 0.5)
+        if verbose:
+            print(f'        image offset (x, y): ({offset_col}, {offset_row})')
+        # Compute overlap windows (destination + corresponding source window)
+        ol = _overlap_slices(
+            offset_x=offset_col,
+            offset_y=offset_row,
+            src_h=src_h,
+            src_w=src_w,
+            mos_h=dim_mosaic[0],
+            mos_w=dim_mosaic[1],
+        )
+        if ol is None:
+            rtc_ds = None
+            nlooks_gdal_ds = None
+            continue
+
+        mos_y, mos_x, src_y, src_x = ol
+
+        src_y0, src_y1 = src_y.start, src_y.stop
+        src_x0, src_x1 = src_x.start, src_x.stop
+
         raster_num_cols = rtc_ds.RasterXSize
         raster_num_rows = rtc_ds.RasterYSize
 
@@ -488,40 +550,58 @@ def compute_mosaic_array(
         for i_band in range(num_bands):
             band_ds = rtc_ds.GetRasterBand(i_band + 1)
 
-            for y_offset in range(0, overlap_rows, row_blk_size):
-                row_blk = min(row_blk_size, overlap_rows - y_offset)
-                row_start = offset_row + y_offset
+            for y0 in range(src_y0, src_y1, row_blk_size):
+                ysize = min(row_blk_size, src_y1 - y0)
 
-                for x_offset in range(0, overlap_cols, col_blk_size):
-                    col_blk = min(col_blk_size, overlap_cols - x_offset)
-                    col_start = offset_col + x_offset
+                # Destination start row in mosaic for this block
+                mos_row0 = (offset_row + y0)
+                mos_row1 = mos_row0 + ysize
 
-                    rtc_win = band_ds.ReadAsArray(x_offset, y_offset, col_blk, row_blk).astype(acc_dtype, copy=False)
-                    dest = arr_numerator[i_band, row_start : row_start + row_blk, col_start : col_start + col_blk]
+                for x0 in range(src_x0, src_x1, col_blk_size):
+                    xsize = min(col_blk_size, src_x1 - x0)
 
-                    if mosaic_mode == 'average':
-                        # Set Nans to zeros for averaging
-                        rtc_win = np.where(np.isnan(rtc_win), 0.0, rtc_win)
+                    mos_col0 = (offset_col + x0)
+                    mos_col1 = mos_col0 + xsize
+
+                    # Read only what we need
+                    rtc_win = band_ds.ReadAsArray(x0, y0, xsize, ysize)
+                    if rtc_win is None:
+                        continue
+                    rtc_win = np.asarray(rtc_win, dtype=acc_dtype, order="C")
+
+                    # Normalize nodata handling
+                    if not np.isnan(no_data_value):
+                        rtc_win = np.where(rtc_win == no_data_value, np.nan, rtc_win)
+
+                    dest = arr_numerator[i_band, mos_row0:mos_row1, mos_col0:mos_col1]
+                    if mosaic_mode == "average":
+                        # For averaging, NaNs should contribute 0 to numerator and 0 weight to denom
+                        rtc_num = np.where(np.isnan(rtc_win), 0.0, rtc_win)
 
                         if nlooks_band is not None:
-                            nlooks_win = nlooks_band.ReadAsArray(x_offset, y_offset, col_blk, row_blk)
-                            nlooks_win = np.asarray(nlooks_win, dtype=acc_dtype, order='C')
+                            nlooks_win = nlooks_band.ReadAsArray(x0, y0, xsize, ysize)
+                            if nlooks_win is None:
+                                continue
+                            nlooks_win = np.asarray(nlooks_win, dtype=acc_dtype, order="C")
                             if np.issubdtype(nlooks_win.dtype, np.floating):
                                 nlooks_win = np.where(np.isnan(nlooks_win), 0.0, nlooks_win)
 
-                            dest += rtc_win * nlooks_win
-                            arr_denominator[row_start : row_start + row_blk, col_start : col_start + col_blk] += nlooks_win
+                            dest += rtc_num * nlooks_win
+                            arr_denominator[mos_row0:mos_row1, mos_col0:mos_col1] += nlooks_win
                         else:
-                            dest += rtc_win
-                            # count pixels where rtc_win > 0
-                            valid_mask = (rtc_win > 0).astype(np.uint8)
-                            arr_denominator[row_start : row_start + row_blk, col_start : col_start + col_blk] += valid_mask
+                            # If no nlooks, weight by valid pixels (you previously used rtc > 0)
+                            # Keep your original behavior:
+                            dest += rtc_num
+                            valid_mask = (rtc_win > 0).astype(acc_dtype)  # uses original rtc_win (NaNs -> False)
+                            arr_denominator[mos_row0:mos_row1, mos_col0:mos_col1] += valid_mask
 
-                    elif mosaic_mode == 'first':
-                        # fill only where mosaic is NaN (in-place, no copy)
-                        ind = np.isnan(dest)
-                        ind &= ~np.isnan(rtc_win)
+                    elif mosaic_mode == "first":
+                        # Fill only where mosaic is NaN and rtc has a value
+                        ind = np.isnan(dest) & ~np.isnan(rtc_win)
                         np.copyto(dest, rtc_win, where=ind)
+
+                    else:
+                        raise ValueError(f"Unsupported mosaic_mode: {mosaic_mode}")
 
         rtc_ds = None
         nlooks_gdal_ds = None

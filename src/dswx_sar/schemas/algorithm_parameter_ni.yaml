@@ -42,6 +42,7 @@ runconfig:
             mosaic_cog_enable: bool(required=False)
             mosaic_mode: str(required=False)
             mosaic_posting_thresh: num(required=False)
+            mosaic_margin: num(required=False)
             resamp_required: bool(required=False)
             resamp_method: str(required=False)
             resamp_out_res: num(required=False)
@@ -134,6 +135,7 @@ runconfig:
             # -1 represents the all available threads
             number_cpu: num(required=False)
             line_per_block: num(min=1, required=False)
+            threshold_scale: str(required=False)
 
         fuzzy_value:
             line_per_block: num(min=1, required=False)

@@ -17,6 +17,7 @@ from pyproj import Transformer
 import rasterio
 from rasterio.transform import Affine
 from rasterio.windows import Window
+from rasterio import Env
 
 from dswx_sar.common._mosaic import mosaic_single_output_file
 from dswx_sar.common._dswx_sar_util import (
@@ -35,8 +36,20 @@ from dswx_sar.nisar.dswx_ni_runconfig import (
 from dswx_sar.common.read_h5_s3 import (
     H5Reader, slice_gen, is_s3_path, file_exists
 )
-
+import psutil
 logger = logging.getLogger('dswx_sar')
+
+
+proc = psutil.Process(os.getpid())
+def rss_mib():
+    return proc.memory_info().rss / (1024**2)
+
+def hwm_mib():
+    try:
+        import resource
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # KiB->MiB on Linux
+    except Exception:
+        return float("nan")
 
 
 def reproject_bbox(bbox, src_epsg: int, dst_epsg: int):
@@ -59,7 +72,6 @@ class DataReader(ABC):
     def process_rtc_hdf5(self, input_list: list) -> Any:
         pass
 
-
 class RTCReader(DataReader):
     def __init__(self, row_blk_size: int, col_blk_size: int,
                  s3_profile: str | None = None, aws_region: str | None = None):
@@ -73,6 +85,7 @@ class RTCReader(DataReader):
             mosaic_mode: str,
             mosaic_prefix: str,
             mosaic_posting_thresh: float,
+            gdal_cache_max_mb: int,
             resamp_method: str,
             resamp_out_res: float,
             resamp_required: bool,
@@ -123,7 +136,6 @@ class RTCReader(DataReader):
             valid_freqs = []
 
             for freq_idx, freq_group in enumerate(freq_list[input_idx]):
-
                 if res_list[input_idx][freq_idx] is not None and \
                     res_list[input_idx][freq_idx] <= mosaic_posting_thresh:
                     valid_freqs.append(freq_group)
@@ -158,6 +170,7 @@ class RTCReader(DataReader):
                 epsg_array,
                 data_path,
                 mask_path,
+                gdal_cache_max_mb,
                 bbox=bbox,
                 bbox_epsg=bbox_epsg,
             )
@@ -238,7 +251,8 @@ class RTCReader(DataReader):
             nlooks_list,
             mosaic_mode,
             mosaic_prefix,
-            mask_exist,)
+            mask_exist,
+        )
 
     # Class functions
     def write_rtc_geotiff(
@@ -248,6 +262,7 @@ class RTCReader(DataReader):
             epsg_array: np.ndarray,
             data_path: dict,
             mask_path: list,
+            gdal_cache_max_mb: int,
             bbox=None,
             bbox_epsg=None
     ):
@@ -334,6 +349,7 @@ class RTCReader(DataReader):
                             num_cols,
                             self.row_blk_size,
                             self.col_blk_size,
+                            gdal_cache_max_mb,
                             designated_value,
                             geotransform,
                             crs,
@@ -403,6 +419,7 @@ class RTCReader(DataReader):
                     num_cols,
                     self.row_blk_size,
                     self.col_blk_size,
+                    gdal_cache_max_mb,
                     np.float32(500),
                     geotransform,
                     crs,
@@ -458,6 +475,7 @@ class RTCReader(DataReader):
         num_cols: int,
         row_blk_size: int,
         col_blk_size: int,
+        gdal_cache_max_mb,
         designated_value: np.float32,
         geotransform: Affine,
         crs: str,
@@ -479,10 +497,14 @@ class RTCReader(DataReader):
             'height': num_rows,
             'width': num_cols,
             'count': 1,
+            'tiled': True,
+            'blockxsize': 512,
+            'blockysize': 512,
             'dtype': out_dtype,
             'crs': crs,
             'transform': geotransform,
             'compress': 'DEFLATE',
+            'interleave': 'band',
         }
         if is_mask:
             profile['nodata'] = 255
@@ -505,29 +527,29 @@ class RTCReader(DataReader):
         K = 8
         row_blk_size = K * chunk_rows
         col_blk_size = num_cols  # full width stripes
+    
+        with rasterio.Env(GDAL_CACHEMAX=gdal_cache_max_mb):
+            with rasterio.open(output_gtiff, 'w', **profile) as dst:
+                for s in aligned_ranges(num_rows, row_blk_size, chunk_rows):
 
-        with rasterio.open(output_gtiff, 'w', **profile) as dst:
-            # for slice_row in slice_gen(num_rows, row_blk_size):
-            for s in aligned_ranges(num_rows, row_blk_size, chunk_rows):
+                    rs, re = s.start, s.stop
 
-                rs, re = s.start, s.stop
+                    ds_blk = h5_dset[rs:re, 0:num_cols]
 
-                ds_blk = h5_dset[rs:re, 0:num_cols] # cs:ce]
+                    if is_mask:
+                        blk = ds_blk.astype(np.int32, copy=False)
+                        # Replace non-finite with nodata=255
+                        blk = np.where(np.isfinite(blk), blk, 255).astype(dst_dtype, copy=False)
+                    else:
+                        blk = ds_blk.astype(np.float32, copy=False)
+                        blk[np.isinf(blk)] = designated_value
+                        blk[blk > designated_value] = designated_value
+                        blk[blk == 0] = np.nan
 
-                if is_mask:
-                    blk = ds_blk.astype(np.int32, copy=False)
-                    # Replace non-finite with nodata=255
-                    blk = np.where(np.isfinite(blk), blk, 255).astype(dst_dtype, copy=False)
-                else:
-                    blk = ds_blk.astype(np.float32, copy=False)
-                    blk[np.isinf(blk)] = designated_value
-                    blk[blk > designated_value] = designated_value
-                    blk[blk == 0] = np.nan
+                    dst.write(blk, 1, window=Window(0, rs, num_cols, re - rs))
 
-                # dst.write(blk, 1, window=Window(cs, rs, ce - cs, re - rs))
-                dst.write(blk, 1, window=Window(0, rs, num_cols, re - rs))
+                dst.update_tags(**dswx_metadata_dict)
 
-            dst.update_tags(**dswx_metadata_dict)
 
     def mosaic_rtc_geotiff(
         self,
@@ -575,11 +597,13 @@ class RTCReader(DataReader):
                 nlooks_list,
                 output_mosaic_gtiff,
                 mosaic_mode,
+                self.row_blk_size,
+                self.col_blk_size,
                 scratch_dir=scratch_dir,
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
                 no_data_value=255,
-                )
+            )
 
         # Mosaic layover shadow mask
         if mask_exist:
@@ -595,6 +619,8 @@ class RTCReader(DataReader):
                 nlooks_list,
                 mask_mosaic_gtiff,
                 mosaic_mode,
+                self.row_blk_size,
+                self.col_blk_size,
                 scratch_dir=scratch_dir,
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
@@ -1353,6 +1379,7 @@ def run(cfg):
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix
     mosaic_posting_thresh = mosaic_cfg.mosaic_posting_thresh
+    gdal_cache_max_mb = mosaic_cfg.gdal_cache_max_mb
     nisar_uni_mode = processing_cfg.nisar_uni_mode
 
     # Determine if resampling is required
@@ -1387,6 +1414,7 @@ def run(cfg):
         mosaic_mode,
         mosaic_prefix,
         mosaic_posting_thresh,
+        gdal_cache_max_mb,
         resamp_method,
         resamp_out_res,
         resamp_required,

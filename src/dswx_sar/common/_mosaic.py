@@ -314,9 +314,13 @@ def compute_mosaic_array(
     if geogrid_in is None:
         if list_geo_transform[:, 1].max() == list_geo_transform[:, 1].min():
             posting_x = list_geo_transform[0, 1]
+        else:
+            raise ValueError("Input GCOV X posting mismatch.")
 
         if list_geo_transform[:, 5].max() == list_geo_transform[:, 5].min():
             posting_y = list_geo_transform[0, 5]
+        else:
+            raise ValueError("Input GCOV Y posting mismatch.")
 
         # determine the dimension and the upper left corner of the output
         # mosaic

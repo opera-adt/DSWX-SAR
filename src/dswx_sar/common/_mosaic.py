@@ -321,7 +321,7 @@ def compute_mosaic_array(
     for i, path_rtc in enumerate(list_rtc_images):
         raster_in = gdal.Open(path_rtc, gdal.GA_ReadOnly)
         if raster_in is None:
-            raise runtimeerror(f"error: could not open rtc raster: {path_rtc}")
+            raise RuntimeError(f"error: could not open rtc raster: {path_rtc}")
 
         list_geo_transform[i, :] = raster_in.GetGeoTransform()
         list_dimension[i, :] = (raster_in.RasterYSize, raster_in.RasterXSize)
@@ -331,7 +331,7 @@ def compute_mosaic_array(
         if num_bands is None:
             num_bands = raster_in.RasterCount
         elif num_bands != raster_in.RasterCount:
-            raise valueerror(
+            raise ValueError(
                 f'error: the file "{os.path.basename(path_rtc)}" has {raster_in.RasterCount} bands. expected: {num_bands}.'
             )
 
@@ -483,9 +483,9 @@ def compute_mosaic_array(
                 )
                 path_nlooks = relocated_file_nlooks
 
-            offset_imgx = int((list_geo_transform[i, 0] - xmin_mosaic) /
+            offset_col = int((list_geo_transform[i, 0] - xmin_mosaic) /
                               posting_x + 0.5)
-            offset_imgy = int((list_geo_transform[i, 3] - ymax_mosaic) /
+            offset_row = int((list_geo_transform[i, 3] - ymax_mosaic) /
                               posting_y + 0.5)
         else:
             offset_col = int((list_geo_transform[i, 0] - xmin_mosaic) / posting_x + 0.5)
@@ -513,8 +513,9 @@ def compute_mosaic_array(
         gt = rtc_ds.GetGeoTransform()
         src_h = rtc_ds.RasterYSize
         src_w = rtc_ds.RasterXSize
-        offset_col = int((gt[0] - xmin_mosaic) / posting_x + 0.5)
-        offset_row = int((gt[3] - ymax_mosaic) / posting_y + 0.5)
+
+        offset_col = int(np.round((gt[0] - xmin_mosaic) / posting_x))
+        offset_row = int(np.round((gt[3] - ymax_mosaic) / posting_y))
         if verbose:
             print(f'        image offset (x, y): ({offset_col}, {offset_row})')
         # Compute overlap windows (destination + corresponding source window)

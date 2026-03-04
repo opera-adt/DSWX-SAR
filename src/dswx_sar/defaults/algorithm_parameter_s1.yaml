@@ -43,6 +43,8 @@ runconfig:
             #   - average : overlapped areas are averaged.
             #   - first : choose one burst without average.
             mosaic_mode: 'first'
+            read_row_blk_size: 2048
+            read_col_blk_size: 2048
 
         # Flag to turn on/off the filtering for RTC image.
         # The enhanced Lee filter is available.

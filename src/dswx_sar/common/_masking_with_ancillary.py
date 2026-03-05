@@ -16,7 +16,10 @@ from skimage.filters import threshold_multiotsu
 from typing import List, Tuple
 
 from dswx_sar.common import _region_growing
-
+from dswx_sar.common._dswx_sar_util import (
+    iter_windows,
+    create_gtiff_1band
+)
 
 logger = logging.getLogger('dswx_sar')
 
@@ -135,6 +138,8 @@ def extract_bbox_with_buffer(
     nb_components_water, label_image, stats_water, _ = \
         cv2.connectedComponentsWithStats(binary.astype(np.uint8),
                                          connectivity=8)
+    # label_image = label_image.astype(np.int64, copy=False)
+
     nb_components_water -= 1
 
     sizes = stats_water[1:, -1]
@@ -515,7 +520,7 @@ def split_extended_water_parallel_v2(
     # delete last iteration if rows is equal to 20 * input_lines_per_block
     lines_per_block_set = list(dict.fromkeys(
         [x for x in lines_per_block_set if x <= meta_info['length']]))
-    print('here ', lines_per_block_set)
+
     pad_shape = (0, 0)
 
     temp_prefix = 'split_extended_water_parallel_temp'
@@ -552,6 +557,8 @@ def split_extended_water_parallel_v2(
                 f'{block_param.read_start_line + block_param.read_length}')
             water_mask = _dswx_sar_util.get_raster_block(
                 water_mask_path, block_param)
+            # water_mask = np.where(water_map == 1, 1, 0)
+
             intensity_block = _dswx_sar_util.get_raster_block(
                 input_dict['intensity'], block_param)
             # Read the current process-mask to skip components already done
@@ -559,17 +566,20 @@ def split_extended_water_parallel_v2(
                 process_mask_path, block_param)
 
             # Extract bounding boxes with buffer
+            water_mask_for_label = (water_mask != 0) & (process_mask_block != 0)
+
             coord_list, sizes, label_image = extract_bbox_with_buffer(
-                binary=water_mask, buffer=10)
+                binary=water_mask_for_label, buffer=10)
 
             filtered_sizes = []
             filtered_coord_list = []
             filtered_index = []
             check_output = np.ones(len(sizes), dtype='byte')
-            old_val = np.arange(1, len(sizes) + 1) - .1
-            index_array_to_image = np.array(
-                np.searchsorted(old_val, label_image),
-                dtype='uint32')
+            # old_val = np.arange(1, len(sizes) + 1) - .1
+            # index_array_to_image = np.array(
+            #     np.searchsorted(old_val, label_image),
+            #     dtype='uint32')
+
 
             for ind, (coords, size) in enumerate(zip(coord_list, sizes)):
                 (bbox_x_start,
@@ -590,7 +600,7 @@ def split_extended_water_parallel_v2(
                                        bbox_x_start:bbox_x_end] == (ind + 1)
                 if np.count_nonzero(sub_proc & sub_lab) == 0:
                     continue
-                
+
                 filtered_index.append(ind)
                 filtered_coord_list.append([bbox_x_start,
                                             bbox_x_end,
@@ -638,9 +648,17 @@ def split_extended_water_parallel_v2(
             # Build/update the next pass’s process-mask
             # (only if there IS a next pass)
             if block_iter < len(lines_per_block_set) - 1:
-                check_img = np.array(np.insert(check_output, 0, 0, axis=0)[
-                    index_array_to_image], dtype='byte')
+                max_label = int(label_image.max())
+                if max_label != len(sizes):
+                    logger.warning(
+                        f"label max {max_label} != number of sizes {len(sizes)} (unexpected)"
+                    )
 
+                lut = np.ones(max_label + 1, dtype=np.uint8)
+                lut[0] = 1
+                lut[1:1+len(check_output)] = check_output
+                check_img = lut[label_image].astype(np.uint8, copy=False)
+                check_img = (check_img & process_mask_block).astype(np.uint8, copy=False)
                 _dswx_sar_util.write_raster_block(
                     process_mask_path,
                     check_img,
@@ -651,7 +669,7 @@ def split_extended_water_parallel_v2(
                     cog_flag=True,
                     scratch_dir=outputdir)
 
-    merged_removed_false_water_path = (temp_path_set[0] if len(temp_path_set) == 1 
+    merged_removed_false_water_path = (temp_path_set[0] if len(temp_path_set) == 1
                                        else output_path)
 
     if len(temp_path_set) >= 2:
@@ -985,7 +1003,9 @@ def compute_spatial_coverage_from_ancillary_parallel(
 
     # Output consists of index and 2D image consisting of True/False.
     # True represents the land and False represents not-land.
-    results = Parallel(n_jobs=number_workers)(
+    results = Parallel(
+        n_jobs=number_workers,
+        prefer="threads")(
         delayed(compute_spatial_coverage)(args)
         for args in args_list)
 
@@ -1595,3 +1615,829 @@ def get_darkland_from_intensity_ancillary(
             projection=band_meta['projection'],
             datatype='byte')
 
+
+# Updated (Feb 10, 2026). This function is applied only to DSWx-NI.
+def write_or_masks(mask_a_path, mask_b_path, out_path, metainfo, block_x=2048, block_y=2048):
+
+
+    a_ds = gdal.Open(mask_a_path, gdal.GA_ReadOnly)
+    b_ds = gdal.Open(mask_b_path, gdal.GA_ReadOnly)
+    if a_ds is None or b_ds is None:
+        raise RuntimeError("Failed to open input masks")
+
+    xsize, ysize = a_ds.RasterXSize, a_ds.RasterYSize
+    if b_ds.RasterXSize != xsize or b_ds.RasterYSize != ysize:
+        raise ValueError("Mask size mismatch")
+
+    a_b = a_ds.GetRasterBand(1)
+    b_b = b_ds.GetRasterBand(1)
+
+    driver = gdal.GetDriverByName("GTiff")
+    opts = [
+        "TILED=YES","BLOCKXSIZE=512","BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE","PREDICTOR=2","ZLEVEL=6","BIGTIFF=IF_SAFER","NBITS=8"
+    ]
+    out_ds = driver.Create(out_path, xsize, ysize, 1, gdal.GDT_Byte, options=opts)
+    out_ds.SetGeoTransform(metainfo["geotransform"])
+    out_ds.SetProjection(metainfo["projection"])
+    out_band = out_ds.GetRasterBand(1)
+    out_band.SetNoDataValue(0)
+
+    for yoff in range(0, ysize, block_y):
+        ywin = min(block_y, ysize - yoff)
+        for xoff in range(0, xsize, block_x):
+            xwin = min(block_x, xsize - xoff)
+            a = a_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+            b = b_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+            out = ((a != 0) | (b != 0)).astype(np.uint8, copy=False)
+            out_band.WriteArray(out, xoff, yoff)
+
+    out_band.FlushCache()
+    out_ds.FlushCache()
+    out_band = None; out_ds = None
+    a_b = None; b_b = None
+    a_ds = None; b_ds = None
+
+
+def make_lut_u8(values):
+    lut = np.zeros(256, dtype=np.uint8)
+    lut[np.asarray(values, dtype=np.uint16)] = 1
+    return lut
+
+
+def write_or_mask_landcover_glad_streaming(
+    landcover_path: str,
+    glad_path: str,
+    out_path: str,
+    landcover_masking_list,   # WorldCover names (strings)
+    glad_excluded_values,               # list[int] (e.g. parse_ranges(['1-24']))
+    geotransform,
+    projection,
+    block_x: int = 2048,
+    block_y: int = 2048,
+    logger=None,
+):
+    lc_ds = gdal.Open(landcover_path, gdal.GA_ReadOnly)
+    gl_ds = gdal.Open(glad_path, gdal.GA_ReadOnly)
+    if lc_ds is None:
+        raise RuntimeError(f"Failed to open: {landcover_path}")
+    if gl_ds is None:
+        raise RuntimeError(f"Failed to open: {glad_path}")
+
+    xsize, ysize = lc_ds.RasterXSize, lc_ds.RasterYSize
+    if gl_ds.RasterXSize != xsize or gl_ds.RasterYSize != ysize:
+        raise ValueError("Landcover/GLAD raster size mismatch")
+
+    lc_band = lc_ds.GetRasterBand(1)
+    gl_band = gl_ds.GetRasterBand(1)
+
+    # precompute codes once
+    wc_codes = worldcover_names_to_codes(landcover_masking_list)
+    lut_wc = make_lut_u8(wc_codes)
+    glad_vals = np.asarray(list(glad_excluded_values), dtype=np.int32)
+    gl_max = int(max(glad_vals)) if len(glad_vals) else 0
+    lut_gl = make_lut_u8(glad_vals)  # or read max from data once
+
+    glad_codes = np.asarray(list(glad_excluded_values), dtype=np.int32)
+
+    # create output (1-band uint8 mask)
+    driver = gdal.GetDriverByName("GTiff")
+    create_opts = [
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE",
+        "PREDICTOR=2",
+        "ZLEVEL=6",
+        "BIGTIFF=IF_SAFER",
+        "NBITS=8",
+    ]
+    out_ds = driver.Create(out_path, xsize, ysize, 1, gdal.GDT_Byte, options=create_opts)
+    out_ds.SetGeoTransform(geotransform)
+    out_ds.SetProjection(projection)
+    out_band = out_ds.GetRasterBand(1)
+    out_band.SetNoDataValue(0)
+
+    # window loop
+    for yoff in range(0, ysize, block_y):
+        ywin = min(block_y, ysize - yoff)
+        for xoff in range(0, xsize, block_x):
+            xwin = min(block_x, xsize - xoff)
+
+            lc = lc_band.ReadAsArray(xoff, yoff, xwin, ywin)
+            gl = gl_band.ReadAsArray(xoff, yoff, xwin, ywin)
+
+            # membership masks (vectorized)
+            # m_lc = np.isin(lc, wc_codes)
+            # m_gl = np.isin(gl, glad_codes)
+            # m_lc = lut_wc[lc] != 0
+            out = ((lut_wc[lc] | lut_gl[gl]) != 0).astype(np.uint8, copy=False)
+
+            # out = (m_lc | m_gl).astype(np.uint8, copy=False)
+            out_band.WriteArray(out, xoff, yoff)
+
+    out_band.FlushCache()
+    out_ds.FlushCache()
+
+    # close
+    out_band = None
+    out_ds = None
+    lc_band = None
+    gl_band = None
+    lc_ds = None
+    gl_ds = None
+
+    if logger:
+        logger.info(f"Wrote: {out_path}")
+
+
+def write_rg_excluded_area_from_wbd_and_glad_streaming(
+    interp_wbd_str, glad_path, out_path,
+    thr, glad_vals, geotransform, projection,
+    block_x=2048, block_y=2048
+    ):
+    wbd_ds = gdal.Open(interp_wbd_str, gdal.GA_ReadOnly)
+    gl_ds  = gdal.Open(glad_path, gdal.GA_ReadOnly)
+    if wbd_ds is None:
+        raise RuntimeError(f"Failed to open: {interp_wbd_str}")
+    if gl_ds is None:
+        raise RuntimeError(f"Failed to open: {glad_path}")
+
+    xsize, ysize = wbd_ds.RasterXSize, wbd_ds.RasterYSize
+    if gl_ds.RasterXSize != xsize or gl_ds.RasterYSize != ysize:
+        raise ValueError("WBD and GLAD-mask size mismatch")
+    wbd_band = wbd_ds.GetRasterBand(1)
+    gl_band  = gl_ds.GetRasterBand(1)
+
+    driver = gdal.GetDriverByName("GTiff")
+    create_opts = [
+        "TILED=YES","BLOCKXSIZE=512","BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE","PREDICTOR=2","ZLEVEL=6","BIGTIFF=IF_SAFER","NBITS=8",
+    ]
+    out_ds = driver.Create(out_path, xsize, ysize, 1, gdal.GDT_Byte, options=create_opts)
+    out_ds.SetGeoTransform(geotransform)
+    out_ds.SetProjection(projection)
+    out_band = out_ds.GetRasterBand(1)
+    out_band.SetNoDataValue(0)
+
+    lut_gl = make_lut_u8(glad_vals)
+    for yoff in range(0, ysize, block_y):
+        ywin = min(block_y, ysize - yoff)
+        for xoff in range(0, xsize, block_x):
+            xwin = min(block_x, xsize - xoff)
+
+            wbd = wbd_band.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.float32, copy=False)
+            gl  = gl_band.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+
+            m = ((wbd > thr) | (lut_gl[gl] != 0)).astype(np.uint8, copy=False)
+            out_band.WriteArray(m, xoff, yoff)
+    out_band.FlushCache()
+    out_ds.FlushCache()
+    out_band = None
+    out_ds = None
+    wbd_band = None
+    gl_band = None
+    wbd_ds = None
+    gl_ds = None
+
+
+#
+def _make_kernel(radius: int):
+    k = 2 * radius + 1
+    return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+
+
+
+def worldcover_names_to_codes(mask_label_names):
+    """Convert WorldCover label names -> integer codes."""
+    lut = get_label_landcover_esa_10()
+    return np.asarray([lut[name] for name in mask_label_names], dtype=np.int16)
+
+
+def write_worldcover_mask_streaming(landcover_path, out_path, label_names, metainfo,
+                                   block_x=2048, block_y=2048):
+    ds = gdal.Open(landcover_path, gdal.GA_ReadOnly)
+    if ds is None:
+        raise RuntimeError(f"Failed to open {landcover_path}")
+    band = ds.GetRasterBand(1)
+    xsize, ysize = ds.RasterXSize, ds.RasterYSize
+
+    codes = worldcover_names_to_codes(label_names)
+
+    out_ds, out_band = create_gtiff_1band(
+        out_path, xsize, ysize, gdal.GDT_Byte,
+        metainfo["geotransform"], metainfo["projection"],
+        nodata=0, nbits=8
+    )
+
+    for xoff, yoff, xwin, ywin in iter_windows(xsize, ysize, block_x, block_y):
+        lc = band.ReadAsArray(xoff, yoff, xwin, ywin)
+        m = np.isin(lc, codes).astype(np.uint8, copy=False)
+        out_band.WriteArray(m, xoff, yoff)
+
+    out_band.FlushCache(); out_ds.FlushCache()
+    out_band = None; out_ds = None
+    band = None; ds = None
+
+
+def write_buffered_binary_mask(in_path, out_path, radius, metainfo,
+                               block_x=2048, block_y=2048):
+    """
+    Dilate a binary mask by 'radius' pixels using tile+halo.
+    Input must be 0/1 uint8.
+    """
+    ds = gdal.Open(in_path, gdal.GA_ReadOnly)
+    if ds is None:
+        raise RuntimeError(f"Failed to open {in_path}")
+    band = ds.GetRasterBand(1)
+    xsize, ysize = ds.RasterXSize, ds.RasterYSize
+
+    out_ds, out_band = create_gtiff_1band(
+        out_path, xsize, ysize, gdal.GDT_Byte,
+        metainfo["geotransform"], metainfo["projection"],
+        nodata=0, nbits=8
+    )
+
+    halo = int(radius)
+    st = ndimage.generate_binary_structure(2, 1)  # 4-neighborhood; change if you want 8
+
+    for xoff, yoff, xwin, ywin in iter_windows(xsize, ysize, block_x, block_y):
+        # expanded read window
+        x0 = max(0, xoff - halo)
+        y0 = max(0, yoff - halo)
+        x1 = min(xsize, xoff + xwin + halo)
+        y1 = min(ysize, yoff + ywin + halo)
+
+        big = band.ReadAsArray(x0, y0, x1 - x0, y1 - y0).astype(bool, copy=False)
+        dil = ndimage.binary_dilation(big, structure=st, iterations=halo)
+
+        # crop back to core
+        cx0 = xoff - x0
+        cy0 = yoff - y0
+        core = dil[cy0:cy0 + ywin, cx0:cx0 + xwin].astype(np.uint8, copy=False)
+        out_band.WriteArray(core, xoff, yoff)
+
+    out_band.FlushCache(); out_ds.FlushCache()
+    out_band = None; out_ds = None
+    band = None; ds = None
+
+
+
+def write_fuzzy_likelihood(reference_binary_path, candidate_mask_path, water_buffer_mask_path_or_none,
+                           out_path, metainfo, block_x=2048, block_y=2048):
+    ref_ds = gdal.Open(reference_binary_path, gdal.GA_ReadOnly)
+    cand_ds = gdal.Open(candidate_mask_path, gdal.GA_ReadOnly)
+    if ref_ds is None or cand_ds is None:
+        raise RuntimeError("Failed to open ref/candidate inputs")
+
+    ref_b = ref_ds.GetRasterBand(1)
+    cand_b = cand_ds.GetRasterBand(1)
+    xsize, ysize = ref_ds.RasterXSize, ref_ds.RasterYSize
+
+    if cand_ds.RasterXSize != xsize or cand_ds.RasterYSize != ysize:
+        raise ValueError("reference_binary and candidate_mask size mismatch")
+
+    wb_ds = None
+    wb_b = None
+    if water_buffer_mask_path_or_none is not None:
+        wb_ds = gdal.Open(water_buffer_mask_path_or_none, gdal.GA_ReadOnly)
+        if wb_ds is None:
+            raise RuntimeError(f"Failed to open {water_buffer_mask_path_or_none}")
+        if wb_ds.RasterXSize != xsize or wb_ds.RasterYSize != ysize:
+            raise ValueError("water_buffer_mask size mismatch")
+        wb_b = wb_ds.GetRasterBand(1)
+
+    out_ds, out_band = create_gtiff_1band(
+        out_path, xsize, ysize, gdal.GDT_Float32,
+        metainfo["geotransform"], metainfo["projection"],
+        nodata=0.0
+    )
+
+    for xoff, yoff, xwin, ywin in iter_windows(xsize, ysize, block_x, block_y):
+        ref = ref_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+        cand = cand_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+
+        # start at 0
+        fuzzy = np.zeros((ywin, xwin), dtype=np.float32)
+        fuzzy[ref != 0] = 1.0
+        fuzzy[(ref == 0) & (cand != 0)] = 0.75
+
+        if wb_b is not None:
+            wb = wb_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+            fuzzy[wb != 0] = 0.0
+
+        out_band.WriteArray(fuzzy, xoff, yoff)
+
+    out_band.FlushCache(); out_ds.FlushCache()
+    out_band = None; out_ds = None
+    ref_b = None; cand_b = None
+    ref_ds = None; cand_ds = None
+    if wb_b is not None:
+        wb_b = None; wb_ds = None
+
+
+def write_fuzzy_updated_with_rg(fuzzy_path, rg_path, out_path, metainfo,
+                               block_x=2048, block_y=2048):
+    f_ds = gdal.Open(fuzzy_path, gdal.GA_ReadOnly)
+    r_ds = gdal.Open(rg_path, gdal.GA_ReadOnly)
+    if f_ds is None or r_ds is None:
+        raise RuntimeError("Failed to open fuzzy/rg")
+
+    f_b = f_ds.GetRasterBand(1)
+    r_b = r_ds.GetRasterBand(1)
+    xsize, ysize = f_ds.RasterXSize, f_ds.RasterYSize
+
+    out_ds, out_band = create_gtiff_1band(
+        out_path, xsize, ysize, gdal.GDT_Float32,
+        metainfo["geotransform"], metainfo["projection"],
+        nodata=0.0
+    )
+
+    for xoff, yoff, xwin, ywin in iter_windows(xsize, ysize, block_x, block_y):
+        fuzzy = f_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.float32, copy=False)
+        rg = r_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+        # where rg==1, set fuzzy to 1.0
+        out = fuzzy.copy()
+        out[rg != 0] = 1.0
+        out_band.WriteArray(out, xoff, yoff)
+
+    out_band.FlushCache(); out_ds.FlushCache()
+    out_band = None; out_ds = None
+    f_b = None; r_b = None
+    f_ds = None; r_ds = None
+
+
+
+def write_or_binary(ref_path, rg_path, out_path, metainfo, block_x=2048, block_y=2048):
+    a_ds = gdal.Open(ref_path, gdal.GA_ReadOnly)
+    b_ds = gdal.Open(rg_path, gdal.GA_ReadOnly)
+    if a_ds is None or b_ds is None:
+        raise RuntimeError("Failed to open ref/rg")
+    a_b = a_ds.GetRasterBand(1)
+    b_b = b_ds.GetRasterBand(1)
+    xsize, ysize = a_ds.RasterXSize, a_ds.RasterYSize
+
+    out_ds, out_band = create_gtiff_1band(
+        out_path, xsize, ysize, gdal.GDT_Byte,
+        metainfo["geotransform"], metainfo["projection"],
+        nodata=0, nbits=8
+    )
+
+    for xoff, yoff, xwin, ywin in iter_windows(xsize, ysize, block_x, block_y):
+        a = a_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+        b = b_b.ReadAsArray(xoff, yoff, xwin, ywin).astype(np.uint8, copy=False)
+        out = ((a != 0) | (b != 0)).astype(np.uint8, copy=False)
+        out_band.WriteArray(out, xoff, yoff)
+
+    out_band.FlushCache(); out_ds.FlushCache()
+    out_band = None; out_ds = None
+    a_b = None; b_b = None
+    a_ds = None; b_ds = None
+
+
+
+def extend_land_cover_v3(
+    landcover_path,
+    reference_landcover_binary_path,
+    target_landcover,
+    water_landcover,
+    exclude_area_rg_path,
+    minimum_pixel,
+    water_buffer,
+    metainfo,
+    scratch_dir,
+    output_binary_path,
+    lines_per_block=2048,
+):
+    """
+    Streaming + path-based version:
+    - no full-scene numpy arrays
+    - uses run_parallel_region_growing twice (block-based)
+    """
+
+    logger.info("Extending land cover (streaming v3)....")
+
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    # 1) Candidate mask from WorldCover
+    candidate_mask_path = os.path.join(scratch_dir, "lc_target_candidate_mask.tif")
+    write_worldcover_mask_streaming(
+        landcover_path=landcover_path,
+        out_path=candidate_mask_path,
+        label_names=target_landcover,
+        metainfo=metainfo,
+        block_x=2048,
+        block_y=2048,
+    )
+
+    # 2) Optional: buffered water mask
+    water_buffer_mask_path = None
+    if water_buffer > 0:
+        logger.info(f"Excluding buffered area along water (buffer={water_buffer})")
+        water_mask_path = os.path.join(scratch_dir, "lc_water_mask.tif")
+        write_worldcover_mask_streaming(
+            landcover_path=landcover_path,
+            out_path=water_mask_path,
+            label_names=water_landcover,
+            metainfo=metainfo,
+            block_x=2048,
+            block_y=2048,
+        )
+        water_buffer_mask_path = os.path.join(scratch_dir, "lc_water_mask_buffered.tif")
+        write_buffered_binary_mask(
+            in_path=water_mask_path,
+            out_path=water_buffer_mask_path,
+            radius=water_buffer,
+            metainfo=metainfo,
+            block_x=2048,
+            block_y=2048,
+        )
+
+    # 3) Optional: remove small components from seeds without full RAM
+    # NOTE: your previous remove_small_components() likely loads full arrays.
+    # Best scalable replacement is GDAL sieve; do it here if you want.
+    seed_path = reference_landcover_binary_path
+    if minimum_pixel > 0:
+        logger.info(f"Removing small components less than {minimum_pixel} pixels (recommend GDAL SieveFilter)")
+        # Placeholder: if you already have a raster-based sieve util, call it here.
+        # Otherwise, keep minimum_pixel=0 until you implement sieve safely.
+        # seed_path = sieve_binary_raster(seed_path, out_path=..., threshold=minimum_pixel, metainfo=metainfo)
+
+    # 4) Build fuzzy likelihood raster fuzzy0
+    fuzzy0_path = os.path.join(scratch_dir, "lc_fuzzy0.tif")
+    write_fuzzy_likelihood(
+        reference_binary_path=seed_path,
+        candidate_mask_path=candidate_mask_path,
+        water_buffer_mask_path_or_none=water_buffer_mask_path,
+        out_path=fuzzy0_path,
+        metainfo=metainfo,
+        block_x=2048,
+        block_y=2048,
+    )
+
+    # 5) First block RG (uses your existing block-based RG implementation)
+    rg0_path = os.path.join(scratch_dir, "lc_rg0.tif")
+    _region_growing.run_parallel_region_growing(
+        fuzzy0_path,
+        rg0_path,
+        exclude_area_path=exclude_area_rg_path,
+        lines_per_block=lines_per_block,
+        initial_threshold=0.9,
+        relaxed_threshold=0.7,
+        maxiter=0,
+        rg_method="fast",
+    )
+
+    # 6) Update fuzzy where rg0==1
+    fuzzy1_path = os.path.join(scratch_dir, "lc_fuzzy1.tif")
+    write_fuzzy_updated_with_rg(
+        fuzzy_path=fuzzy0_path,
+        rg_path=rg0_path,
+        out_path=fuzzy1_path,
+        metainfo=metainfo,
+        block_x=2048,
+        block_y=2048,
+    )
+
+    # 7) Second block RG (replaces region_growing_fast on full arrays)
+    rg1_path = os.path.join(scratch_dir, "lc_rg1.tif")
+    _region_growing.run_parallel_region_growing(
+        fuzzy1_path,
+        rg1_path,
+        exclude_area_path=exclude_area_rg_path,
+        lines_per_block=lines_per_block,
+        initial_threshold=0.9,
+        relaxed_threshold=0.7,
+        maxiter=0,
+        rg_method="fast",
+    )
+
+    # 8) Final extended binary = seed OR rg1
+    write_or_binary(
+        ref_path=seed_path,
+        rg_path=rg1_path,
+        out_path=output_binary_path,
+        metainfo=metainfo,
+        block_x=2048,
+        block_y=2048,
+    )
+
+    logger.info("Landcover extension completed (v3).")
+    return output_binary_path
+
+
+
+# Updated HAND filter method (Feb 20, 2026)
+def _create_u8_gtiff(path, xsize, ysize, gt, proj, nodata=0,
+                     blockx=512, blocky=512, zlevel=6, compress="DEFLATE"):
+    drv = gdal.GetDriverByName("GTiff")
+    opts = [
+        "TILED=YES",
+        f"BLOCKXSIZE={blockx}",
+        f"BLOCKYSIZE={blocky}",
+        f"COMPRESS={compress}",
+        "PREDICTOR=2",
+        f"ZLEVEL={zlevel}",
+        "BIGTIFF=IF_SAFER",
+        "NBITS=8",
+    ]
+    ds = drv.Create(path, xsize, ysize, 1, gdal.GDT_Byte, options=opts)
+    if ds is None:
+        raise RuntimeError(f"Failed to create: {path}")
+    ds.SetGeoTransform(gt)
+    ds.SetProjection(proj)
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(nodata)
+    return ds, band
+
+
+def _or_write_mask_window(mask_band, x0, y0, win_w, win_h, add_mask_u8):
+    """
+    removed_union_mask.tif 에서 bbox window만 OR 누적.
+    add_mask_u8: uint8 (0/1)
+    """
+    prev = mask_band.ReadAsArray(x0, y0, win_w, win_h)
+    if prev is None:
+        prev = np.zeros((win_h, win_w), dtype=np.uint8)
+    out = (prev | add_mask_u8).astype(np.uint8, copy=False)
+    mask_band.WriteArray(out, x0, y0)
+
+
+def _extract_boundary_u8(mask_u8: np.ndarray, ker1: np.ndarray) -> np.ndarray:
+    """
+    boundary = mask & ~erode(mask)  (8-connectivity-ish depending on kernel)
+    mask_u8: 0/1 uint8
+    """
+    er = cv2.erode(mask_u8, ker1, iterations=1)
+    return (mask_u8 & (1 - er)).astype(np.uint8, copy=False)
+
+
+def _hand_vals_on_boundary(hand_f32: np.ndarray,
+                           boundary_u8: np.ndarray,
+                           valid_mask: np.ndarray) -> np.ndarray:
+    """
+    Return 1D array of HAND values on boundary pixels, excluding nodata/NaN.
+    """
+    b = (boundary_u8 != 0) & valid_mask
+    vals = hand_f32[b]
+    # guard: remove NaN just in case
+    if vals.size == 0:
+        return vals
+    return vals[np.isfinite(vals)]
+
+
+def hand_filter_along_boundary_componentwise(
+    target_area_path: str,
+    height_std_threshold: float,
+    hand_path: str,
+    output_path: str,
+    metainfo: dict,
+    scratch_dir: str,
+    buffer_pixels: int = 10,
+    max_iters: int = 64,
+    debug_mode: bool = False,
+    block_y_finalize: int = 4096,
+    connectivity: int = 8,
+):
+    """
+    Original logic preserved (matches your reference function):
+      - component bbox (+buffer)
+      - compute HAND std from INITIAL boundary once:
+            if std <= threshold -> no erosion
+      - else iterative masked erosion:
+            thr = median(boundary_vals) + std(boundary_vals)*1
+            hand_image_mask = (hand > thr)
+            new = binary_erosion(initial_area, mask=hand_image_mask)
+            repeat until bad_hand_count==0 or empty
+
+    Output writing (Option A):
+      - OR accumulate removed pixels into removed_union_mask
+      - finalize output = target & (~removed_union_mask) in stripes
+
+    Debug:
+      - landcover_hand_std.tif: per-component constant std via LUT mapping from labels
+    """
+
+    def _create_f32_gtiff(path, xsize, ysize, gt, proj,
+                        blockx=512, blocky=512, zlevel=6, compress="DEFLATE",
+                        nodata=np.nan):
+        drv = gdal.GetDriverByName("GTiff")
+        opts = [
+            "TILED=YES",
+            f"BLOCKXSIZE={blockx}",
+            f"BLOCKYSIZE={blocky}",
+            f"COMPRESS={compress}",
+            "PREDICTOR=2",
+            f"ZLEVEL={zlevel}",
+            "BIGTIFF=IF_SAFER",
+        ]
+        ds = drv.Create(path, xsize, ysize, 1, gdal.GDT_Float32, options=opts)
+        if ds is None:
+            raise RuntimeError(f"Failed to create: {path}")
+        ds.SetGeoTransform(gt)
+        ds.SetProjection(proj)
+        band = ds.GetRasterBand(1)
+        if nodata is not None and np.isfinite(nodata):
+            band.SetNoDataValue(float(nodata))
+        # if nodata is NaN, GDAL nodata handling varies; OK to skip SetNoDataValue
+        return ds, band
+    gt = metainfo["geotransform"]
+    proj = metainfo["projection"]
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    # Open inputs
+    tgt_ds = gdal.Open(target_area_path, gdal.GA_ReadOnly)
+    if tgt_ds is None:
+        raise RuntimeError(f"Failed to open: {target_area_path}")
+    tgt_band = tgt_ds.GetRasterBand(1)
+    xsize, ysize = tgt_ds.RasterXSize, tgt_ds.RasterYSize
+
+    hand_ds = gdal.Open(hand_path, gdal.GA_ReadOnly)
+    if hand_ds is None:
+        raise RuntimeError(f"Failed to open: {hand_path}")
+    hand_band = hand_ds.GetRasterBand(1)
+    if hand_ds.RasterXSize != xsize or hand_ds.RasterYSize != ysize:
+        raise ValueError("HAND/target size mismatch")
+    hand_nodata = hand_band.GetNoDataValue()
+
+    # removed_union_mask
+    removed_mask_path = os.path.join(scratch_dir, "removed_union_mask.tif")
+    rm_ds, rm_band = _create_u8_gtiff(removed_mask_path, xsize, ysize, gt, proj, nodata=0)
+
+    # Load target as u8 for component labeling (this is the one big RAM object)
+    tgt_full = tgt_band.ReadAsArray(0, 0, xsize, ysize)
+    if tgt_full is None:
+        raise RuntimeError("target ReadAsArray returned None")
+    tgt_u8_full = (tgt_full != 0).astype(np.uint8, copy=False)
+    del tgt_full
+
+    # Connected components on full scene (same as your cv2 approach)
+    nlab, labels, stats, _ = cv2.connectedComponentsWithStats(
+        tgt_u8_full, connectivity=connectivity
+    )
+    # free if you want: tgt_u8_full not needed anymore after labels/stats
+    # (labels still RAM heavy)
+    # del tgt_u8_full
+
+    # Debug std LUT (index=label id)
+    hand_std_values = None
+    if debug_mode:
+        hand_std_values = np.full(nlab, np.nan, dtype=np.float32)
+
+    ker1 = _make_kernel(1)
+
+    # Loop components
+    for lab in range(1, nlab):
+        x, y, w, h, area = stats[lab]
+        if area == 0:
+            continue
+
+        # bbox + buffer
+        x0 = max(0, x - buffer_pixels)
+        y0 = max(0, y - buffer_pixels)
+        x1 = min(xsize, x + w + buffer_pixels)
+        y1 = min(ysize, y + h + buffer_pixels)
+        win_w = x1 - x0
+        win_h = y1 - y0
+
+        # Component mask in window
+        sub_label = labels[y0:y1, x0:x1]
+        comp_u8 = (sub_label == lab).astype(np.uint8)
+
+        if comp_u8.sum() == 0:
+            continue
+
+        # Boundary of initial component
+        boundary_u8 = _extract_boundary_u8(comp_u8, ker1)
+        if boundary_u8.sum() == 0:
+            # no boundary -> nothing to erode
+            if debug_mode:
+                hand_std_values[lab] = 0.0
+            continue
+
+        # Read HAND in window
+        hand = hand_band.ReadAsArray(x0, y0, win_w, win_h)
+        if hand is None:
+            continue
+        hand = hand.astype(np.float32, copy=False)
+
+        # valid HAND mask
+        if hand_nodata is None:
+            valid = np.isfinite(hand)
+        else:
+            valid = (hand != float(hand_nodata)) & np.isfinite(hand)
+
+        # INITIAL boundary stats -> decide whether to run erosion at all
+        vals0 = _hand_vals_on_boundary(hand, boundary_u8, valid)
+        if vals0.size == 0:
+            if debug_mode:
+                hand_std_values[lab] = np.nan
+            continue
+
+        hand_std0 = float(np.nanstd(vals0))
+        if debug_mode:
+            hand_std_values[lab] = hand_std0 if np.isfinite(hand_std0) else np.nan
+
+        if (not np.isfinite(hand_std0)) or (hand_std0 <= height_std_threshold):
+            # keep component (no removals)
+            continue
+
+        # --- ORIGINAL ITERATION LOGIC ---
+        initial_area = comp_u8.astype(bool, copy=False)
+
+        # build SciPy structure matching "default" 3x3 neighborhood
+        # ndimage.binary_erosion uses structure; None => full connectivity.
+        # Use 3x3 ones for typical erosion behavior.
+        structure = np.ones((3, 3), dtype=bool)
+
+        bad_hand_count = 1
+        it = 0
+
+        while bad_hand_count > 0 and it < max_iters:
+            # boundary on current area
+            cur_u8 = initial_area.astype(np.uint8, copy=False)
+            cur_boundary = _extract_boundary_u8(cur_u8, ker1)
+            if cur_boundary.sum() == 0:
+                break
+
+            vals = _hand_vals_on_boundary(hand, cur_boundary, valid)
+            if vals.size == 0:
+                break
+
+            hand_std = float(np.nanstd(vals))
+            if not np.isfinite(hand_std):
+                break
+
+            area_median = float(np.nanmedian(vals))
+            if not np.isfinite(area_median):
+                break
+
+            hand_threshold_erosion = area_median + hand_std * 1.0
+
+            # hand_image_mask (window-sized), exactly like original
+            hand_image_mask = (hand > hand_threshold_erosion) & valid
+
+            # masked erosion (original semantics)
+            new_binary = ndimage.binary_erosion(
+                initial_area,
+                structure=structure,
+                mask=hand_image_mask
+            )
+
+            # stop if fully gone
+            if not new_binary.any():
+                initial_area = new_binary
+                break
+
+            # recompute "bad pixels count" using boundary-derived mask (original does sum(hand_image_mask))
+            # original uses hand_image_data > thr and then sum; effectively counts masked pixels (not only boundary).
+            bad_hand_count = int(np.sum(hand_image_mask))
+
+            initial_area = new_binary
+            it += 1
+
+        # compute removed pixels (only where comp was 1 but final is 0)
+        final_u8 = initial_area.astype(np.uint8, copy=False)
+        removed_u8 = ((comp_u8 != 0) & (final_u8 == 0)).astype(np.uint8, copy=False)
+
+        if removed_u8.any():
+            _or_write_mask_window(rm_band, x0, y0, win_w, win_h, removed_u8)
+
+    # Finalize output: output = target & (~removed_union_mask)
+    out_ds, out_band = _create_u8_gtiff(output_path, xsize, ysize, gt, proj, nodata=0)
+
+    for y0 in range(0, ysize, block_y_finalize):
+        ywin = min(block_y_finalize, ysize - y0)
+        tgt_blk = tgt_band.ReadAsArray(0, y0, xsize, ywin)
+        rm_blk  = rm_band.ReadAsArray(0, y0, xsize, ywin)
+        if tgt_blk is None or rm_blk is None:
+            raise RuntimeError("ReadAsArray returned None in finalize")
+
+        tgt_u8 = (tgt_blk != 0).astype(np.uint8, copy=False)
+        keep = (rm_blk == 0)
+        out = (tgt_u8 & keep).astype(np.uint8, copy=False)
+        out_band.WriteArray(out, 0, y0)
+
+    out_band.FlushCache(); out_ds.FlushCache()
+    rm_band.FlushCache(); rm_ds.FlushCache()
+
+    out_band = None; out_ds = None
+    rm_band = None; rm_ds = None
+
+    # Debug std raster (LUT over labels -> no rectangle overwrites)
+    if debug_mode:
+        std_path = os.path.join(scratch_dir, "landcover_hand_std.tif")
+        std_ds, std_band = _create_f32_gtiff(std_path, xsize, ysize, gt, proj, nodata=np.nan)
+
+        for y0 in range(0, ysize, block_y_finalize):
+            ywin = min(block_y_finalize, ysize - y0)
+            lab_blk = labels[y0:y0 + ywin, :]  # int32 in RAM
+            std_blk = hand_std_values[lab_blk].astype(np.float32, copy=False)
+            std_band.WriteArray(std_blk, 0, y0)
+
+        std_band.FlushCache(); std_ds.FlushCache()
+        std_band = None; std_ds = None
+
+    # Close inputs
+    tgt_band = None; tgt_ds = None
+    hand_band = None; hand_ds = None

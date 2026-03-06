@@ -228,11 +228,18 @@ runconfig:
             # 'auto' determine the inundated vegetation availability
             # based on available cross-polarizations
             enabled: enum(True, False, 'auto')
-            dual_pol_ratio_max: num(min=0, max=30, required=False)
-            dual_pol_ratio_min: num(min=0, max=30, required=False)
-            dual_pol_ratio_threshold: num(min=0, max=30, required=False)
+            inundated_vegetation_method: enum('dual_pol_ratio', 'water_cloud')
             cross_pol_min: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
+
+            dual_pol_ratio_options:
+                dual_pol_ratio_max: num(min=0, max=30, required=False)
+                dual_pol_ratio_min: num(min=0, max=30, required=False)
+                dual_pol_ratio_threshold: num(min=0, max=30, required=False)
+            water_cloud_model_options:
+                dual_pol_ratio_difference_threshold: num(min=0, max=30, required=False)
+                height_data_type: enum('ETH_Global_Height', 'GLAD')
+
             # If 'auto' is selected and GLAD is available, GLAD will be
             # used for inundated vegetation. In the 'auto' option, 
             # GLAD is not provided, then WorldCover will be used to extract

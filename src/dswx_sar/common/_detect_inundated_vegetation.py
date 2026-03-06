@@ -5,6 +5,7 @@ import os
 import time
 
 import numpy as np
+from scipy.optimize import least_squares
 
 from dswx_sar.common import _dswx_sar_util
 from dswx_sar.common import _filter_SAR
@@ -46,6 +47,139 @@ def parse_ranges(ranges):
         else:
             result.append(int(item))
     return result
+
+
+def residuals(params, H, obs):
+    sigma_model = water_cloud_model(H, *params)
+    return sigma_model - obs  # normal residuals
+
+
+def huber_loss(residual, c=1.345):
+    # c is the Huber parameter
+    abs_r = np.abs(residual)
+    is_small = abs_r <= c
+    # Piecewise definition
+    huber = np.where(is_small, 0.5 * residual**2, c * (abs_r - 0.5 * c))
+    return huber
+
+
+def cost_function(params, H, obs):
+    res = residuals(params, H, obs)
+    return huber_loss(res)
+
+
+def cost_function_vectorized(params, H, obs):
+    # We need to return a vector, so the sum or average won't help directly.
+    res = residuals(params, H, obs)
+    # Return sqrt of the pointwise robust cost, so least_squares can sum squares
+    return np.sqrt(huber_loss(res))
+
+
+def water_cloud_model_dB(H, sigma0_g_dB, sigma0_v_dB, k, a, b):
+    # Convert dB inputs to linear
+    sigma0_g_lin = 10**(sigma0_g_dB / 10.0)
+    sigma0_v_lin = 10**(sigma0_v_dB / 10.0)
+    V = a * (H**b)
+    sigma0_lin = (sigma0_g_lin * np.exp(-2*k*V) +
+                  sigma0_v_lin * (1 - np.exp(-2*k*V)))
+    # Convert output back to dB
+    return 10 * np.log10(sigma0_lin)
+
+
+def water_cloud_model(H, sigma0_g, sigma0_v, k, a, b):
+    # a simple example with an allometric relationship: V = a * H^b
+    V = a * (H**b)
+    return sigma0_g * np.exp(-2 * k * V) + sigma0_v * (1 - np.exp(-2 * k * V))
+
+
+def pow2db(value):
+    return 10 * np.log10(value)
+
+
+def db2pow(value):
+    return 10 ** (value / 10)
+
+
+def estimate_water_cloud_parameter(observation,
+                                   forest_parameter,
+                                   initial_guess,
+                                   lower_bounds,
+                                   upper_bounds):
+    mask = ~ np.isnan(observation)
+    observation = observation[mask]
+    forest_parameter = np.array(forest_parameter)
+    forest_parameter = forest_parameter[mask]
+
+    res = least_squares(
+        cost_function_vectorized,
+        x0=initial_guess,
+        args=(forest_parameter, observation),
+        bounds=(lower_bounds, upper_bounds)
+        )
+
+    popt_robust = res.x
+
+    return popt_robust
+
+
+def detect_iv_with_water_cloud(
+        co_pol_image,
+        cross_pol_image,
+        vegetation_param_image,
+        dry_forest_mask,
+        wet_forest_mask,
+        initial_guess_co_pol,
+        initial_guess_cross_pol,
+        lower_bounds_co,
+        upper_bounds_co,
+        lower_bounds_cross,
+        upper_bounds_cross,
+        ratio_threshold
+    ):
+    valid_mask = np.invert(np.isnan(co_pol_image))
+    vegetation_param_image[np.isnan(co_pol_image)] = np.nan
+    ratio = pow2db(co_pol_image / cross_pol_image)
+
+    lowest_dry_forest = np.nanmin(vegetation_param_image[dry_forest_mask])
+    highest_dry_forest = np.nanmax(vegetation_param_image[dry_forest_mask])
+
+    co_pol_parameter = estimate_water_cloud_parameter(
+        co_pol_image[dry_forest_mask],
+        vegetation_param_image[dry_forest_mask],
+        initial_guess=initial_guess_co_pol,
+        lower_bounds=lower_bounds_co,
+        upper_bounds=upper_bounds_co,
+        )
+
+    cross_pol_parameter = estimate_water_cloud_parameter(
+        cross_pol_image[dry_forest_mask],
+        vegetation_param_image[dry_forest_mask],
+        initial_guess = initial_guess_cross_pol,
+        lower_bounds=lower_bounds_cross,
+        upper_bounds=upper_bounds_cross,
+        )
+
+    simul_co_pol = water_cloud_model(
+        vegetation_param_image,
+        co_pol_parameter[0],
+        co_pol_parameter[1],
+        co_pol_parameter[2],
+        co_pol_parameter[3],
+        co_pol_parameter[4])
+
+    simul_x_pol = water_cloud_model(
+        vegetation_param_image,
+        cross_pol_parameter[0],
+        cross_pol_parameter[1],
+        cross_pol_parameter[2],
+        cross_pol_parameter[3],
+        cross_pol_parameter[4])
+
+    inundated_vegetation = ratio - \
+        pow2db(simul_co_pol / simul_x_pol) > ratio_threshold
+    inundated_vegetation[np.invert(wet_forest_mask)] = 0
+
+    return inundated_vegetation, simul_co_pol, simul_x_pol, pow2db(simul_co_pol / simul_x_pol)
 
 
 def run(cfg):

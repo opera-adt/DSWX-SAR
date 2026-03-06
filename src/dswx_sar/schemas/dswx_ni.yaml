@@ -54,10 +54,6 @@ runconfig:
             # algorithm parameter 
             algorithm_parameters: str(required=True)
 
-            # placeholder for inundated vegetation 
-            mean_backscattering: str(required=False)
-            standard_deviation_backscattering: str(required=False)
-
         static_ancillary_file_group:
 
             static_ancillary_inputs_flag: bool(required=False)

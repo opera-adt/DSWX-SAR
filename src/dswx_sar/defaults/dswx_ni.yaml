@@ -59,10 +59,6 @@ runconfig:
             # algorithm parameter
             algorithm_parameters:
 
-            # placeholder for inundated vegetation 
-            mean_backscattering:
-            standard_deviation_backscattering:
-
         static_ancillary_file_group:
 
             # Static ancillary input should be given

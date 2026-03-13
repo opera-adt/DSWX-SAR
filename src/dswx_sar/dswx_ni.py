@@ -3,21 +3,23 @@
 import logging
 import time
 
-from dswx_sar.nisar.dswx_ni_runconfig import (_get_parser,
-                                        RunConfig,
-                                        DSWX_NI_POL_DICT)
-
-from dswx_sar.common import _initial_threshold as initial_threshold
-from dswx_sar.common import _fuzzy_value_computation as fuzzy_value_computation
+from dswx_sar.nisar.dswx_ni_runconfig import (
+    _get_parser,
+    RunConfig,
+    DSWX_NI_POL_DICT)
 
 from dswx_sar.common import _generate_log
-from dswx_sar.nisar import (mosaic_gcov_frame, 
-                            pre_processing, 
-                            save_mgrs_tiles_ni, 
-                            refine_with_bimodality,
-                            region_growing,
-                            detect_inundated_vegetation)
-from dswx_sar.nisar import masking_with_ancillary
+from dswx_sar.nisar import (
+    detect_inundated_vegetation,
+    fuzzy_value_computation,
+    initial_threshold,
+    masking_with_ancillary,
+    mosaic_gcov_frame, 
+    pre_processing, 
+    save_mgrs_tiles_ni, 
+    refine_with_bimodality,
+    region_growing,
+    )
 
 logger = logging.getLogger('dswx_sar')
 

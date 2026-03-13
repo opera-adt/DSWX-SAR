@@ -38,7 +38,7 @@ def run(cfg):
     inundated_vege_ratio_threshold = \
         inundated_vege_cfg.dual_pol_ratio_threshold
     inundated_vege_cross_pol_min = inundated_vege_cfg.cross_pol_min
-
+    inundated_vege_copol_threshold = inundated_vege_cfg.copol_threshold
     target_file_type = inundated_vege_cfg.target_area_file_type
     target_worldcover_class = inundated_vege_cfg.target_worldcover_class
     target_glad_class = inundated_vege_cfg.target_glad_class
@@ -149,10 +149,13 @@ def run(cfg):
         cross_db = 10 * np.log10(
             np.squeeze(rtc_dual[crosspol_ind, :, :]) +
             _dswx_sar_util.Constants.negligible_value)
-
+        co_db = 10 * np.log10(
+            np.squeeze(rtc_dual[copol_ind, :, :]) +
+            _dswx_sar_util.Constants.negligible_value)
         output_data = np.zeros(filt_ratio.shape, dtype='uint8')
 
         target_cross_pol = cross_db > inundated_vege_cross_pol_min
+        target_co_pol = co_db > inundated_vege_copol_threshold
         if target_file_type == 'WorldCover':
             target_inundated_vege_class = mask_obj.get_mask(
                 mask_label=target_worldcover_class,
@@ -184,7 +187,7 @@ def run(cfg):
 
         all_inundated_cand = \
             (filt_ratio_db > inundated_vege_ratio_threshold) & \
-            target_cross_pol
+            target_cross_pol & target_co_pol 
         inundated_vegetation = all_inundated_cand & \
             (target_inundated_vege_class > 0)
         output_data[inundated_vegetation] = 2

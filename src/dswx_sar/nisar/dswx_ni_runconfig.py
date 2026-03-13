@@ -835,7 +835,7 @@ class RunConfig:
             flag_pol_freq_a_equal,
             flag_pol_freq_b_equal,
             freq_list,
-            res_freq_b_equal,
+            res_freq_a_equal,
             res_freq_b_equal,
             res_highest,
             nisar_uni_mode

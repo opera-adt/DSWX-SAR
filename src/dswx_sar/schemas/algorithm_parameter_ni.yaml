@@ -235,6 +235,7 @@ runconfig:
             dual_pol_ratio_min: num(min=0, max=30, required=False)
             dual_pol_ratio_threshold: num(min=0, max=30, required=False)
             cross_pol_min: num(min=-30, max=10, required=False)
+            copol_threshold: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
             # If 'auto' is selected and GLAD is available, GLAD will be
             # used for inundated vegetation. In the 'auto' option, 

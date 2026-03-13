@@ -165,7 +165,7 @@ class RTCReader(DataReader):
         if len(mask_gtiff_list) > 0:
             mask_exist = True
         else:
-            mask_exist = True
+            mask_exist = False
         # To Do: Use flag_mosaic_freq_a and flag_mosaic_freq_b flags to
         # filter frequency A or B from processing
 

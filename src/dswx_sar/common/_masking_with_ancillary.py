@@ -138,7 +138,6 @@ def extract_bbox_with_buffer(
     nb_components_water, label_image, stats_water, _ = \
         cv2.connectedComponentsWithStats(binary.astype(np.uint8),
                                          connectivity=8)
-    # label_image = label_image.astype(np.int64, copy=False)
 
     nb_components_water -= 1
 
@@ -1654,9 +1653,12 @@ def write_or_masks(mask_a_path, mask_b_path, out_path, metainfo, block_x=2048, b
 
     out_band.FlushCache()
     out_ds.FlushCache()
-    out_band = None; out_ds = None
-    a_b = None; b_b = None
-    a_ds = None; b_ds = None
+    out_band = None
+    out_ds = None
+    a_b = None
+    b_b = None
+    a_ds = None
+    b_ds = None
 
 
 def make_lut_u8(values):
@@ -1677,6 +1679,58 @@ def write_or_mask_landcover_glad_streaming(
     block_y: int = 2048,
     logger=None,
 ):
+    """
+    Create a binary mask by combining ESA WorldCover landcover classes and
+    GLAD landcover classes using a logical OR operation in a streaming
+    (block-based) manner to minimize memory usage.
+
+    This function reads the input rasters in tiles and writes the result
+    incrementally, avoiding loading the full image into memory.
+
+    Parameters
+    ----------
+    landcover_path : str
+        Path to the ESA WorldCover raster (integer-coded landcover classes).
+    glad_path : str
+        Path to the GLAD landcover raster.
+    out_path : str
+        Output GeoTIFF path for the generated binary mask.
+    landcover_masking_list : list[str]
+        List of ESA WorldCover class names to be masked. These names are
+        converted internally to their numeric codes.
+    glad_excluded_values : list[int]
+        GLAD class values that should be masked.
+    geotransform : tuple
+        GDAL geotransform for the output raster.
+    projection : str
+        Projection (WKT) for the output raster.
+    block_x : int, optional
+        Block width used for streaming processing. Default is 2048.
+    block_y : int, optional
+        Block height used for streaming processing. Default is 2048.
+    logger : logging.Logger, optional
+        Logger instance for progress messages.
+
+    Returns
+    -------
+    None
+
+    Output
+    ------
+    A 1-band UInt8 GeoTIFF where:
+        value = 1  → pixel belongs to either
+                     (ESA WorldCover masking class) OR
+                     (GLAD excluded class)
+
+        value = 0  → pixel does not belong to either class
+    In other words:
+
+        output_mask = (landcover ∈ masking_classes)
+                      OR
+                      (glad ∈ excluded_values)
+
+    The raster is tiled and compressed for efficient storage and I/O.
+    """
     lc_ds = gdal.Open(landcover_path, gdal.GA_ReadOnly)
     gl_ds = gdal.Open(glad_path, gdal.GA_ReadOnly)
     if lc_ds is None:
@@ -1692,13 +1746,13 @@ def write_or_mask_landcover_glad_streaming(
     gl_band = gl_ds.GetRasterBand(1)
 
     # precompute codes once
+    # Convert WorldCover class names → integer codes
     wc_codes = worldcover_names_to_codes(landcover_masking_list)
+    # Build fast lookup table: value -> mask membership
+    # This avoids expensive np.isin() calls inside the loop.
     lut_wc = make_lut_u8(wc_codes)
     glad_vals = np.asarray(list(glad_excluded_values), dtype=np.int32)
-    gl_max = int(max(glad_vals)) if len(glad_vals) else 0
     lut_gl = make_lut_u8(glad_vals)  # or read max from data once
-
-    glad_codes = np.asarray(list(glad_excluded_values), dtype=np.int32)
 
     # create output (1-band uint8 mask)
     driver = gdal.GetDriverByName("GTiff")
@@ -1726,14 +1780,10 @@ def write_or_mask_landcover_glad_streaming(
 
             lc = lc_band.ReadAsArray(xoff, yoff, xwin, ywin)
             gl = gl_band.ReadAsArray(xoff, yoff, xwin, ywin)
-
-            # membership masks (vectorized)
-            # m_lc = np.isin(lc, wc_codes)
-            # m_gl = np.isin(gl, glad_codes)
-            # m_lc = lut_wc[lc] != 0
+            # lut_wc[lc] == 1 if lc pixel belongs to masking classes
+            # lut_gl[gl] == 1 if gl pixel belongs to excluded classes
             out = ((lut_wc[lc] | lut_gl[gl]) != 0).astype(np.uint8, copy=False)
 
-            # out = (m_lc | m_gl).astype(np.uint8, copy=False)
             out_band.WriteArray(out, xoff, yoff)
 
     out_band.FlushCache()
@@ -1801,11 +1851,9 @@ def write_rg_excluded_area_from_wbd_and_glad_streaming(
     gl_ds = None
 
 
-#
 def _make_kernel(radius: int):
     k = 2 * radius + 1
     return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-
 
 
 def worldcover_names_to_codes(mask_label_names):

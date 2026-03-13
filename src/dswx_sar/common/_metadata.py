@@ -39,7 +39,7 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
         Metadata dictionary to populate.
     """
     metadata_dict = defaultdict(list)
-    
+
     dswx_meta_mapping = {
         'ORBIT_PASS_DIRECTION': 'RTC_ORBIT_PASS_DIRECTION',
         'BURST_ID': 'RTC_BURST_ID',
@@ -51,7 +51,7 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
         'ABSOLUTE_ORBIT_NUMBER': 'RTC_ABSOLUTE_ORBIT_NUMBER',
         'QA_RFI_INFO_AVAILABLE': 'RTC_QA_RFI_INFO_AVAILABLE',
     }
- 
+
     # Collect metadata from overlapped bursts
     dswx_metadata_dict['RTC_INPUT_LIST'] = [
         os.path.basename(meta_path) for meta_path in metapath_list]
@@ -73,7 +73,7 @@ def _copy_meta_data_from_rtc(metapath_list, dswx_metadata_dict):
 
         if rtc_field in ['ZERO_DOPPLER_START_TIME', 'ZERO_DOPPLER_END_TIME']:
             mode = 'min' if rtc_field == 'ZERO_DOPPLER_START_TIME' else 'max'
-            
+
             sensing_time = _get_date_range(values, mode=mode)
             dswx_metadata_dict[dswx_field] = sensing_time
 
@@ -531,29 +531,29 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
 
     Returns
     -------
-    num_frames_rfi: int 
+    num_frames_rfi : int
         Number of frames affected by Radio Frequency Interference
     """
 
-    freq_path_list = '/science/LSAR/identification/listOfFrequencies'
+    freq_path = '/science/LSAR/identification/listOfFrequencies'
 
     # Read RFI likelihood scalar value from each frequency group and polarization
     # of an input RTC file
     num_frames_rfi = 0
 
-    for input_idx, rtc_file in enumerate(h5_list):
+    for rtc_file in h5_list:
         rfi_found_in_frame = False
 
         with open_h5(rtc_file) as src:
-            if freq_path_list not in src:
+            if freq_path not in src:
                 # if listOfFrequencies missing, we can't evaluate; skip this file
                 continue
-            freq_group_list = src[freq_path_list][()]
+            freq_group_list = src[freq_path][()]
 
-            for freq_idx, freq_group in enumerate(freq_group_list):
+            for freq_group in freq_group_list:
                 freq_group = freq_group.decode('utf-8') if isinstance(freq_group, (bytes, np.bytes_)) else str(freq_group)
 
-                for pol_idx, pol in enumerate(pol_list):
+                for pol in pol_list:
                     rfi_likelihood_path = (
                         f'/science/LSAR/GCOV/metadata/calibrationInformation/'
                         f'frequency{freq_group}/{pol}/rfiLikelihood'
@@ -562,8 +562,10 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
                         continue
 
                     # make threshold a configurable
-                    rfi_likelihood = src[rfi_likelihood_path][()]
-                    rfi_likelihood = float(np.asarray(rfi_likelihood))
+                    rfi_likelihood = np.asarray(src[rfi_likelihood_path][()]).squeeze()
+                    if rfi_likelihood.size != 1:
+                        continue
+                    rfi_likelihood = float(rfi_likelihood)
 
                     if np.isfinite(rfi_likelihood) and rfi_likelihood > rfi_likelihood_thresh:
                         rfi_found_in_frame = True
@@ -572,8 +574,6 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
                 if rfi_found_in_frame:
                     break
 
-                if rfi_found_in_frame:
-                    break
         if rfi_found_in_frame:
             num_frames_rfi += 1
     return num_frames_rfi
@@ -656,12 +656,12 @@ def create_dswx_ni_metadata(cfg,
     # Add metadata related to ancillary data
     ancillary_cfg = cfg.groups.dynamic_ancillary_file_group
 
-    # Read Metadata from input RTC HDF5 
+    # Read Metadata from input RTC HDF5
     rtc_reader = RTCReader(row_blk_size=1000, col_blk_size=1000)
     metadata_gcov = {}
 
     for input_idx, input_rtc in enumerate(rtc_dirs):
-        metadata_dict = rtc_reader.read_metadata_hdf5(input_rtc)     
+        metadata_dict = rtc_reader.read_metadata_hdf5(input_rtc)
         for key, value in metadata_dict.items():
             # Store in a set to ensure uniqueness
             if key not in metadata_gcov:

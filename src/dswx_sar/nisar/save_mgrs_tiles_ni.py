@@ -703,7 +703,8 @@ def run(cfg):
             hand_mask=hand_mask,
             inundated_vegetation=inundated_vegetation == 2,
             no_data=no_data_raster,
-            ocean_mask=ocean_mask
+            ocean_mask=ocean_mask,
+            is_wtr=True,
             )
 
         # water/ No-water
@@ -749,6 +750,7 @@ def run(cfg):
             hand_mask=hand_mask,
             ocean_mask=ocean_mask,
             no_data=no_data_raster,
+            is_conf=True
             )
 
         # Values ranging from 0 to 100 are used to represent the likelihood
@@ -818,7 +820,8 @@ def run(cfg):
             hand_mask=partial_open_water==band_assign_value_dict['hand_mask'],
             inundated_vegetation=partial_open_water==band_assign_value_dict['inundated_vegetation'],
             no_data=partial_open_water==band_assign_value_dict['no_data'],
-            ocean_mask=partial_open_water==band_assign_value_dict['ocean_mask'],)
+            ocean_mask=partial_open_water==band_assign_value_dict['ocean_mask'],
+            is_wtr=True)
 
     # Get list of MGRS tiles overlapped with mosaic RTC image
     mgrs_meta_dict = {}
@@ -849,6 +852,7 @@ def run(cfg):
         expected_frame_list = ast.literal_eval(most_overlapped['frames'])
         logger.info(f"Input RTCs are within {most_overlapped['mgrs_set_id']}")
         number_frame = len(actual_frame_id)
+        mgrs_meta_dict['MGRS_SET_ID'] = most_overlapped['mgrs_set_id']
         mgrs_meta_dict['MGRS_COLLECTION_EXPECTED_NUMBER_OF_FRAMES'] = \
             maximum_frame
         mgrs_meta_dict['MGRS_COLLECTION_ACTUAL_NUMBER_OF_FRAMES'] = \
@@ -858,6 +862,8 @@ def run(cfg):
         mgrs_meta_dict['MGRS_COLLECTION_MISSING_NUMBER_OF_FRAMES'] = \
             missing_frame
         mgrs_meta_dict['MGRS_POL_MODE'] = pol_mode
+        mgrs_meta_dict['MGRS_COLLECTION_ACQUIRED_SLC_GRANULES'] = \
+            [os.path.splitext(os.path.basename(path))[0] for path in input_list]
     else:
         mgrs_tile_list = get_intersecting_mgrs_tiles_list(
             image_tif=paths['final_water'])
@@ -910,7 +916,6 @@ def run(cfg):
                      pol_list,
                      product_version=product_version,
                      extra_meta_data=mgrs_meta_dict)
-                #dswx_metadata_dict = {}
                 dswx_name_format_prefix = (f'OPERA_L3_DSWx-NI_T{mgrs_tile_id}_'
                                            f'{date_str_id}_{processing_time}_'
                                            f'{platform_str}_{resolution_str}_'

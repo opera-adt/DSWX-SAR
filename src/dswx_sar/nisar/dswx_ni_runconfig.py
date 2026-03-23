@@ -551,71 +551,65 @@ def verify_nisar_mode(input_h5_list):
         nisar_uni_mode
     ]
 
-def _find_polarization_from_data_dirs(input_h5_list):
+
+def _find_polarization_from_data_dirs(valid_input_info):
     """
-    This function walks through each directory in the given list of input directories,
-    searches for specific file names that match the OPERA L2 RTC standard,
-    and extracts the polarization part from these filenames.
-    It then returns a list of unique polarizations found in these files.
+    Find available polarizations only from valid frequencies of each input file.
 
     Parameters
     ----------
-    input_h5_list : list
-        List of the input directories containing RTC
-        GeoTIFF files. The function will search through
-        all subdirectories in these input directories.
+    valid_input_info : list[dict]
+        Each item must contain:
+            - 'input_path': path to input file
+            - 'valid_freqs': list of valid frequencies, e.g. ['A'], ['A', 'B']
 
     Returns
     -------
-    list
-        A list of unique polarization types extracted from the file names.
-        This list contains the polarization identifiers
-        (like 'HH', 'VV', etc.) found in the filenames.
+    found_pol : list
+        Sorted unique list of polarizations found in valid frequencies only.
     """
-    num_input_rtc = len(input_h5_list)
-    extracted_strings = []
+    found_pol = set()
 
-    for input_idx, input_h5 in enumerate(input_h5_list):
+    for item in valid_input_info:
+        input_path = item['input_path']
+        valid_freqs = item['valid_freqs']
 
-        freq_strings = get_freq_rtc_hdf5(input_h5)
-        for freq_idx, input_freq in enumerate(freq_strings):
-            extracted_strings += get_pol_rtc_hdf5(input_h5, input_freq)
+        for valid_freq in valid_freqs:
+        # You need to replace this part with your actual HDF5/polarization reader
+            pols_in_file = get_pol_rtc_hdf5(input_path, valid_freq)
 
-    # if nothing found raise error
-    if not extracted_strings:
-        err_str = 'Failed to find polarizations from RTC files.'
-        raise ValueError(err_str)
+            found_pol.update(pols_in_file)
 
-    # return only unique polarizations
-    return list(set(extracted_strings))
+    return sorted(found_pol)
 
 
-def check_polarizations(pol_list, input_dir_list, DSWX_NI_PROC_POL_DICT):
+def check_polarizations(pol_list, valid_input_info, DSWX_NI_PROC_POL_DICT):
     """
-    Sort polarizations so that co-polarizations are preceded. This function
-    identifies the common polarizations between the requested polarizations
-    and the ones available in the input directories. It then sorts them,
-    prioritizing co-polarizations (VV, HH) over cross-polarizations (VH, HV).
+    Sort polarizations so that co-polarizations are preceded.
+    Identify the common polarizations between the requested polarizations
+    and the ones available in the valid frequencies of the input files.
 
     Parameters
     ----------
     pol_list : list
-        List of polarizations.
-    input_dir_list : list
-        List of the input directories with RTC GeoTIFF files.
-    DSWX_NI_PROC_POL_DICT: dictionary
-        Dictionary which captures possible polarization scenarios for NISAR RTC inputs
+        Requested polarizations or keywords such as ['dual-pol'], ['co-pol'], etc.
+    valid_input_info : list of dict
+        Each item contains:
+            - input_path: str
+            - valid_freqs: list[str]
+    DSWX_NI_PROC_POL_DICT : dict
+        Dictionary capturing possible polarization scenarios.
 
     Returns
     -------
     co_pol_list : list
-        List of co-polarizations present in both the request
-        and input directories.
+        Co-polarizations found in both request and valid input frequencies.
     cross_pol_list : list
-        List of cross-polarizations present in both the request and input
-        directories.
+        Cross-polarizations found in both request and valid input frequencies.
     sorted_pol_list : list
-        List of all polarizations sorted, prioritizing co-polarizations.
+        All matched polarizations sorted with co-pols first.
+    pol_mode : str or None
+        Polarization mode inferred from sorted_pol_list.
     """
     if ('dual-pol' in pol_list) or ('auto' in pol_list):
         proc_pol_list = ['VV', 'VH', 'HH', 'HV']
@@ -626,20 +620,23 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_PROC_POL_DICT):
     else:
         proc_pol_list = pol_list
 
-    # Find polarization of files in list of directories
-    found_pol = _find_polarization_from_data_dirs(input_dir_list)
+    # Find polarization only from valid frequencies
+    found_pol = _find_polarization_from_data_dirs(valid_input_info)
 
-    # Find the common polarizations between requests and files.
+    # Find common polarizations between requested and available
     proc_pol_list = list(set(proc_pol_list) & set(found_pol))
 
     if not proc_pol_list:
-        err_str = f'No RTC files found with requested polarizations {pol_list}'
+        err_str = (
+            f'No input files found with requested polarizations {pol_list} '
+            f'in frequencies that satisfy mosaic_posting_thresh.'
+        )
         logger.error(err_str)
         raise FileNotFoundError(err_str)
 
     def custom_sort(pol):
         if pol in DSWX_NI_PROC_POL_DICT['CO_POL']:
-            return (0, pol)  # Sort 'VV' and 'HH' before others
+            return (0, pol)
         return (1, pol)
 
     sorted_pol_list = sorted(proc_pol_list, key=custom_sort)
@@ -652,18 +649,14 @@ def check_polarizations(pol_list, input_dir_list, DSWX_NI_PROC_POL_DICT):
         else:
             cross_pol_list.append(pol)
 
-    # Even though the first subset is found, the code should keep searching.
-    # For example, the ['VV', 'VH'] is a subset of `MIX_DUAL_POL` and `DV_POL`.
-    # The expected output is `DV_POL`.
-    # So, the items in `DSWX_NI_PROC_POL_DICT` are sorted in an ordered manner.
     pol_mode = None
-    for pol_mode_name, pols_in_mode in DSWX_NI_PROC_POL_DICT.items():
+    for pol_mode_name, pols_in_mode in DSWX_NI_POL_DICT.items():
         if set(sorted_pol_list).issubset(set(pols_in_mode)):
             pol_mode = pol_mode_name
-
+    print(pol_mode, 'polmode')
     if pol_mode is None:
-        err_msg = 'unable to identify polarization mode.'
-        logger.warning(err_msg)
+        logger.warning('unable to identify polarization mode.')
+
     return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
 
 
@@ -843,21 +836,28 @@ class RunConfig:
         # Determine highest resolution in an RTC input
         res_list, res_highest = get_rtc_spacing_list(input_dir_list, freq_list)
 
-        # Generate valid data paths
-        new_input_list = []
         mosaic_posting_thresh = algorithm_cfg[
                 'runconfig']['processing']['mosaic']['mosaic_posting_thresh']
-        # Remove dataset from processing based on minimum image resolution/posting
+
+        # Keep both valid file list and valid frequencies per file
+        # Generate valid data paths
+        valid_input_info = []
+        new_input_list = []
+
         for input_idx, input_rtc in enumerate(input_dir_list):
             valid_freqs = []
 
             for freq_idx, freq_group in enumerate(freq_list[input_idx]):
-
-                if res_list[input_idx][freq_idx] is not None and \
-                    res_list[input_idx][freq_idx] <= mosaic_posting_thresh:
+                res_value = res_list[input_idx][freq_idx]
+                if res_value is not None and res_value <= mosaic_posting_thresh:
                     valid_freqs.append(freq_group)
+
             if valid_freqs:
                 new_input_list.append(input_rtc)
+                valid_input_info.append({
+                    'input_path': input_rtc,
+                    'valid_freqs': valid_freqs
+                })
 
         if len(new_input_list) != len(input_dir_list):
             logger.info("Invalid input GCOV found. The input list will change from")
@@ -871,7 +871,7 @@ class RunConfig:
 
         DSWX_NI_PROC_POL_DICT = DSWX_NI_SINGLE_FRAME_POL_DICT
         co_pol, cross_pol, pol_list, pol_mode = check_polarizations(
-            requested_pol, input_dir_list, DSWX_NI_PROC_POL_DICT)
+            requested_pol, valid_input_info, DSWX_NI_PROC_POL_DICT)
 
         # update the polarizations
         algorithm_cfg['runconfig']['processing']['polarizations'] = pol_list

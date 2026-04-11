@@ -2341,12 +2341,12 @@ def hand_filter_along_boundary_componentwise(
             continue
 
         # bbox + buffer
-        x0 = max(0, x - buffer_pixels)
-        y0 = max(0, y - buffer_pixels)
-        x1 = min(xsize, x + w + buffer_pixels)
-        y1 = min(ysize, y + h + buffer_pixels)
-        win_w = x1 - x0
-        win_h = y1 - y0
+        x0 = int(max(0, x - buffer_pixels))
+        y0 = int(max(0, y - buffer_pixels))
+        x1 = int(min(xsize, x + w + buffer_pixels))
+        y1 = int(min(ysize, y + h + buffer_pixels))
+        win_w = int(x1 - x0)
+        win_h = int(y1 - y0)
 
         # Component mask in window
         sub_label = labels[y0:y1, x0:x1]

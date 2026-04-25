@@ -254,18 +254,14 @@ def run(cfg):
     if hand_variation_mask:
         # Along the water boundaries, if hand values is higher than thresholds,
         # only areas higher than threshold is removed.
-        _masking_with_ancillary.hand_filter_along_boundary_componentwise(
+        _masking_with_ancillary.hand_filter_along_boundary(
             target_area_path=darkland_removed_path,
             height_std_threshold=hand_variation_threshold,
             hand_path=hand_path_str,
             output_path=water_tif_str,
+            debug_mode=processing_cfg.debug_mode,
             metainfo=water_meta,
-            buffer_pixels=10,
-            scratch_dir=outputdir,
-            max_iters=64,
-            debug_mode=processing_cfg.debug_mode
-        )
-
+            scratch_dir=outputdir)
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran landcover masking in "
                 f"{t_all_elapsed:.3f} seconds")

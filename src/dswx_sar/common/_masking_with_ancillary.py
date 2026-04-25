@@ -110,6 +110,8 @@ class FillMaskLandCover:
 def extract_bbox_with_buffer(
         binary: np.ndarray,
         buffer: int,
+        min_extra_buffer: int = 1,
+        connectivity: int = 8,
         ) -> Tuple[List[List[int]], np.ndarray, np.ndarray]:
     """Extract bounding boxes with buffer from binary image and
     save the labeled image.
@@ -135,20 +137,23 @@ def extract_bbox_with_buffer(
 
     # computes the connected components labeled image of boolean image
     # and also produces a statistics output for each label
-    nb_components_water, label_image, stats_water, _ = \
-        cv2.connectedComponentsWithStats(binary.astype(np.uint8),
-                                         connectivity=8)
+    binary_u8 = binary.astype(np.uint8, copy=False)
 
-    nb_components_water -= 1
+    nb_components, label_image, stats, _ = cv2.connectedComponentsWithStats(
+        binary_u8,
+        connectivity=connectivity
+    )
 
-    sizes = stats_water[1:, -1]
-    bboxes = stats_water[1:, :4]
+    nb_components -= 1
+
+    sizes = stats[1:, cv2.CC_STAT_AREA]
+    bboxes = stats[1:, :4]
 
     coord_list = []
     for i, (x, y, w, h) in enumerate(bboxes):
         # additional buffer areas should be balanced with the object area.
         extra_buffer = int((np.sqrt(2) - 1.2) * np.sqrt(sizes[i]))
-        extra_buffer = max(extra_buffer, 1)
+        extra_buffer = max(extra_buffer, min_extra_buffer)
         buffer_all = extra_buffer + buffer
 
         sub_x_start = int(max(0, x - buffer_all))
@@ -1366,21 +1371,293 @@ def extend_land_cover(landcover_path,
 
 
 def extract_boundary(binary_data):
-    """Extracts the boundary of a binary image."""
-    # Dilate the binary data and then subtract the original data.
-    erosion = ndimage.binary_erosion(binary_data)
-    return np.bitwise_xor(binary_data, erosion)
+    """Extract boundary of a binary image with lower temporary memory."""
+
+    binary_bool = binary_data.astype(bool, copy=False)
+
+    erosion = np.empty(binary_bool.shape, dtype=bool)
+
+    ndimage.binary_erosion(
+        binary_bool,
+        output=erosion
+    )
+
+    # boundary = binary AND NOT erosion
+    np.logical_not(erosion, out=erosion)
+    np.logical_and(binary_bool, erosion, out=erosion)
+
+    return erosion
 
 
 def extract_values_using_boundary(boundary_data, float_data):
-    """Extracts values from float_data where boundary_data is 1."""
-    data_array = float_data[boundary_data == 1]
-    float_data[boundary_data == 0] = 0
+    """Extract boundary values and boundary-only HAND image."""
 
-    return data_array, float_data
+    boundary_mask = boundary_data.astype(bool, copy=False)
 
+    data_array = float_data[boundary_mask]
+
+    boundary_image = np.zeros_like(float_data)
+    boundary_image[boundary_mask] = float_data[boundary_mask]
+
+    return data_array, boundary_image
+
+
+def extract_boundary_values(boundary_data, float_data):
+    """Return only values from float_data along boundary."""
+
+    boundary_mask = boundary_data.astype(bool, copy=False)
+    return float_data[boundary_mask]
+
+
+def make_boundary_value_image(
+        boundary_data: np.ndarray,
+        float_data: np.ndarray,
+        dtype=None,
+        ) -> np.ndarray:
+    """Create an image containing float_data only along boundary pixels.
+
+    Parameters
+    ----------
+    boundary_data : np.ndarray
+        Boolean or binary boundary mask.
+
+    float_data : np.ndarray
+        Input raster values.
+
+    dtype : numpy dtype, optional
+        Output dtype. If None, float_data dtype is used.
+
+    Returns
+    -------
+    out : np.ndarray
+        Image where non-boundary pixels are zero and boundary pixels contain
+        float_data values.
+
+    Notes
+    -----
+    This function creates a full sub-window-sized array, so use it only for
+    debug outputs.
+    """
+
+    boundary_mask = boundary_data.astype(bool, copy=False)
+
+    if dtype is None:
+        dtype = float_data.dtype
+
+    out = np.zeros(float_data.shape, dtype=dtype)
+    out[boundary_mask] = float_data[boundary_mask]
+
+    return out
+
+
+def _safe_nanstd(values: np.ndarray) -> float:
+    """Return nanstd safely for empty arrays."""
+
+    if values.size == 0:
+        return 0.0
+
+    return float(np.nanstd(values))
+
+
+def _safe_nanmedian(values: np.ndarray) -> float:
+    """Return nanmedian safely for empty arrays."""
+
+    if values.size == 0:
+        return np.nan
+
+    return float(np.nanmedian(values))
 
 def hand_filter_along_boundary(
+        target_area_path,
+        height_std_threshold,
+        hand_path,
+        output_path,
+        debug_mode,
+        metainfo,
+        scratch_dir):
+    """
+    Filters geographic data along boundaries based on HAND model and
+    standard deviation thresholds.
+
+    This version avoids the full-size hand_filtered_binary array and updates
+    target_area directly.
+    """
+
+    target_area = _dswx_sar_util.read_geotiff(target_area_path)
+    target_area = target_area.astype(np.uint8, copy=False)
+
+    hand_obj = gdal.Open(hand_path, gdal.GA_ReadOnly)
+    if hand_obj is None:
+        raise RuntimeError(f'Could not open HAND raster: {hand_path}')
+    hand_band = hand_obj.GetRasterBand(1)
+
+    coord_lists, sizes, label_image = extract_bbox_with_buffer(
+        target_area,
+        buffer=10
+    )
+
+    nb_components_water = len(sizes)
+
+    if debug_mode:
+        height_array = np.zeros(nb_components_water, dtype=np.float32)
+        hand_std_image = np.zeros(target_area.shape, dtype=np.float32)
+    else:
+        height_array = None
+        hand_std_image = None
+
+    for ind, coord_list in enumerate(coord_lists):
+        sub_x_start, sub_x_end, sub_y_start, sub_y_end = coord_list
+
+        sub_win_x = int(sub_x_end - sub_x_start)
+        sub_win_y = int(sub_y_end - sub_y_start)
+
+        if sub_win_x <= 0 or sub_win_y <= 0:
+            continue
+
+        sub_label = label_image[
+            sub_y_start:sub_y_end,
+            sub_x_start:sub_x_end
+        ]
+
+        sub_target = target_area[
+            sub_y_start:sub_y_end,
+            sub_x_start:sub_x_end
+        ]
+
+        sub_hand = hand_band.ReadAsArray(
+            sub_x_start,
+            sub_y_start,
+            sub_win_x,
+            sub_win_y
+        )
+
+        if sub_hand is None:
+            continue
+
+        current_label = ind + 1
+        initial_area = sub_label == current_label
+
+        if not np.any(initial_area):
+            continue
+
+        water_boundary = extract_boundary(initial_area)
+
+        hand_line_data = extract_boundary_values(
+            water_boundary,
+            sub_hand
+        )
+
+        hand_std = _safe_nanstd(hand_line_data)
+
+        if debug_mode:
+            height_array[ind] = hand_std
+
+            debug_patch = hand_std_image[
+                sub_y_start:sub_y_end,
+                sub_x_start:sub_x_end
+            ]
+            debug_patch[water_boundary] = sub_hand[water_boundary]
+
+        if hand_std <= height_std_threshold:
+            # Keep original component unchanged.
+            continue
+
+        # To match the old code more closely, use np.median instead of
+        # nanmedian if your previous output depended on NaN behavior.
+        area_median = _safe_nanmedian(hand_line_data)
+
+        if not np.isfinite(area_median):
+            # Keep original component unchanged.
+            continue
+
+        hand_threshold_erosion = area_median + hand_std
+
+        hand_image_mask = (
+            water_boundary &
+            (sub_hand > hand_threshold_erosion)
+        )
+
+        bad_hand_count = np.count_nonzero(hand_image_mask)
+
+        new_binary = initial_area
+        iter_count = 0
+
+        while bad_hand_count > 0:
+            eroded_binary = ndimage.binary_erosion(
+                new_binary,
+                mask=hand_image_mask
+            )
+
+            new_bound = extract_boundary(eroded_binary)
+
+            hand_image_mask = (
+                new_bound &
+                (sub_hand > hand_threshold_erosion)
+            )
+
+            bad_hand_count = np.count_nonzero(hand_image_mask)
+
+            new_binary = eroded_binary
+            iter_count += 1
+
+            if iter_count > max(sub_win_x, sub_win_y):
+                break
+
+        # Instead of writing accepted pixels to hand_filtered_binary,
+        # directly remove rejected pixels from target_area.
+        removed_pixels = initial_area & (~new_binary)
+        sub_target[removed_pixels] = 0
+
+    _dswx_sar_util.save_dswx_product(
+        target_area,
+        output_path,
+        geotransform=metainfo['geotransform'],
+        projection=metainfo['projection'],
+        scratch_dir=scratch_dir
+    )
+
+    if debug_mode:
+        height_lookup = np.insert(height_array, 0, 0).astype(np.float32)
+
+        # This is still memory-heavy because it creates a full float32 raster.
+        height_std_raster = height_lookup[
+            label_image.astype(np.int64, copy=False)
+        ]
+
+        hand_std_path = os.path.join(
+            scratch_dir,
+            "landcover_hand_std.tif"
+        )
+
+        _dswx_sar_util.save_raster_gdal(
+            height_std_raster.astype(np.float32, copy=False),
+            hand_std_path,
+            geotransform=metainfo['geotransform'],
+            projection=metainfo['projection'],
+            scratch_dir=scratch_dir,
+            datatype='float32'
+        )
+
+        hand_std_image_path = os.path.join(
+            scratch_dir,
+            "landcover_hand_std_image.tif"
+        )
+
+        _dswx_sar_util.save_raster_gdal(
+            hand_std_image.astype(np.float32, copy=False),
+            hand_std_image_path,
+            geotransform=metainfo['geotransform'],
+            projection=metainfo['projection'],
+            scratch_dir=scratch_dir,
+            datatype='float32'
+        )
+
+    hand_band = None
+    hand_obj = None
+
+    return target_area
+
+def hand_filter_along_boundaryold(
         target_area_path,
         height_std_threshold,
         hand_path,
@@ -1416,76 +1693,122 @@ def hand_filter_along_boundary(
     """
     target_area = _dswx_sar_util.read_geotiff(target_area_path)
     hand_obj = gdal.Open(hand_path)
+    if hand_obj is None:
+        raise RuntimeError(f'Could not open HAND raster: {hand_path}')
+    hand_band = hand_obj.GetRasterBand(1)
 
-    coord_lists, sizes, output_water = \
-        extract_bbox_with_buffer(target_area, 10)
+    coord_lists, sizes, label_image = \
+        extract_bbox_with_buffer(target_area, buffer=10)
     nb_components_water = len(sizes)
 
     hand_filtered_binary = np.zeros(target_area.shape, dtype='byte')
-    hand_std_image = np.zeros(target_area.shape, dtype='float32')
-
     if debug_mode:
-        height_array = np.zeros(nb_components_water)
+        height_array = np.zeros(
+            nb_components_water,
+            dtype=np.float32
+        )
+
+        hand_std_image = np.zeros(
+            target_area.shape,
+            dtype=np.float32
+        )
+    else:
+        height_array = None
+        hand_std_image = None
 
     for ind, coord_list in enumerate(coord_lists):
         sub_x_start, sub_x_end, sub_y_start, sub_y_end = coord_list
         sub_win_x = int(sub_x_end - sub_x_start)
         sub_win_y = int(sub_y_end - sub_y_start)
-        sub_water_label = output_water[sub_y_start:sub_y_end,
-                                       sub_x_start:sub_x_end]
-        sub_hand = hand_obj.ReadAsArray(sub_x_start,
+        if sub_win_x <= 0 or sub_win_y <= 0:
+            continue
+        sub_label = label_image[
+            sub_y_start:sub_y_end,
+            sub_x_start:sub_x_end
+        ]
+        # sub_water_label = output_water[sub_y_start:sub_y_end,
+        #                                sub_x_start:sub_x_end]
+        sub_hand = hand_band.ReadAsArray(sub_x_start,
                                         sub_y_start,
                                         sub_win_x,
                                         sub_win_y)
-        initial_area = sub_water_label == ind + 1
+        if sub_hand is None:
+            continue
+
+        current_label = ind + 1
+        initial_area = sub_label == current_label
 
         water_boundary = extract_boundary(
-            np.array(sub_water_label == ind + 1, dtype='byte'))
-        hand_line_data, hand_image_data = \
-            extract_values_using_boundary(water_boundary, sub_hand)
-        hand_std = np.nanstd(hand_line_data)
-
+            initial_area)
+        # hand_line_data, hand_image_data = \
+        #     extract_values_using_boundary(water_boundary, sub_hand)
+        # hand_std = np.nanstd(hand_line_data)
+        hand_line_data = extract_boundary_values(water_boundary, sub_hand)
+        hand_std = _safe_nanstd(hand_line_data)
         if debug_mode:
-            height_array[ind] = np.nanstd(hand_line_data)
+            height_array[ind] = hand_std
+            debug_patch = hand_std_image[
+                sub_y_start:sub_y_end,
+                sub_x_start:sub_x_end
+            ]
 
-        hand_std_image[sub_y_start:sub_y_end,
-                       sub_x_start:sub_x_end] += hand_image_data
+            debug_patch[water_boundary] = sub_hand[water_boundary]
 
         if hand_std > height_std_threshold:
-            final_binary = np.zeros(sub_hand.shape, dtype='byte')
-            area_median = np.median(hand_line_data)
+            # final_binary = np.zeros(sub_hand.shape, dtype='byte')
+            area_median = _safe_nanmedian(hand_line_data)
+            if not np.isfinite(area_median):
+                # If boundary values are invalid, keep the original component.
+                hand_filtered_binary[
+                    sub_y_start:sub_y_end,
+                    sub_x_start:sub_x_end
+                ][initial_area] = 1
+                continue
             hand_threshold_erosion = area_median + hand_std * 1
-            hand_image_mask = hand_image_data > hand_threshold_erosion
+            hand_image_mask = (
+                water_boundary &
+                (sub_hand > hand_threshold_erosion)
+            )
 
-            bad_hand_count = 1
+            bad_hand_count = np.count_nonzero(hand_image_mask)
             iter_count = 0
+
+            new_binary = initial_area
+
             while bad_hand_count > 0:
-                new_binary = ndimage.binary_erosion(
-                    initial_area,
-                    mask=hand_image_mask)
-                new_bound = extract_boundary(new_binary)
-                hand_line_data, hand_image_data = \
-                    extract_values_using_boundary(new_bound, sub_hand)
-                hand_image_mask = hand_image_data > hand_threshold_erosion
-                bad_hand_count = np.sum(hand_image_mask)
-                initial_area = new_binary
+                eroded_binary = ndimage.binary_erosion(
+                    new_binary,
+                    mask=hand_image_mask
+                )
+
+                new_bound = extract_boundary(eroded_binary)
+                hand_line_data = extract_boundary_values(
+                    new_bound,
+                    sub_hand
+                )
+                hand_image_mask = (
+                    new_bound &
+                    (sub_hand > hand_threshold_erosion)
+                )
+                bad_hand_count = np.count_nonzero(hand_image_mask)
+                new_binary = eroded_binary
                 iter_count += 1
-            final_binary[new_binary == 1] = 1
-            hand_filtered_binary[sub_y_start:sub_y_end,
-                                 sub_x_start:sub_x_end] += final_binary
+                if iter_count > max(sub_win_x, sub_win_y):
+                    break
+            out_patch = hand_filtered_binary[
+                sub_y_start:sub_y_end,
+                sub_x_start:sub_x_end
+            ]
+            out_patch[new_binary] = 1
+
         else:
-            hand_filtered_binary[sub_y_start:sub_y_end,
-                                 sub_x_start:sub_x_end] += initial_area
+            out_patch = hand_filtered_binary[
+                sub_y_start:sub_y_end,
+                sub_x_start:sub_x_end
+            ]
+            out_patch[initial_area] = 1
 
-    output_water = np.array(output_water)
-    old_val = np.arange(1, nb_components_water + 1) - .1
-    index_array_to_image = np.searchsorted(old_val, output_water)
-
-    if debug_mode:
-        height_array = np.insert(height_array, 0, 0, axis=0)
-        height_std_raster = np.array(height_array[index_array_to_image],
-                                     dtype='float32')
-
+    target_area = target_area.astype(np.uint8, copy=False)
     target_area[hand_filtered_binary == 0] = 0
 
     _dswx_sar_util.save_dswx_product(
@@ -1494,37 +1817,62 @@ def hand_filter_along_boundary(
         geotransform=metainfo['geotransform'],
         projection=metainfo['projection'],
         scratch_dir=scratch_dir
-        )
+    )
 
     if debug_mode:
+        # Create per-component HAND std raster only in debug mode.
+
+        height_lookup = np.insert(height_array, 0, 0).astype(np.float32)
+
+        height_std_raster = height_lookup[
+            label_image.astype(np.int64, copy=False)
+        ]
+
         hand_std_path = os.path.join(
-            scratch_dir, "landcover_hand_std.tif")
+            scratch_dir,
+            "landcover_hand_std.tif"
+        )
+
         _dswx_sar_util.save_raster_gdal(
-            np.array(height_std_raster, dtype='float32'),
+            height_std_raster.astype(np.float32, copy=False),
             hand_std_path,
             geotransform=metainfo['geotransform'],
             projection=metainfo['projection'],
             scratch_dir=scratch_dir,
-            datatype='float32')
-        hand_std_path = os.path.join(
-            scratch_dir, "landcover_hand_std_image.tif")
+            datatype='float32'
+        )
+
+        hand_std_image_path = os.path.join(
+            scratch_dir,
+            "landcover_hand_std_image.tif"
+        )
+
         _dswx_sar_util.save_raster_gdal(
-            np.array(hand_std_image, dtype='float32'),
-            hand_std_path,
+            hand_std_image.astype(np.float32, copy=False),
+            hand_std_image_path,
             geotransform=metainfo['geotransform'],
             projection=metainfo['projection'],
             scratch_dir=scratch_dir,
-            datatype='float32')
+            datatype='float32'
+        )
+
         hand_binary_path = os.path.join(
-            scratch_dir, "landcover_hand_binary.tif")
+            scratch_dir,
+            "landcover_hand_binary.tif"
+        )
+
         _dswx_sar_util.save_dswx_product(
             hand_filtered_binary,
             hand_binary_path,
             geotransform=metainfo['geotransform'],
             projection=metainfo['projection'],
             scratch_dir=scratch_dir
-            )
-    del hand_obj
+        )
+
+    hand_band = None
+    hand_obj = None
+
+    return target_area
 
 
 def get_darkland_from_intensity_ancillary(

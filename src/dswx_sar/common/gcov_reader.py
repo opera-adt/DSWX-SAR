@@ -129,12 +129,47 @@ def multi_look_average_gdal(
     os.replace(output_geotiff, input_geotiff)
 
 
-def reproject_bbox(bbox, src_epsg: int, dst_epsg: int):
+def reproject_bbox(
+    bbox,
+    src_epsg: int,
+    dst_epsg: int,
+    densify_pts: int = 21,
+    errcheck: bool = True,
+):
+    """
+    Reproject a bounding box from src_epsg to dst_epsg.
+
+    Parameters
+    ----------
+    bbox : list or tuple
+        [xmin, ymin, xmax, ymax] in source CRS.
+    src_epsg : int
+        Source EPSG code.
+    dst_epsg : int
+        Destination EPSG code.
+    densify_pts : int
+        Number of extra points added along each bbox edge before transforming.
+        Larger values are safer for strongly nonlinear projections.
+    errcheck : bool
+        If True, pyproj raises an error for invalid transformed points.
+
+    Returns
+    -------
+    list
+        [xmin, ymin, xmax, ymax] in destination CRS.
+    """
     xmin, ymin, xmax, ymax = bbox
     tf = Transformer.from_crs(f"EPSG:{src_epsg}", f"EPSG:{dst_epsg}", always_xy=True)
-    x1, y1 = tf.transform(xmin, ymin)
-    x2, y2 = tf.transform(xmax, ymax)
-    return [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+    left, bottom, right, top = tf.transform_bounds(
+        xmin,
+        ymin,
+        xmax,
+        ymax,
+        densify_pts=densify_pts,
+        errcheck=errcheck,
+    )
+
+    return [left, bottom, right, top]
 
 
 class DataReader(ABC):

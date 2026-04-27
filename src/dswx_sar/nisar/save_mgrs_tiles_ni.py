@@ -150,7 +150,10 @@ def crop_and_save_mgrs_tile_spacing(
         metadata,
         cog_compression,
         cog_nbits,
-        interpolation_method='nearest'):
+        interpolation_method='nearest',
+        num_threads=2,
+        warp_memory_limit_mb=512,
+        gdal_cachemax_mb=512):
     """Crop the product along the MGRS tile grid and
     save it as a Cloud-Optimized GeoTIFF (COG).
 
@@ -178,38 +181,91 @@ def crop_and_save_mgrs_tile_spacing(
     interpolation_method : str
         Interpolation method for cropping, by default 'nearest'.
     """
+    os.makedirs(output_dir_path, exist_ok=True)
+    output_tif_file_path = os.path.join(
+        output_dir_path,
+        output_tif_name
+    )
     input_tif_obj = gdal.Open(source_tif_path)
     band = input_tif_obj.GetRasterBand(1)
     no_data_value = band.GetNoDataValue()
+    output_type = band.DataType
 
-    # Create output file path
-    output_tif_file_path = os.path.join(output_dir_path,
-                                        output_tif_name)
+    # Limit GDAL global cache.
+    # This prevents GDAL from using a very large block cache.
+    old_cachemax = gdal.GetCacheMax()
+    gdal.SetCacheMax(int(gdal_cachemax_mb) * 1024 * 1024)
 
-    # Define GDAL Warp options
-    warp_options = gdal.WarpOptions(
-        dstSRS=f'EPSG:{output_epsg}',
-        outputType=band.DataType,
-        xRes=output_spacing,
-        yRes=output_spacing,
-        outputBounds=output_bbox,
-        resampleAlg=interpolation_method,
-        dstNodata=no_data_value,
-        format='GTIFF',
-        multithread=True,
-        warpOptions=["NUM_THREADS=ALL_CPUS"])
+    # Use controlled threading.
+    # Do not use ALL_CPUS unless memory is known to be sufficient.
+    num_threads_str = str(num_threads)
 
-    gdal.Warp(output_tif_file_path,
-              source_tif_path,
-              options=warp_options)
+    create_options = [
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE",
+        "PREDICTOR=2",
+        "ZLEVEL=6",
+        "BIGTIFF=IF_SAFER",
+    ]
 
-    _populate_statics_metadata_datasets(metadata,
-                                        output_tif_file_path)
+    if output_type == gdal.GDT_Byte:
+        create_options.append("NBITS=8")
+    elif output_type == gdal.GDT_UInt16:
+        create_options.append("NBITS=16")
+
+    try:
+        warp_options = gdal.WarpOptions(
+            dstSRS=f'EPSG:{output_epsg}',
+            outputType=output_type,
+            xRes=output_spacing,
+            yRes=output_spacing,
+            outputBounds=output_bbox,
+            outputBoundsSRS=f'EPSG:{output_epsg}',
+            resampleAlg=interpolation_method,
+            srcNodata=no_data_value,
+            dstNodata=no_data_value,
+            format='GTiff',
+            multithread=(num_threads_str != '1'),
+            warpMemoryLimit=warp_memory_limit_mb,
+            creationOptions=create_options,
+            warpOptions=[
+                f"NUM_THREADS={num_threads_str}",
+                "INIT_DEST=NO_DATA",
+            ],
+        )
+
+        out_ds = gdal.Warp(
+            output_tif_file_path,
+            source_tif_path,
+            options=warp_options
+        )
+
+        if out_ds is None:
+            raise RuntimeError(
+                f'gdal.Warp failed for {source_tif_path} -> '
+                f'{output_tif_file_path}'
+            )
+
+        out_ds.FlushCache()
+        out_ds = None
+
+    finally:
+        # Restore GDAL cache setting.
+        gdal.SetCacheMax(old_cachemax)
+
+        band = None
+        input_tif_obj = None
+
+    # Populate metadata after crop.
+    _populate_statics_metadata_datasets(
+        metadata,
+        output_tif_file_path
+    )
 
     with rasterio.open(output_tif_file_path, 'r+') as src:
         src.update_tags(**metadata)
-
-    input_tif_obj = None
 
     if output_format == 'COG':
         _dswx_sar_util._save_as_cog(
@@ -217,7 +273,8 @@ def crop_and_save_mgrs_tile_spacing(
             output_dir_path,
             logger,
             compression=cog_compression,
-            nbits=cog_nbits)
+            nbits=cog_nbits
+        )
 
 
 def get_intersecting_mgrs_tiles_list_from_db(
@@ -583,27 +640,59 @@ def run(cfg):
 
     # repackage the water map
     # 1) water map
-    water_map = _dswx_sar_util.read_geotiff(paths['final_water'])
-    no_data_raster = _dswx_sar_util.read_geotiff(paths['no_data_area'])
-    no_data_raster = (no_data_raster > 0) | \
-        (water_map == band_assign_value_dict['no_data'])
+    water_is_1 = _dswx_sar_util._make_block_source(
+        paths['final_water'],
+        operation='eq',
+        value=1)
+    # not water
+    water_is_0 = _dswx_sar_util._make_block_source(
+        paths['final_water'],
+        operation='eq',
+        value=0)
+
+    water_is_nodata = _dswx_sar_util._make_block_source(
+        paths['final_water'],
+        operation='eq',
+        value=band_assign_value_dict['no_data']
+    )
+
+    nodata_from_file = _dswx_sar_util._make_block_source(
+        paths['no_data_area'],
+        operation='gt',
+        value=0
+    )
+
+    no_data_raster = _dswx_sar_util._make_combined_mask(
+        'or',
+        nodata_from_file,
+        water_is_nodata
+    )
 
     # 2) layover/shadow
-    layover_shadow_mask_path = \
-        os.path.join(scratch_dir, 'mosaic_layovershadow_mask.tif')
+    layover_shadow_mask_path = os.path.join(
+        scratch_dir,
+        'mosaic_layovershadow_mask.tif'
+    )
 
     if os.path.exists(layover_shadow_mask_path):
-        layover_shadow_mask = \
-            _dswx_sar_util.read_geotiff(layover_shadow_mask_path)
+        layover_shadow_mask = _dswx_sar_util._make_block_source(
+            layover_shadow_mask_path,
+            operation='gt',
+            value=0
+        )
         logger.info('Layover/shadow mask found')
     else:
-        layover_shadow_mask = np.zeros(np.shape(water_map), dtype='byte')
+        layover_shadow_mask = None
         logger.warning('No layover/shadow mask found')
 
     # 3) hand excluded
-    hand = _dswx_sar_util.read_geotiff(
-        os.path.join(scratch_dir, 'interpolated_hand.tif'))
-    hand_mask = hand > hand_mask_value
+    hand_path = os.path.join(scratch_dir, 'interpolated_hand.tif')
+
+    hand_mask = _dswx_sar_util._make_block_source(
+        hand_path,
+        operation='gt',
+        value=hand_mask_value
+    )
 
     full_wtr_water_set_path = \
         os.path.join(scratch_dir, 'full_water_binary_WTR_set.tif')
@@ -616,47 +705,74 @@ def run(cfg):
 
     # 4) inundated_vegetation
     if total_inundated_vege_flag:
-        inundated_vegetation = _dswx_sar_util.read_geotiff(
-            paths['inundated_veg'])
-        inundated_vege_target_area = _dswx_sar_util.read_geotiff(
-            paths['inundated_veg_target'])
-        inundated_vege_high_ratio = _dswx_sar_util.read_geotiff(
-            paths['inundated_veg_high_ratio'])
-        inundated_vegetation_mask = (inundated_vegetation == 2) & \
-                                    (water_map == 1)
-        inundated_vegetation[inundated_vegetation_mask] = 1
+        inundated_vegetation = _dswx_sar_util._make_block_source(
+            paths['inundated_veg'],
+            operation='eq',
+            value=2
+        )
+
+        inundated_vege_target_area = _dswx_sar_util._make_block_source(
+            paths['inundated_veg_target'],
+            operation='eq',
+            value=1
+        )
+
+        inundated_vege_high_ratio = _dswx_sar_util._make_block_source(
+            paths['inundated_veg_high_ratio'],
+            operation='eq',
+            value=1
+        )
+
         logger.info('Inundated vegetation file was found.')
+
         iv_target_file_type = inundated_vege_cfg.target_area_file_type
+
         if iv_target_file_type == 'auto':
-            # if target_file_type is auto and GLAD is provided,
-            # GLAD is the source of inundated vegetation mapping
             interp_glad_path_str = os.path.join(
-                scratch_dir,'interpolated_glad.tif')
+                scratch_dir,
+                'interpolated_glad.tif'
+            )
 
             if os.path.exists(interp_glad_path_str):
                 inundated_vege_cfg.target_area_file_type = 'GLAD'
 
-                worldcover_valid = np.nansum(inundated_vege_target_area == 2)
-                glad_valid = np.nansum(inundated_vege_target_area == 1)
+                # Count target-area values block-wise instead of reading
+                # the whole target-area raster.
+                worldcover_valid = _dswx_sar_util._count_raster_value_blockwise(
+                    paths['inundated_veg_target'],
+                    target_value=2,
+                    lines_per_block=512
+                )
+
+                glad_valid = _dswx_sar_util._count_raster_value_blockwise(
+                    paths['inundated_veg_target'],
+                    target_value=1,
+                    lines_per_block=512
+                )
+
                 # If some pixels are extracted from WorldCover,
-                # IV source is GLAD/WorldCover
+                # IV source is GLAD/WorldCover.
                 if worldcover_valid > 0 and glad_valid > 0:
-                    inundated_vege_cfg.target_area_file_type = 'GLAD/WorldCover'
-                # If the GLAD is provided but all pixels come from 'WorldCover'
-                # due to the no-data of GLAD,
-                # IV source is WorldCover
+                    inundated_vege_cfg.target_area_file_type = \
+                        'GLAD/WorldCover'
+
+                # If GLAD is provided but all pixels come from WorldCover
+                # due to no-data of GLAD, IV source is WorldCover.
                 elif worldcover_valid > 0 and glad_valid == 0:
                     inundated_vege_cfg.target_area_file_type = 'WorldCover'
+
             else:
                 inundated_vege_cfg.target_area_file_type = 'WorldCover'
-        logger.info('Inundated vegetation areas are defined from  '
-                    f'{inundated_vege_cfg.target_area_file_type}.')
+
+        logger.info(
+            'Inundated vegetation areas are defined from  '
+            f'{inundated_vege_cfg.target_area_file_type}.'
+        )
 
     else:
         inundated_vegetation = None
         inundated_vege_target_area = None
         inundated_vege_high_ratio = None
-        inundated_vegetation_mask = None
         inundated_vege_cfg.target_area_file_type = None
 
         logger.info('Inundated vegetation file was disabled.')
@@ -677,58 +793,156 @@ def run(cfg):
         ocean_mask = None
 
     if dswx_workflow == 'opera_dswx_ni':
-        logger.info('BWTR and WTR Files are created from pre-computed files.')
 
-        region_grow_map = \
-            _dswx_sar_util.read_geotiff(paths['region_growing'])
-        landcover_map =\
-            _dswx_sar_util.read_geotiff(paths['landcover_mask'])
-
-        landcover_mask = (region_grow_map == 1) & (landcover_map != 1)
-        dark_land_mask = (landcover_map == 1) & (water_map == 0)
-        bright_water_mask = (landcover_map == 0) & (water_map == 1)
-        wetland = inundated_vege_target_area == 1
-        # Open water/inundated vegetation
-        # layover shadow mask/hand mask/no_data
-        # will be saved in WTR product
-        _dswx_sar_util.save_dswx_product(
-            water_map == 1,
+        # WTR product
+        _dswx_sar_util.save_dswx_product_blockwise(
+            water_is_1,
             full_wtr_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Water classification (WTR)',
             scratch_dir=scratch_dir,
             logger=logger,
-            layover_shadow_mask=layover_shadow_mask > 0,
+            layover_shadow_mask=layover_shadow_mask,
             hand_mask=hand_mask,
-            inundated_vegetation=inundated_vegetation == 2,
+            inundated_vegetation=inundated_vegetation,
             no_data=no_data_raster,
             ocean_mask=ocean_mask,
             is_wtr=True,
-            )
+        )
 
-        # water/ No-water
-        # layover shadow mask/hand mask/no_data
-        # will be saved in BWTR product
+        # BWTR product
         # Water includes open water and inundated vegetation.
-        _dswx_sar_util.save_dswx_product(
-            np.logical_or(water_map == 1, inundated_vegetation == 2),
+        if inundated_vegetation is not None:
+            bwtr_water_mask = _dswx_sar_util._make_combined_mask(
+                'or',
+                water_is_1,
+                inundated_vegetation
+            )
+            print(bwtr_water_mask)
+        else:
+            bwtr_water_mask = water_is_1
+
+        _dswx_sar_util.save_dswx_product_blockwise(
+            bwtr_water_mask,
             full_bwtr_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
             description='Binary Water classification (BWTR)',
             scratch_dir=scratch_dir,
             logger=logger,
-            layover_shadow_mask=layover_shadow_mask > 0,
+            layover_shadow_mask=layover_shadow_mask,
             hand_mask=hand_mask,
             ocean_mask=ocean_mask,
-            no_data=no_data_raster)
+            no_data=no_data_raster
+        )
 
-        # Open water/landcover mask/bright water/dark land
-        # layover shadow mask/hand mask/inundated vegetation
-        # will be saved in CONF product
-        _dswx_sar_util.save_dswx_product(
-            water_map == 1,
+        # CONF product masks
+        region_grow_is_1 = _dswx_sar_util._make_block_source(
+            paths['region_growing'],
+            operation='eq',
+            value=1
+        )
+
+        landcover_is_1 = _dswx_sar_util._make_block_source(
+            paths['landcover_mask'],
+            operation='eq',
+            value=1
+        )
+
+        landcover_is_0 = _dswx_sar_util._make_block_source(
+            paths['landcover_mask'],
+            operation='eq',
+            value=0
+        )
+
+        landcover_not_1 = _dswx_sar_util._make_block_source(
+            paths['landcover_mask'],
+            operation='ne',
+            value=1
+        )
+
+        landcover_mask = _dswx_sar_util._make_combined_mask(
+            'and',
+            region_grow_is_1,
+            landcover_not_1
+        )
+
+        dark_land_mask = _dswx_sar_util._make_combined_mask(
+            'and',
+            landcover_is_1,
+            water_is_0
+        )
+
+        bright_water_mask = _dswx_sar_util._make_combined_mask(
+            'and',
+            landcover_is_0,
+            water_is_1
+        )
+
+        wetland = inundated_vege_target_area
+
+        if wetland is not None:
+            wetland_nonwater = _dswx_sar_util._make_combined_mask(
+                'and',
+                water_is_0,
+                wetland
+            )
+
+            wetland_water = _dswx_sar_util._make_combined_mask(
+                'and',
+                water_is_1,
+                wetland
+            )
+
+            wetland_bright_water_fill = _dswx_sar_util._make_combined_mask(
+                'and',
+                bright_water_mask,
+                wetland
+            )
+
+            wetland_inundated_veg = _dswx_sar_util._make_combined_mask(
+                'and',
+                inundated_vegetation,
+                wetland
+            )
+
+            wetland_dark_land_mask = _dswx_sar_util._make_combined_mask(
+                'and',
+                dark_land_mask,
+                wetland
+            )
+
+            wetland_landcover_mask = _dswx_sar_util._make_combined_mask(
+                'and',
+                landcover_mask,
+                wetland
+            )
+
+            high_ratio_and_nonwater = _dswx_sar_util._make_combined_mask(
+                'and',
+                inundated_vege_high_ratio,
+                water_is_0
+            )
+
+            inundated_vegetation_conf = _dswx_sar_util._make_combined_mask(
+                'and_not',
+                high_ratio_and_nonwater,
+                wetland
+            )
+
+        else:
+            wetland_nonwater = None
+            wetland_water = None
+            wetland_bright_water_fill = None
+            wetland_inundated_veg = None
+            wetland_dark_land_mask = None
+            wetland_landcover_mask = None
+            inundated_vegetation_conf = None
+
+        # CONF product
+        _dswx_sar_util.save_dswx_product_blockwise(
+            water_is_1,
             full_conf_water_set_path,
             geotransform=water_meta['geotransform'],
             projection=water_meta['projection'],
@@ -738,27 +952,30 @@ def run(cfg):
             landcover_mask=landcover_mask,
             bright_water_fill=bright_water_mask,
             dark_land_mask=dark_land_mask,
-            inundated_vegetation_conf=(inundated_vege_high_ratio == 1) &
-                (wetland == 0) & (water_map == 0),
-            wetland_nonwater=(water_map == 0) & wetland,
-            wetland_water=(water_map == 1) & wetland,
-            wetland_bright_water_fill=bright_water_mask & wetland,
-            wetland_inundated_veg=(inundated_vegetation == 2) & wetland,
-            wetland_dark_land_mask=dark_land_mask & wetland,
-            wetland_landcover_mask=landcover_mask & wetland,
-            layover_shadow_mask=layover_shadow_mask > 0,
+            inundated_vegetation_conf=inundated_vegetation_conf,
+            wetland_nonwater=wetland_nonwater,
+            wetland_water=wetland_water,
+            wetland_bright_water_fill=wetland_bright_water_fill,
+            wetland_inundated_veg=wetland_inundated_veg,
+            wetland_dark_land_mask=wetland_dark_land_mask,
+            wetland_landcover_mask=wetland_landcover_mask,
+            layover_shadow_mask=layover_shadow_mask,
             hand_mask=hand_mask,
             ocean_mask=ocean_mask,
             no_data=no_data_raster,
             is_conf=True
-            )
+        )
 
-        # Values ranging from 0 to 100 are used to represent the likelihood
-        # or possibility of the presence of water. A higher value within
-        # this range signifies a higher likelihood of water being present.
-        fuzzy_value = _dswx_sar_util.read_geotiff(paths['fuzzy_value'])
-        fuzzy_value = np.round(fuzzy_value * 100)
-        _dswx_sar_util.save_dswx_product(
+        # DIAG product
+        fuzzy_value = _dswx_sar_util._make_block_source(
+            paths['fuzzy_value'],
+            operation='scale_round_clip',
+            value=100,
+            scale=100.0,
+            output_dtype=np.uint8,
+        )
+
+        _dswx_sar_util.save_dswx_product_blockwise(
             fuzzy_value,
             full_diag_water_set_path,
             geotransform=water_meta['geotransform'],
@@ -768,60 +985,63 @@ def run(cfg):
             scratch_dir=scratch_dir,
             datatype='uint8',
             logger=logger,
-            layover_shadow_mask=layover_shadow_mask > 0,
+            layover_shadow_mask=layover_shadow_mask,
             hand_mask=hand_mask,
             ocean_mask=ocean_mask,
-            no_data=no_data_raster)
-    else:
+            no_data=no_data_raster
+        )
 
-        # In Twele's workflow, bright water/dark land/inundated vegetation
-        # is not saved.
-        _dswx_sar_util.save_dswx_product(
-                water_map == 1,
-                full_wtr_water_set_path,
-                geotransform=water_meta['geotransform'],
-                projection=water_meta['projection'],
-                description='Water classification (WTR)',
-                scratch_dir=scratch_dir,
-                layover_shadow_mask=layover_shadow_mask > 0,
-                hand_mask=hand_mask,
-                no_data=no_data_raster)
+    else:
+        # Non-OPERA DSWx-NI workflow
+        #
+        # In Twele's workflow, bright water, dark land, and inundated
+        # vegetation are not saved.
+        _dswx_sar_util.save_dswx_product_blockwise(
+            water_is_1,
+            full_wtr_water_set_path,
+            geotransform=water_meta['geotransform'],
+            projection=water_meta['projection'],
+            description='Water classification (WTR)',
+            scratch_dir=scratch_dir,
+            logger=logger,
+            layover_shadow_mask=layover_shadow_mask,
+            hand_mask=hand_mask,
+            no_data=no_data_raster
+        )
 
     if partial_water_flag:
         new_water_meta = water_meta.copy()
-        # change 20 m to 30 m when counting partial surface water
+
+        # Change 20 m to 30 m when counting partial surface water.
         new_geotransform = list(new_water_meta['geotransform'])
         new_geotransform[1] = output_spacing
         new_geotransform[5] = -1 * output_spacing
 
         new_water_meta['geotransform'] = tuple(new_geotransform)
-        partial_open_water = _dswx_sar_util.partial_water_product(
-            input_file=full_wtr_water_set_path,
+
+        temp_full_wtr_water_set_path = os.path.join(
+            scratch_dir,
+            'full_water_binary_WTR_set_temp.tif'
+        )
+
+        os.rename(
+            full_wtr_water_set_path,
+            temp_full_wtr_water_set_path
+        )
+
+        _dswx_sar_util.partial_water_product_blockwise(
+            input_file=temp_full_wtr_water_set_path,
             output_spacing=output_spacing,
             scratch_dir=scratch_dir,
-            target_label=1, # only open water
+            target_label=1,
             threshold=partial_water_threshold,
-            logger=logger)
-
-        temp_full_wtr_water_set_path = \
-            os.path.join(scratch_dir, 'full_water_binary_WTR_set_temp.tif')
-        os.rename(full_wtr_water_set_path, temp_full_wtr_water_set_path)
-
-        _dswx_sar_util.save_dswx_product(
-            partial_open_water == 1,
-            full_wtr_water_set_path,
-            geotransform=new_water_meta['geotransform'],
-            projection=new_water_meta['projection'],
-            description='Water classification (WTR)',
-            scratch_dir=scratch_dir,
+            output_file=full_wtr_water_set_path,
             logger=logger,
-            partial_water=partial_open_water == 11,
-            layover_shadow_mask=partial_open_water == band_assign_value_dict['layover_shadow_mask'],
-            hand_mask=partial_open_water==band_assign_value_dict['hand_mask'],
-            inundated_vegetation=partial_open_water==band_assign_value_dict['inundated_vegetation'],
-            no_data=partial_open_water==band_assign_value_dict['no_data'],
-            ocean_mask=partial_open_water==band_assign_value_dict['ocean_mask'],
-            is_wtr=True)
+            lines_per_block=512,
+            num_threads=1,
+            warp_memory_limit_mb=256,
+            keep_temp=False
+        )
 
     # Get list of MGRS tiles overlapped with mosaic RTC image
     mgrs_meta_dict = {}

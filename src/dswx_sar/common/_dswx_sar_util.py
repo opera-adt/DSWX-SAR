@@ -584,6 +584,579 @@ def _save_as_cog(filename,
     shutil.move(temp_file, filename)
 
 
+class _BlockSource:
+    """
+    Small helper to read either:
+      - numpy array
+      - raster path
+      - gdal.Dataset
+      - callable(xoff, yoff, xsize, ysize) -> np.ndarray
+    """
+
+    def __init__(self, source, name="source", shape=None):
+        self.source = source
+        self.name = name
+        self._ds = None
+        self._band = None
+        self._shape = None
+
+        if source is None:
+            self._shape = shape
+
+        elif isinstance(source, np.ndarray):
+            self._shape = source.shape
+
+        elif isinstance(source, str):
+            self._ds = gdal.Open(source, gdal.GA_ReadOnly)
+            if self._ds is None:
+                raise RuntimeError(f"Could not open raster source: {source}")
+            self._band = self._ds.GetRasterBand(1)
+            self._shape = (self._ds.RasterYSize, self._ds.RasterXSize)
+
+        elif isinstance(source, gdal.Dataset):
+            self._ds = source
+            self._band = self._ds.GetRasterBand(1)
+            self._shape = (self._ds.RasterYSize, self._ds.RasterXSize)
+
+        elif callable(source):
+            if shape is None:
+                raise ValueError(
+                    f"shape must be provided when '{name}' is a callable"
+                )
+            self._shape = shape
+
+        else:
+            raise TypeError(
+                f"Unsupported source type for '{name}': {type(source)}"
+            )
+
+    @property
+    def shape(self):
+        return self._shape
+
+    def read(self, yoff, xoff, ysize, xsize):
+        if self.source is None:
+            return None
+
+        if isinstance(self.source, np.ndarray):
+            return self.source[yoff:yoff + ysize, xoff:xoff + xsize]
+
+        if self._band is not None:
+            return self._band.ReadAsArray(
+                xoff=xoff,
+                yoff=yoff,
+                win_xsize=xsize,
+                win_ysize=ysize,
+            )
+
+        if callable(self.source):
+            return self.source(xoff, yoff, xsize, ysize)
+
+        raise RuntimeError(f"Unexpected source state for '{self.name}'")
+
+    def close(self):
+        self._band = None
+        self._ds = None
+
+
+def _get_block_source_shape(block_source):
+    """Return raster shape from simple or combined block source."""
+
+    if block_source is None:
+        return None
+
+    if isinstance(block_source, np.ndarray):
+        return list(block_source.shape)
+
+    if isinstance(block_source, str):
+        im_meta = get_meta_from_tif(block_source)
+        return [im_meta['length'], im_meta['width']]
+
+    if isinstance(block_source, dict):
+        # Combined mask
+        if block_source.get('combined', False):
+            sources = block_source.get('sources', [])
+            if len(sources) == 0:
+                raise ValueError('Combined mask has no sources.')
+
+            return _get_block_source_shape(sources[0])
+
+        # Simple block source
+        source = block_source.get('source', None)
+        return _get_block_source_shape(source)
+
+    raise TypeError(f'Unsupported block source type: {type(block_source)}')
+
+
+def save_dswx_product_blockwise(
+        wtr, output_file, geotransform,
+        projection, scratch_dir='.',
+        description=None, metadata=None,
+        is_diag=False,
+        is_wtr=False,
+        is_conf=False,
+        datatype='uint8',
+        logger=None,
+        lines_per_block=512,
+        **dswx_processed_bands):
+    """Save DSWx product using block-based processing.
+
+    Parameters
+    ----------
+    wtr : dict, str, or numpy.ndarray
+        Base image or block source.
+
+        Recommended:
+            _make_block_source(path, 'eq', 1)
+
+        For DIAG:
+            _make_block_source(path, 'scale_round_clip',
+                               value=100, scale=100.0,
+                               output_dtype=np.uint8)
+
+    output_file : str
+        Output GeoTIFF path.
+
+    geotransform : tuple
+        GDAL geotransform.
+
+    projection : str
+        GDAL projection.
+
+    lines_per_block : int
+        Number of lines to process per block.
+
+    dswx_processed_bands : dict
+        Optional masks. Each value may be a block source, combined mask,
+        ndarray, raster path, or None.
+    """
+
+    msg = f'Saving dswx product blockwise: {output_file}'
+    if logger is not None:
+        logger.info(msg)
+    else:
+        print(msg)
+
+    band_value_dict = band_assign_value_dict
+
+    # Determine output shape
+    data_shape = _get_block_source_shape(wtr)
+
+    if data_shape is None:
+        raise TypeError(
+            'wtr must be a raster path, numpy array, simple block source, '
+            'or combined block source.'
+        )
+
+    length, width = data_shape
+
+    # Create output GeoTIFF
+    gdal_type = np2gdal_conversion[str(datatype)]
+
+    create_opts = [
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE",
+        "PREDICTOR=2",
+        "ZLEVEL=6",
+        "BIGTIFF=IF_SAFER",
+    ]
+
+    if datatype in ("uint8", "byte"):
+        nbits = 8
+        create_opts.append("NBITS=8")
+    elif datatype in ("uint16",):
+        nbits = 16
+        create_opts.append("NBITS=16")
+    else:
+        nbits = None
+
+    if not is_diag:
+        create_opts.append("PHOTOMETRIC=PALETTE")
+
+    driver = gdal.GetDriverByName("GTiff")
+    gdal_ds = driver.Create(
+        output_file,
+        width,
+        length,
+        1,
+        gdal_type,
+        options=create_opts,
+    )
+
+    if gdal_ds is None:
+        raise RuntimeError(f'Could not create output file: {output_file}')
+
+    gdal_ds.SetGeoTransform(geotransform)
+    gdal_ds.SetProjection(projection)
+
+    gdal_band = gdal_ds.GetRasterBand(1)
+
+    if not is_diag:
+        if is_wtr:
+            dswx_ctable = get_interpreted_dswx_ni_wtr_ctable()
+        elif is_conf:
+            dswx_ctable = get_interpreted_dswx_ni_conf_ctable()
+        else:
+            dswx_ctable = get_interpreted_dswx_s1_ctable()
+
+        gdal_band.SetRasterColorTable(dswx_ctable)
+        gdal_band.SetRasterColorInterpretation(gdal.GCI_PaletteIndex)
+
+    gdal_band.SetNoDataValue(band_value_dict['no_data'])
+
+    if metadata is not None:
+        gdal_band.SetMetadata(metadata)
+
+    if description is not None:
+        gdal_band.SetDescription(description)
+
+    # Determine band priority
+    # Same as previous logic: inundated vegetation applied last.
+    dswx_processed_bands_keys = dswx_processed_bands.keys()
+
+    sorted_band_keys = sorted(
+        band_value_dict.keys(),
+        key=lambda x: x.lower() == 'inundated_vegetation'
+    )
+
+    active_band_keys = []
+
+    for band_key in sorted_band_keys:
+        key = band_key.lower()
+
+        if key not in dswx_processed_bands_keys:
+            continue
+
+        mask_source = dswx_processed_bands.get(key, None)
+
+        if mask_source is None:
+            if logger is not None:
+                logger.debug(f"    {key} mask is None; skipping")
+            continue
+
+        active_band_keys.append(band_key)
+
+        msg = f'    {key} found {band_value_dict[band_key]}'
+        if logger is not None:
+            logger.info(msg)
+        else:
+            print(msg)
+
+    # Block processing
+    pad_shape = (0, 0)
+    block_params = block_param_generator(
+        lines_per_block,
+        data_shape,
+        pad_shape,
+    )
+
+    out_dtype = np.dtype(datatype)
+
+    for block_ind, block_param in enumerate(block_params):
+        if logger is not None:
+            logger.info(f'save DSWx product block {block_ind}')
+
+        # Base WTR/output block
+        if isinstance(wtr, dict) and wtr.get('combined', False):
+            out_block = _evaluate_mask(wtr, block_param)
+        elif isinstance(wtr, dict):
+            out_block = _evaluate_block_source(wtr, block_param)
+        else:
+            out_block = _read_block(wtr, block_param)
+
+        if out_block is None:
+            raise ValueError('Base wtr block is None.')
+
+        out_block = np.asarray(out_block).astype(out_dtype, copy=True)
+
+        # Apply each DSWx class mask
+        for band_key in active_band_keys:
+            key = band_key.lower()
+            mask_source = dswx_processed_bands[key]
+
+            mask_block = _evaluate_mask(mask_source, block_param)
+
+            if mask_block is None:
+                continue
+
+            if mask_block.dtype != np.bool_:
+                mask_block = mask_block.astype(np.bool_, copy=False)
+
+            if mask_block.shape != out_block.shape:
+                raise ValueError(
+                    f"Mask '{key}' block shape {mask_block.shape} "
+                    f"!= output block shape {out_block.shape}"
+                )
+
+            np.putmask(
+                out_block,
+                mask_block,
+                band_value_dict[band_key]
+            )
+
+        # Write block
+        gdal_band.WriteArray(
+            out_block,
+            xoff=0,
+            yoff=block_param.write_start_line,
+        )
+
+    # Close and COG
+    gdal_band.FlushCache()
+    gdal_band = None
+
+    gdal_ds.FlushCache()
+    gdal_ds = None
+
+    if nbits is None:
+        _save_as_cog(output_file, scratch_dir)
+    else:
+        _save_as_cog(output_file, scratch_dir, nbits=nbits)
+
+
+def _read_block(path_or_array, block_param):
+    """
+    Read one block from either a raster path or an in-memory array.
+
+    Prefer raster path for low memory.
+    Array support is kept for compatibility.
+    """
+    if path_or_array is None:
+        return None
+
+    if isinstance(path_or_array, str):
+        return get_raster_block(path_or_array, block_param)
+
+    if isinstance(path_or_array, np.ndarray):
+        y0 = block_param.read_start_line
+        y1 = block_param.read_start_line + block_param.read_length
+        x0 = 0
+        x1 = -1
+        return path_or_array[y0:y1, x0:x1]
+
+    raise TypeError(f'Unsupported block source type: {type(path_or_array)}')
+
+
+def _apply_mask_operation(block, operation=None, value=None, scale=None,
+                          output_dtype=None):
+    """
+    Convert a raster block into a mask or scaled data block.
+    """
+    if operation is None:
+        out = block
+
+    elif operation == 'eq':
+        out = block == value
+
+    elif operation == 'ne':
+        out = block != value
+
+    elif operation == 'gt':
+        out = block > value
+
+    elif operation == 'ge':
+        out = block >= value
+
+    elif operation == 'lt':
+        out = block < value
+
+    elif operation == 'le':
+        out = block <= value
+
+    elif operation == 'scale_round_clip':
+        out = np.clip(np.rint(block * scale), 0, value)
+
+    else:
+        raise ValueError(f'Unsupported operation: {operation}')
+
+    if output_dtype is not None:
+        out = out.astype(output_dtype, copy=False)
+
+    return out
+
+
+def _make_block_source(source, operation=None, value=None,
+                       scale=None, output_dtype=None):
+    """
+    Return a lightweight dict describing how to read/process each block.
+
+    Examples
+    --------
+    _make_block_source(path, 'eq', 1)
+    _make_block_source(path, 'gt', 0)
+    _make_block_source(path, 'scale_round_clip', 100, scale=100.0,
+                       output_dtype=np.uint8)
+    """
+    return {
+        'source': source,
+        'operation': operation,
+        'value': value,
+        'scale': scale,
+        'output_dtype': output_dtype,
+    }
+
+
+def _evaluate_block_source(block_source, block_param):
+    """
+    Read and process one block from a block source definition.
+    """
+    if block_source is None:
+        return None
+
+    block = _read_block(block_source['source'], block_param)
+
+    return _apply_mask_operation(
+        block,
+        operation=block_source.get('operation'),
+        value=block_source.get('value'),
+        scale=block_source.get('scale'),
+        output_dtype=block_source.get('output_dtype'),
+    )
+
+
+def _combine_block_masks(block_param, op, *mask_sources):
+    """
+    Combine multiple block masks.
+
+    This supports nested combined masks, e.g.
+
+        combined(and,
+            combined(and, landcover_is_0, water_is_1),
+            wetland
+        )
+
+    Parameters
+    ----------
+    block_param : object
+        Block parameter from block_param_generator.
+
+    op : str
+        'or', 'and', or 'and_not'.
+
+    mask_sources : tuple
+        Simple block sources or combined mask sources.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        Boolean mask block.
+    """
+    masks = []
+
+    for mask_source in mask_sources:
+        if mask_source is None:
+            continue
+
+        # IMPORTANT:
+        # Use _evaluate_mask(), not _evaluate_block_source(),
+        # because mask_source may itself be a combined mask.
+        mask = _evaluate_mask(mask_source, block_param)
+
+        if mask is None:
+            continue
+
+        masks.append(mask.astype(bool, copy=False))
+
+    if not masks:
+        return None
+
+    out = masks[0]
+
+    if op == 'or':
+        for mask in masks[1:]:
+            out = out | mask
+
+    elif op == 'and':
+        for mask in masks[1:]:
+            out = out & mask
+
+    elif op == 'and_not':
+        if len(masks) != 2:
+            raise ValueError(
+                "'and_not' operation expects exactly two valid masks."
+            )
+        out = masks[0] & (~masks[1])
+
+    else:
+        raise ValueError(f'Unsupported combine operation: {op}')
+
+    return out
+
+
+def _make_combined_mask(op, *mask_sources):
+    """
+    Return a combined mask definition.
+    """
+    return {
+        'combined': True,
+        'op': op,
+        'sources': mask_sources,
+    }
+
+
+def _evaluate_mask(mask_source, block_param):
+    """
+    Evaluate either a simple block source or a combined mask source.
+    """
+    if mask_source is None:
+        return None
+
+    if isinstance(mask_source, dict) and mask_source.get('combined', False):
+        return _combine_block_masks(
+            block_param,
+            mask_source['op'],
+            *mask_source['sources']
+        )
+
+    if isinstance(mask_source, dict):
+        return _evaluate_block_source(mask_source, block_param)
+
+    # Optional compatibility:
+    # allow direct raster paths or numpy arrays as masks.
+    block = _read_block(mask_source, block_param)
+
+    if block is None:
+        return None
+
+    return block.astype(bool, copy=False)
+
+
+def _count_raster_value_blockwise(
+        raster_path,
+        target_value,
+        lines_per_block=512):
+    """Count pixels equal to target_value using block processing."""
+
+    im_meta = get_meta_from_tif(raster_path)
+
+    data_shape = [
+        im_meta['length'],
+        im_meta['width']
+    ]
+
+    pad_shape = (0, 0)
+
+    block_params = block_param_generator(
+        lines_per_block,
+        data_shape,
+        pad_shape
+    )
+
+    count = 0
+
+    for block_param in block_params:
+        block = get_raster_block(
+            raster_path,
+            block_param
+        )
+
+        count += np.count_nonzero(block == target_value)
+
+    return count
+
+
 def convert_rounded_coordinates(
         corners,
         from_epsg, to_epsg,
@@ -2264,6 +2837,436 @@ def _aggregate_10m_to_30m_fast(image: np.ndarray, ratio: int, normalize_flag: bo
         )
 
     return aggregated
+
+
+def _warp_to_geotiff_low_memory(
+        input_file,
+        output_file,
+        output_spacing,
+        output_bounds,
+        resample_alg='nearest',
+        output_type=None,
+        dst_nodata=None,
+        num_threads=1,
+        warp_memory_limit_mb=256):
+    """Warp input raster to a tiled GeoTIFF with controlled memory usage."""
+
+    input_ds = gdal.Open(input_file, gdal.GA_ReadOnly)
+    if input_ds is None:
+        raise RuntimeError(f'Failed to open input dataset: {input_file}')
+
+    input_band = input_ds.GetRasterBand(1)
+
+    if output_type is None:
+        output_type = input_band.DataType
+
+    if dst_nodata is None:
+        dst_nodata = input_band.GetNoDataValue()
+
+    create_options = [
+        'TILED=YES',
+        'BLOCKXSIZE=512',
+        'BLOCKYSIZE=512',
+        'COMPRESS=DEFLATE',
+        'PREDICTOR=2',
+        'ZLEVEL=6',
+        'BIGTIFF=IF_SAFER',
+    ]
+
+    warp_options = gdal.WarpOptions(
+        xRes=output_spacing,
+        yRes=-output_spacing,
+        outputBounds=output_bounds,
+        resampleAlg=resample_alg,
+        outputType=output_type,
+        srcNodata=dst_nodata,
+        dstNodata=dst_nodata,
+        format='GTiff',
+        multithread=(str(num_threads) != '1'),
+        warpMemoryLimit=warp_memory_limit_mb,
+        creationOptions=create_options,
+        warpOptions=[
+            f'NUM_THREADS={num_threads}',
+            'INIT_DEST=NO_DATA',
+        ],
+    )
+
+    out_ds = gdal.Warp(
+        output_file,
+        input_ds,
+        options=warp_options
+    )
+
+    if out_ds is None:
+        raise RuntimeError(f'GDAL warp failed: {input_file} -> {output_file}')
+
+    out_ds.FlushCache()
+    out_ds = None
+    input_band = None
+    input_ds = None
+
+    return output_file
+
+
+def _read_band_with_padding(
+        band,
+        xoff,
+        yoff,
+        xsize,
+        ysize,
+        pad_value=0):
+    """Read a GDAL block with zero padding outside raster bounds."""
+
+    raster_xsize = band.XSize
+    raster_ysize = band.YSize
+
+    out = np.full((ysize, xsize), pad_value, dtype=np.uint8)
+
+    src_x0 = max(xoff, 0)
+    src_y0 = max(yoff, 0)
+    src_x1 = min(xoff + xsize, raster_xsize)
+    src_y1 = min(yoff + ysize, raster_ysize)
+
+    if src_x1 <= src_x0 or src_y1 <= src_y0:
+        return out
+
+    read_xsize = src_x1 - src_x0
+    read_ysize = src_y1 - src_y0
+
+    arr = band.ReadAsArray(
+        src_x0,
+        src_y0,
+        read_xsize,
+        read_ysize
+    )
+
+    dst_x0 = src_x0 - xoff
+    dst_y0 = src_y0 - yoff
+
+    out[
+        dst_y0:dst_y0 + read_ysize,
+        dst_x0:dst_x0 + read_xsize
+    ] = arr.astype(out.dtype, copy=False)
+
+    return out
+
+
+def _apply_dswx_ni_wtr_color_table(output_file):
+    """Apply DSWx-NI WTR color table to an existing GeoTIFF."""
+
+    ds = gdal.Open(output_file, gdal.GA_Update)
+    if ds is None:
+        raise RuntimeError(f'Could not open output file: {output_file}')
+
+    band = ds.GetRasterBand(1)
+
+    dswx_ctable = get_interpreted_dswx_ni_wtr_ctable()
+
+    band.SetRasterColorTable(dswx_ctable)
+    band.SetRasterColorInterpretation(gdal.GCI_PaletteIndex)
+    band.SetNoDataValue(band_assign_value_dict['no_data'])
+
+    band.FlushCache()
+    band = None
+
+    ds.FlushCache()
+    ds = None
+
+
+def partial_water_product_blockwise(
+        input_file,
+        output_spacing,
+        scratch_dir,
+        target_label,
+        threshold,
+        output_file=None,
+        logger=None,
+        lines_per_block=512,
+        num_threads=1,
+        warp_memory_limit_mb=256,
+        keep_temp=False):
+    """
+    Generate partial surface water product using block-wise processing.
+
+    This version avoids full in-memory warped arrays.
+
+    Parameters
+    ----------
+    input_file : str
+        Input WTR GeoTIFF.
+    output_spacing : float
+        Output spacing.
+    scratch_dir : str
+        Scratch directory.
+    target_label : int
+        Label value to aggregate, usually open water label 1.
+    threshold : float
+        Threshold for full water.
+    output_file : str, optional
+        Output GeoTIFF path. If None, a path is generated in scratch_dir.
+    logger : logging.Logger, optional
+        Logger.
+    lines_per_block : int
+        Number of output lines to process per block.
+    num_threads : int
+        GDAL warp threads. Use 1 or 2 for lower memory.
+    warp_memory_limit_mb : int
+        GDAL warp memory limit.
+    keep_temp : bool
+        If True, keep intermediate warped files.
+
+    Returns
+    -------
+    str
+        Path to the block-wise partial water GeoTIFF.
+    """
+    os.makedirs(scratch_dir, exist_ok=True)
+
+    meta_info = get_meta_from_tif(input_file)
+    geotransform = meta_info['geotransform']
+
+    output_bounds = _calculate_output_bounds(
+        geotransform,
+        meta_info['width'],
+        meta_info['length'],
+        output_spacing
+    )
+
+    input_spacing = geotransform[1]
+
+    intermediate_spacing = math.gcd(
+        int(input_spacing),
+        int(output_spacing)
+    )
+
+    ratio = int(output_spacing / intermediate_spacing)
+
+    if ratio < 1:
+        raise ValueError(
+            f'Invalid ratio: output_spacing={output_spacing}, '
+            f'intermediate_spacing={intermediate_spacing}'
+        )
+
+    if intermediate_spacing == output_spacing:
+        if logger is not None:
+            logger.info(
+                'Partial surface water was disabled because input/output '
+                'aggregation spacing is the same.'
+            )
+        threshold = 1
+
+    uid = uuid.uuid4().hex[:8]
+
+    if output_file is None:
+        output_file = os.path.join(
+            scratch_dir,
+            f'partial_water_blockwise_{uid}.tif'
+        )
+
+    base_warp_path = os.path.join(
+        scratch_dir,
+        f'partial_water_base_{uid}.tif'
+    )
+
+    highres_warp_path = os.path.join(
+        scratch_dir,
+        f'partial_water_highres_{uid}.tif'
+    )
+
+    if logger is not None:
+        logger.info('Warping base WTR product to output spacing.')
+        logger.info(f'    output spacing: {output_spacing}')
+
+    # Equivalent to old:
+    # output_array = _perform_warp_in_memory(... output_spacing ...)
+    _warp_to_geotiff_low_memory(
+        input_file=input_file,
+        output_file=base_warp_path,
+        output_spacing=output_spacing,
+        output_bounds=output_bounds,
+        resample_alg='nearest',
+        num_threads=num_threads,
+        warp_memory_limit_mb=warp_memory_limit_mb
+    )
+
+    if logger is not None:
+        logger.info('Warping WTR product to intermediate spacing.')
+        logger.info(f'    intermediate spacing: {intermediate_spacing}')
+
+    # Equivalent to old:
+    # high_res_image = _perform_warp_in_memory(... intermediate_spacing ...)
+    _warp_to_geotiff_low_memory(
+        input_file=input_file,
+        output_file=highres_warp_path,
+        output_spacing=intermediate_spacing,
+        output_bounds=output_bounds,
+        resample_alg='nearest',
+        num_threads=num_threads,
+        warp_memory_limit_mb=warp_memory_limit_mb
+    )
+
+    base_ds = gdal.Open(base_warp_path, gdal.GA_ReadOnly)
+    high_ds = gdal.Open(highres_warp_path, gdal.GA_ReadOnly)
+
+    if base_ds is None:
+        raise RuntimeError(f'Could not open base warped file: {base_warp_path}')
+    if high_ds is None:
+        raise RuntimeError(f'Could not open high-res warped file: {highres_warp_path}')
+
+    base_band = base_ds.GetRasterBand(1)
+    high_band = high_ds.GetRasterBand(1)
+
+    xsize_out = base_ds.RasterXSize
+    ysize_out = base_ds.RasterYSize
+
+    driver = gdal.GetDriverByName('GTiff')
+
+    create_options = [
+        'TILED=YES',
+        'BLOCKXSIZE=512',
+        'BLOCKYSIZE=512',
+        'COMPRESS=DEFLATE',
+        'PREDICTOR=2',
+        'ZLEVEL=6',
+        'BIGTIFF=IF_SAFER',
+        'NBITS=8',
+    ]
+
+    out_ds = driver.Create(
+        output_file,
+        xsize_out,
+        ysize_out,
+        1,
+        base_band.DataType,
+        options=create_options
+    )
+
+    if out_ds is None:
+        raise RuntimeError(f'Could not create output file: {output_file}')
+
+    out_ds.SetGeoTransform(base_ds.GetGeoTransform())
+    out_ds.SetProjection(base_ds.GetProjection())
+
+    out_band = out_ds.GetRasterBand(1)
+    out_band.SetNoDataValue(base_band.GetNoDataValue())
+
+    # For convolution with mode='same' and sampling [ratio//2::ratio],
+    # each output pixel corresponds to a high-res center pixel:
+    #
+    #     high_index = ratio // 2 + output_index * ratio
+    #
+    # We need a halo around the high-res block.
+    halo = ratio // 2
+    sample_offset = ratio // 2
+
+    if logger is not None:
+        logger.info('Computing partial surface water block-wise.')
+        logger.info(f'    ratio: {ratio}')
+        logger.info(f'    lines_per_block: {lines_per_block}')
+
+    for yoff_out in range(0, ysize_out, lines_per_block):
+        ysize_block_out = min(lines_per_block, ysize_out - yoff_out)
+
+        # Read base output block.
+        out_block = base_band.ReadAsArray(
+            0,
+            yoff_out,
+            xsize_out,
+            ysize_block_out
+        )
+
+        if out_block is None:
+            raise RuntimeError(
+                f'Failed to read base block at yoff={yoff_out}'
+            )
+
+        out_block = out_block.astype(np.uint8, copy=True)
+
+        # Corresponding high-res window.
+        #
+        # Need all high-res pixels that contribute to output rows:
+        # yoff_out ... yoff_out + ysize_block_out - 1
+        #
+        # high center rows:
+        # sample_offset + yoff_out * ratio
+        # through
+        # sample_offset + (yoff_out + ysize_block_out - 1) * ratio
+        #
+        # With halo around centers.
+        high_yoff = yoff_out * ratio
+        high_ysize = ysize_block_out * ratio
+
+        high_xoff = 0
+        high_xsize = xsize_out * ratio
+
+        high_yoff_read = high_yoff - halo
+        high_xoff_read = high_xoff - halo
+
+        high_ysize_read = high_ysize + 2 * halo
+        high_xsize_read = high_xsize + 2 * halo
+
+        high_block = _read_band_with_padding(
+            high_band,
+            xoff=high_xoff_read,
+            yoff=high_yoff_read,
+            xsize=high_xsize_read,
+            ysize=high_ysize_read,
+            pad_value=0
+        )
+
+        target_high_binary = high_block == target_label
+
+        # Aggregate only this high-res block.
+        #
+        # This mirrors:
+        # convolve2d(image, ones, mode='same')
+        # then [ratio//2::ratio, ratio//2::ratio]
+        #
+        # Because we added halo, the valid sampled area starts at:
+        # sample_offset + halo
+        # relative to high_block.
+        water_count = _aggregate_10m_to_30m_fast(
+            target_high_binary,
+            ratio,
+            normalize_flag=False
+        )
+
+        # Due to padding/edge behavior, crop to exact output block shape.
+        water_count = water_count[:ysize_block_out, :xsize_out]
+
+        full_water = water_count >= threshold
+        partial_water = (water_count < threshold) & (water_count > 0)
+
+        out_block[full_water] = 1
+        out_block[partial_water] = 11
+
+        out_band.WriteArray(
+            out_block,
+            xoff=0,
+            yoff=yoff_out
+        )
+
+    out_band.FlushCache()
+    out_band = None
+
+    out_ds.FlushCache()
+    out_ds = None
+    _apply_dswx_ni_wtr_color_table(output_file)
+    base_band = None
+    high_band = None
+    base_ds = None
+    high_ds = None
+
+    if not keep_temp:
+        for temp_path in [base_warp_path, highres_warp_path]:
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                if logger is not None:
+                    logger.warning(f'Could not remove temp file: {temp_path}')
+
+    return output_file
 
 
 def majority_element(num_list):

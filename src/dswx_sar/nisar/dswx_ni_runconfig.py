@@ -197,12 +197,12 @@ def check_file_path(file_path: str) -> None:
     if file_path.startswith('/vsis3/'):
         check_gdal_raster_s3(file_path, raise_error=True)
 
-    if file_path.startswith('s3://'):
+    elif file_path.startswith('s3://'):
         if not file_exists(file_path, profile="saml-pub"):
             raise FileNotFoundError(f"{file_path} not found (S3 head_object failed)")
         return
 
-    if not os.path.exists(file_path):
+    elif not os.path.exists(file_path):
         raise FileNotFoundError(f"{file_path} not found")
 
 

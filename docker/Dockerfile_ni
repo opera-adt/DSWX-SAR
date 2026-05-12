@@ -2,7 +2,7 @@ FROM oraclelinux:8
 
 LABEL author="OPERA ADT" \
     description="DSWX-SAR Gamma patch release R3" \
-    version="0.3.0-gamma"
+    version="0.3.1-gamma"
 
 RUN yum -y update &&\
     yum -y install curl &&\

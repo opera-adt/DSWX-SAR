@@ -2760,8 +2760,8 @@ def partial_water_product(input_file,
     full_water = water >= threshold
     partial_water = (water < threshold) & (water > 0)
 
-    output_array[full_water] = 1
-    output_array[partial_water] = 11
+    output_array[full_water] = band_assign_value_dict['water']
+    output_array[partial_water] = band_assign_value_dict['partial_water']
 
     return output_array
 
@@ -3238,8 +3238,8 @@ def partial_water_product_blockwise(
         full_water = water_count >= threshold
         partial_water = (water_count < threshold) & (water_count > 0)
 
-        out_block[full_water] = 1
-        out_block[partial_water] = 11
+        out_block[full_water] = band_assign_value_dict['water']
+        out_block[partial_water] = band_assign_value_dict['partial_water']
 
         out_band.WriteArray(
             out_block,

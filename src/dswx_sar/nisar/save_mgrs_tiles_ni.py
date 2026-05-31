@@ -1082,7 +1082,7 @@ def run(cfg):
         mgrs_meta_dict['MGRS_COLLECTION_MISSING_NUMBER_OF_FRAMES'] = \
             missing_frame
         mgrs_meta_dict['MGRS_POL_MODE'] = pol_mode
-        mgrs_meta_dict['MGRS_COLLECTION_ACQUIRED_SLC_GRANULES'] = \
+        mgrs_meta_dict['INPUT_LIST'] = \
             [os.path.splitext(os.path.basename(path))[0] for path in input_list]
     else:
         mgrs_tile_list = get_intersecting_mgrs_tiles_list(

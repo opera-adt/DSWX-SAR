@@ -1512,7 +1512,7 @@ class RTCReader(DataReader):
                 dswx_metadata_dict = {
                     'ORBIT_PASS_DIRECTION': orbit_pass_dir,
                     'LOOK_DIRECTION': look_dir,
-                    'PRODUCT_VERSION': prod_ver,
+                    'GCOV_PRODUCT_VERSION': prod_ver,
                     'ZERO_DOPPLER_START_TIME': zero_dopp_start,
                     'ZERO_DOPPLER_END_TIME': zero_dopp_end,
                     'FRAME_NUMBER': frame_number,
@@ -1525,7 +1525,7 @@ class RTCReader(DataReader):
                 dswx_metadata_dict = {
                     'ORBIT_PASS_DIRECTION': orbit_pass_dir,
                     'LOOK_DIRECTION': look_dir,
-                    'PRODUCT_VERSION': prod_ver,
+                    'GCOV_PRODUCT_VERSION': prod_ver,
                     'ZERO_DOPPLER_START_TIME': zero_dopp_start,
                     'ZERO_DOPPLER_END_TIME': zero_dopp_end,
                     'FRAME_NUMBER': frame_number,

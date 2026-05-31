@@ -576,7 +576,7 @@ def count_rfi_frames(h5_list, pol_list, rfi_likelihood_thresh):
 
         if rfi_found_in_frame:
             num_frames_rfi += 1
-    return num_frames_rfi
+    return num_frames_rfi, rfi_found_in_frame
 
 def create_dswx_s1_metadata(cfg,
                              rtc_dirs,
@@ -648,7 +648,7 @@ def create_dswx_ni_metadata(cfg,
     dswx_metadata_dict: dict
         Metadata dictionary for NISAR output products.
     """
-    # Get general DSWx-S1 metadata
+    # Get general DSWx-NI metadata
     dswx_metadata_dict = _get_general_dswx_metadata_dict(
         cfg,
         product_version=product_version)
@@ -681,8 +681,9 @@ def create_dswx_ni_metadata(cfg,
 
     # Add RFI count
     rfi_likelihood_thresh = 0.1
-    num_rfi_frames = count_rfi_frames(rtc_dirs, pol_list, rfi_likelihood_thresh)
+    num_rfi_frames, rfi_available = count_rfi_frames(rtc_dirs, pol_list, rfi_likelihood_thresh)
     dswx_metadata_dict.update({'RFI_FRAMES_COUNT': num_rfi_frames})
+    dswx_metadata_dict.update({'QA_RFI_INFO_AVAILABLE': rfi_available})
 
     _populate_ancillary_metadata_datasets(dswx_metadata_dict, ancillary_cfg)
     _populate_processing_metadata_datasets(dswx_metadata_dict, cfg)

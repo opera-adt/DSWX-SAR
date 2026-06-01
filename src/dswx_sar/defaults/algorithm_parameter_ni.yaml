@@ -26,7 +26,7 @@ runconfig:
             flood_dilation_pixel: 16
 
         partial_surface_water:
-            enabled: True
+            enabled: False
             threshold: 5
 
         hand:
@@ -50,10 +50,10 @@ runconfig:
             mosaic_posting_thresh: 40
             mosaic_margin: 20
             resamp_required: True
-            resamp_method: 'nearest'
-            resamp_out_res: 30
-            read_row_blk_size: 2048
-            read_col_blk_size: 2048
+            resamp_method: 'multilook'
+            resamp_out_res: 20
+            read_row_blk_size: 100
+            read_col_blk_size: 100
             gdal_cache_max_mb: 256
 
         # Flag to turn on/off the filtering for RTC image.
@@ -117,7 +117,7 @@ runconfig:
             # using the statics of the rtc image. If the values are out of the given range,
             # adopt these values instead of the computed values
             threshold_bounds:
-                co_pol: [-28, -11]
+                co_pol: [-28, -15]
                 cross_pol: [-28, -18]
             # Flag to assume the trimodal distribution.
             # If flag is false, the distribution is assumed to have bimodal distribution and
@@ -187,23 +187,23 @@ runconfig:
         # Region growing options
         region_growing:
             # seed value for region growing start
-            initial_threshold: 0.81
+            initial_threshold: 0.61
             # end value for region growing
-            relaxed_threshold: 0.51
+            relaxed_threshold: 0.500001
             line_per_block: 400
 
         masking_ancillary:
             # Land covers that behaves like dark lands in DSWx-SAR. 
             # The elements should be in given landcover file. 
             # The elements will be masked out during this step.
-            land_cover_darkland_list: ['Bare sparse vegetation', 'Urban', 'Moss and lichen']
+            land_cover_darkland_list: ['Crop', 'Bare sparse vegetation', 'Urban', 'Moss and lichen']
             # The elements is considered as the dark land candidates
             # where these elements are spatially connected to the dark land.
             land_cover_darkland_extension_list: ['Grassland', 'Shrubs']
             land_cover_water_label: ['Permanent water bodies']
             # VV and VH threshold values for dark land candidates
             co_pol_threshold: -14.6
-            cross_pol_threshold: -22.8
+            cross_pol_threshold: -19.0
             # reference water threshold value for dark land candidates
             water_threshold: 0.05
             # Flag to enable the darkland extension.
@@ -234,8 +234,8 @@ runconfig:
             enabled: auto
             dual_pol_ratio_max: 12
             dual_pol_ratio_min: 7
-            dual_pol_ratio_threshold: 8
-            cross_pol_min: -26
+            dual_pol_ratio_threshold: 8.2
+            cross_pol_min: -18
             copol_threshold: -10
             line_per_block: 300
 
@@ -244,13 +244,13 @@ runconfig:
             # GLAD is not provided, then WorldCover will be used to extract
             # the target areas.
             target_area_file_type: 'auto'
-            target_worldcover_class: ['Herbaceous wetland']
-            target_glad_class: ['112-124', '200-207', '19-24', '125-148']
+            target_worldcover_class: ['Herbaceous wetland', 'Tree Cover', 'Shrubs', 'Grassland', 'Mangrove', 'Moss and lichen', 'Crop']
+            target_glad_class: ['200-207', '125-148'] #['112-124', '200-207', '19-24', '125-148']
 
             # Optional refinement for inundated vegetation using fuzzy logic
             # and region growing. Reference water is intentionally excluded.
             fuzzy_refinement:
-                enabled: True
+                enabled: False
 
                 # 'weighted_sum':
                 #     ratio_s * 0.5 + hand_z * 0.25 + slope_z * 0.25

@@ -502,6 +502,28 @@ def save_dswx_product(wtr, output_file, geotransform,
     _save_as_cog(output_file, scratch_dir, nbits=nbits)
 
 
+def _sanitize_nbits_for_dtype(gdal_dtype, nbits):
+    """Return a GDAL-safe NBITS value for the given raster dtype."""
+
+    if nbits is None:
+        return None
+
+    nbits = int(nbits)
+
+    if gdal_dtype == gdal.GDT_Byte:
+        # Byte is already 8-bit. NBITS=16 is invalid.
+        return min(nbits, 8)
+
+    if gdal_dtype in (gdal.GDT_UInt16, gdal.GDT_Int16):
+        return min(nbits, 16)
+
+    if gdal_dtype in (gdal.GDT_UInt32, gdal.GDT_Int32):
+        return min(nbits, 32)
+
+    # Do not use NBITS for Float32, Float64, complex, etc.
+    return None
+
+
 def _save_as_cog(filename,
                  scratch_dir='.',
                  logger=None,
@@ -514,75 +536,107 @@ def _save_as_cog(filename,
     Parameters
     ----------
     filename: str
-            GeoTIFF to be saved as a cloud-optimized GeoTIFF
-    scratch_dir: str (optional)
-            Temporary Directory
-    ovr_resamp_algorithm: str (optional)
-            Resampling algorithm for overviews.
-            Options: "AVERAGE", "AVERAGE_MAGPHASE", "RMS", "BILINEAR",
-            "CUBIC", "CUBICSPLINE", "GAUSS", "LANCZOS", "MODE",
-            "NEAREST", or "NONE". Defaults to "NEAREST", if integer, and
-            "CUBICSPLINE", otherwise.
-    compression: str (optional)
-            Compression type.
-            Optional: "NONE", "LZW", "JPEG", "DEFLATE", "ZSTD", "WEBP",
-            "LERC", "LERC_DEFLATE", "LERC_ZSTD", "LZMA"
+        GeoTIFF to be saved as a cloud-optimized GeoTIFF.
+    scratch_dir: str, optional
+        Temporary directory.
+    ovr_resamp_algorithm: str, optional
+        Resampling algorithm for overviews.
+    compression: str, optional
+        Compression type.
+    nbits: int or None, optional
+        Requested NBITS creation option. This is sanitized based on the
+        raster dtype before being passed to GDAL.
     """
     if logger is None:
         logger = logging.getLogger('proteus')
 
     logger.info('        COG step 1: add overviews')
+
     gdal_ds = gdal.Open(filename, gdal.GA_Update)
+    if gdal_ds is None:
+        raise RuntimeError(f'Could not open file: {filename}')
+
     gdal_dtype = gdal_ds.GetRasterBand(1).DataType
     dtype_name = gdal.GetDataTypeName(gdal_dtype).lower()
 
     overviews_list = [4, 16, 64, 128]
 
     is_integer = 'byte' in dtype_name or 'int' in dtype_name
+
     if ovr_resamp_algorithm is None and is_integer:
         ovr_resamp_algorithm = 'NEAREST'
     elif ovr_resamp_algorithm is None:
         ovr_resamp_algorithm = 'CUBICSPLINE'
 
-    gdal_ds.BuildOverviews(ovr_resamp_algorithm, overviews_list,
-                           gdal.TermProgress_nocb)
+    gdal_ds.BuildOverviews(
+        ovr_resamp_algorithm,
+        overviews_list,
+        gdal.TermProgress_nocb
+    )
 
-    del gdal_ds  # close the dataset (Python object and pointers)
+    del gdal_ds
+
     external_overview_file = filename + '.ovr'
     if os.path.isfile(external_overview_file):
         os.remove(external_overview_file)
 
     logger.info('        COG step 2: save as COG')
-    temp_file = tempfile.NamedTemporaryFile(
-                    dir=scratch_dir, suffix='.tif').name
 
-    # Blocks of 512 x 512 => 256 KiB (UInt8) or 1MiB (Float32)
+    temp_file = tempfile.NamedTemporaryFile(
+        dir=scratch_dir,
+        suffix='.tif',
+        delete=False
+    ).name
+
     tile_size = 512
-    gdal_translate_options = ['BIGTIFF=IF_SAFER',
-                              'MAX_Z_ERROR=0',
-                              'TILED=YES',
-                              f'BLOCKXSIZE={tile_size}',
-                              f'BLOCKYSIZE={tile_size}',
-                              'COPY_SRC_OVERVIEWS=YES']
+
+    gdal_translate_options = [
+        'BIGTIFF=IF_SAFER',
+        'MAX_Z_ERROR=0',
+        'TILED=YES',
+        f'BLOCKXSIZE={tile_size}',
+        f'BLOCKYSIZE={tile_size}',
+        'COPY_SRC_OVERVIEWS=YES',
+    ]
 
     if compression:
-        gdal_translate_options += [f'COMPRESS={compression}']
+        gdal_translate_options.append(f'COMPRESS={compression}')
 
     if is_integer:
-        gdal_translate_options += ['PREDICTOR=2']
+        gdal_translate_options.append('PREDICTOR=2')
     else:
-        gdal_translate_options += ['PREDICTOR=3']
+        gdal_translate_options.append('PREDICTOR=3')
 
-    if nbits is not None:
-        gdal_translate_options += [f'NBITS={nbits}']
+    effective_nbits = _sanitize_nbits_for_dtype(gdal_dtype, nbits)
 
-        # suppress type casting errors
-        gdal.SetConfigOption('CPL_LOG', '/dev/null')
+    if effective_nbits is not None:
+        gdal_translate_options.append(f'NBITS={effective_nbits}')
 
-    gdal.Translate(temp_file, filename,
-                   creationOptions=gdal_translate_options)
+        if logger is not None and effective_nbits != nbits:
+            logger.info(
+                f'        Adjusted NBITS from {nbits} to {effective_nbits} '
+                f'for dtype {gdal.GetDataTypeName(gdal_dtype)}'
+            )
 
-    shutil.move(temp_file, filename)
+    try:
+        out_ds = gdal.Translate(
+            temp_file,
+            filename,
+            creationOptions=gdal_translate_options
+        )
+
+        if out_ds is None:
+            raise RuntimeError(f'gdal.Translate failed for {filename}')
+
+        out_ds.FlushCache()
+        out_ds = None
+
+        shutil.move(temp_file, filename)
+
+    except Exception:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        raise
 
 
 class _BlockSource:
@@ -3206,15 +3260,19 @@ def partial_water_product_blockwise(
         high_ysize_read = high_ysize + 2 * halo
         high_xsize_read = high_xsize + 2 * halo
 
+        nodata_value = high_band.GetNoDataValue()
+        if nodata_value is None:
+            nodata_value = band_assign_value_dict['no_data']
+
         high_block = _read_band_with_padding(
             high_band,
             xoff=high_xoff_read,
             yoff=high_yoff_read,
             xsize=high_xsize_read,
             ysize=high_ysize_read,
-            pad_value=0
+            pad_value=nodata_value
         )
-
+        valid_high_binary = high_block != nodata_value
         target_high_binary = high_block == target_label
 
         # Aggregate only this high-res block.
@@ -3231,15 +3289,26 @@ def partial_water_product_blockwise(
             ratio,
             normalize_flag=False
         )
-
+        valid_count = _aggregate_10m_to_30m_fast(
+            valid_high_binary,
+            ratio,
+            normalize_flag=False
+        )
         # Due to padding/edge behavior, crop to exact output block shape.
         water_count = water_count[:ysize_block_out, :xsize_out]
+        valid_count = valid_count[:ysize_block_out, :xsize_out]
 
-        full_water = water_count >= threshold
-        partial_water = (water_count < threshold) & (water_count > 0)
+        area = ratio * ratio
+        min_valid_count = area  # or int(np.ceil(0.8 * area))
+        sufficient_valid = valid_count >= min_valid_count
+
+        full_water = sufficient_valid & (water_count >= threshold)
+        partial_water = sufficient_valid & (water_count < threshold) & (water_count > 0)
 
         out_block[full_water] = band_assign_value_dict['water']
         out_block[partial_water] = band_assign_value_dict['partial_water']
+
+        out_block[~sufficient_valid] = band_assign_value_dict['no_data']
 
         out_band.WriteArray(
             out_block,

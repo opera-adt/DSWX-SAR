@@ -266,6 +266,16 @@ def crop_and_save_mgrs_tile_spacing(
 
     with rasterio.open(output_tif_file_path, 'r+') as src:
         src.update_tags(**metadata)
+    effective_cog_nbits = cog_nbits
+
+    if output_type == gdal.GDT_Byte and effective_cog_nbits is not None:
+        effective_cog_nbits = min(int(effective_cog_nbits), 8)
+
+    elif output_type == gdal.GDT_UInt16 and effective_cog_nbits is not None:
+        effective_cog_nbits = min(int(effective_cog_nbits), 16)
+
+    else:
+        effective_cog_nbits = None
 
     if output_format == 'COG':
         _dswx_sar_util._save_as_cog(
@@ -273,7 +283,7 @@ def crop_and_save_mgrs_tile_spacing(
             output_dir_path,
             logger,
             compression=cog_compression,
-            nbits=cog_nbits
+            nbits=effective_cog_nbits
         )
 
 

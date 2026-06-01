@@ -237,14 +237,74 @@ runconfig:
             cross_pol_min: num(min=-30, max=10, required=False)
             copol_threshold: num(min=-30, max=10, required=False)
             line_per_block: num(min=1, required=False)
+
             # If 'auto' is selected and GLAD is available, GLAD will be
-            # used for inundated vegetation. In the 'auto' option, 
+            # used for inundated vegetation. In the 'auto' option,
             # GLAD is not provided, then WorldCover will be used to extract
             # the target areas.
             target_area_file_type: enum('WorldCover', 'GLAD', 'auto')
-            # Land covers where the inundated vegetation is detected. 
+
+            # Land covers where the inundated vegetation is detected.
             target_worldcover_class: list(required=False)
             target_glad_class: list(required=False)
+
+            # Optional refinement for inundated vegetation using fuzzy logic
+            # and region growing. This refinement is applied after the
+            # initial dual-pol-ratio-based inundated vegetation detection.
+            #
+            # The fuzzy score is computed using dual-pol ratio, HAND, and
+            # slope membership. Reference water is intentionally excluded
+            # from this refinement.
+            fuzzy_refinement:
+                enabled: bool(required=False)
+
+                # Method to combine fuzzy memberships.
+                # 'weighted_sum':
+                #     ratio_s * 0.5 + hand_z * 0.25 + slope_z * 0.25
+                # 'product':
+                #     ratio_s * hand_z * slope_z
+                mode: enum('weighted_sum', 'product', required=False)
+
+                # Method to combine original inundated vegetation and
+                # region-growing result.
+                #
+                # 'union':
+                #     original_IV OR fuzzy_region_growing_IV
+                #     More expansive; useful when omission is high.
+                #
+                # 'intersection':
+                #     original_IV AND fuzzy_region_growing_IV
+                #     More conservative; useful when commission is high.
+                combine_mode: enum('union', 'intersection', required=False)
+
+                # Membership range for dual-pol ratio in dB.
+                # If omitted, dual_pol_ratio_min and dual_pol_ratio_max
+                # can be reused.
+                ratio_member_min: num(min=0, max=30, required=False)
+                ratio_member_max: num(min=0, max=30, required=False)
+
+                # HAND fuzzy membership range.
+                # Lower HAND values receive higher membership.
+                # If omitted, fuzzy_value.hand.member_min/member_max
+                # can be reused.
+                hand_member_min: num(min=0, required=False)
+                hand_member_max: num(min=0, required=False)
+
+                # Slope fuzzy membership range.
+                # Lower slope values receive higher membership.
+                # If omitted, fuzzy_value.slope.member_min/member_max
+                # can be reused.
+                slope_member_min: num(min=0, required=False)
+                slope_member_max: num(min=0, required=False)
+
+                # Hard HAND cutoff for valid IV refinement area.
+                # If omitted, processing.hand.mask_value can be reused.
+                hand_threshold: num(min=0, required=False)
+
+                # Block size for IV fuzzy computation.
+                # If omitted, inundated_vegetation.line_per_block can be reused.
+                line_per_block: num(min=1, required=False)
+
             filter:
                 enabled: bool(required=False)
                 method: str(required=False)

@@ -238,6 +238,7 @@ runconfig:
             cross_pol_min: -26
             copol_threshold: -10
             line_per_block: 300
+
             # If 'auto' is selected and GLAD is available, GLAD will be
             # used for inundated vegetation. In the 'auto' option,
             # GLAD is not provided, then WorldCover will be used to extract
@@ -245,6 +246,44 @@ runconfig:
             target_area_file_type: 'auto'
             target_worldcover_class: ['Herbaceous wetland']
             target_glad_class: ['112-124', '200-207', '19-24', '125-148']
+
+            # Optional refinement for inundated vegetation using fuzzy logic
+            # and region growing. Reference water is intentionally excluded.
+            fuzzy_refinement:
+                enabled: True
+
+                # 'weighted_sum':
+                #     ratio_s * 0.5 + hand_z * 0.25 + slope_z * 0.25
+                # 'product':
+                #     ratio_s * hand_z * slope_z
+                mode: weighted_sum
+
+                # 'intersection' is conservative and reduces false positives.
+                # 'union' expands IV areas and may reduce omission errors.
+                combine_mode: intersection
+
+                # Dual-pol ratio fuzzy membership range in dB.
+                # The current hard IV threshold is 8 dB, so this makes
+                # membership increase from 7 to 12 dB.
+                ratio_member_min: 7
+                ratio_member_max: 12
+
+                # HAND fuzzy membership range.
+                # Lower HAND receives higher membership.
+                hand_member_min: 0
+                hand_member_max: 15
+
+                # Slope fuzzy membership range.
+                # Lower slope receives higher membership.
+                slope_member_min: 0
+                slope_member_max: 5
+
+                # Hard HAND cutoff for valid IV refinement area.
+                hand_threshold: 20
+
+                # Block size for IV fuzzy computation.
+                line_per_block: 300
+
             filter:
                 enabled: True
                 method: lee
@@ -266,7 +305,7 @@ runconfig:
                     lambda_value: 20
                 anisotropic_diffusion:
                     # Denoising weight. The greater the weight, the more
-                    # denoising (at the expense of fidelity to image).
+                    # denoising at the expense of fidelity to image.
                     weight: 1
                 # Window size for filtering.
                 line_per_block: 1000

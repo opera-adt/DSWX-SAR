@@ -191,7 +191,7 @@ class DSWXGeogrid:
     @staticmethod
     def _snap_bounds_to_spacing(
         xmin: float, ymin: float, xmax: float, ymax: float,
-        spacing_x: float, spacing_y: float,
+        spacing_x: float, spacing_y: float, ref_x: float, ref_y: float,
     ) -> Tuple[float, float, float, float]:
         """
         Snap bounds to pixel grid so width/length become integers.
@@ -203,10 +203,11 @@ class DSWXGeogrid:
             raise ValueError("Invalid spacing for snapping bounds.")
 
         # snap outward (cover the requested bbox)
-        xmin_s = math.floor(xmin / sx) * sx
-        ymin_s = math.floor(ymin / sy) * sy
-        xmax_s = math.ceil(xmax / sx) * sx
-        ymax_s = math.ceil(ymax / sy) * sy
+        xmin_s = ref_x + math.floor((xmin - ref_x) / sx) * sx
+        ymin_s = ref_y + math.floor((ymin - ref_y) / sy) * sy
+        xmax_s = ref_x + math.ceil((xmax - ref_x) / sx) * sx
+        ymax_s = ref_y + math.ceil((ymax - ref_y) / sy) * sy
+
         return xmin_s, ymin_s, xmax_s, ymax_s
 
     def clip_to_bbox(
@@ -244,7 +245,8 @@ class DSWXGeogrid:
         if snap:
             # snap outward so you don't accidentally clip requested area by <1 pixel
             ixmin, iymin, ixmax, iymax = self._snap_bounds_to_spacing(
-                ixmin, iymin, ixmax, iymax, self.spacing_x, self.spacing_y
+                ixmin, iymin, ixmax, iymax, self.spacing_x, self.spacing_y,
+                self.start_x, self.start_y,
             )
 
         # Re-apply sign convention used in your geogrid:

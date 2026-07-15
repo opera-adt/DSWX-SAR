@@ -530,7 +530,7 @@ def _save_as_cog(filename,
                  flag_compress=True,
                  ovr_resamp_algorithm=None,
                  compression='DEFLATE',
-                 nbits=16):
+                 nbits=None):
     """Save (overwrite) a GeoTIFF file as a cloud-optimized GeoTIFF.
 
     Parameters
@@ -607,24 +607,41 @@ def _save_as_cog(filename,
     else:
         gdal_translate_options.append('PREDICTOR=3')
 
-    effective_nbits = _sanitize_nbits_for_dtype(gdal_dtype, nbits)
+    # Do not apply NBITS to floating-point rasters.
+    # NBITS=16 on Float32 can produce half-precision-like storage,
+    # which causes platform-dependent float16/float32 read behavior.
+    if is_integer:
+        effective_nbits = _sanitize_nbits_for_dtype(gdal_dtype, nbits)
 
-    if effective_nbits is not None:
-        gdal_translate_options.append(f'NBITS={effective_nbits}')
+        if effective_nbits is not None:
+            gdal_translate_options.append(f'NBITS={effective_nbits}')
 
-        if logger is not None and effective_nbits != nbits:
+            if logger is not None and effective_nbits != nbits:
+                logger.info(
+                    f'        Adjusted NBITS from {nbits} to {effective_nbits} '
+                    f'for dtype {gdal.GetDataTypeName(gdal_dtype)}'
+                )
+    else:
+        effective_nbits = None
+        if nbits is not None and logger is not None:
             logger.info(
-                f'        Adjusted NBITS from {nbits} to {effective_nbits} '
-                f'for dtype {gdal.GetDataTypeName(gdal_dtype)}'
+                f'        Ignoring NBITS={nbits} for floating-point dtype '
+                f'{gdal.GetDataTypeName(gdal_dtype)}'
             )
 
     try:
+        translate_kwargs = {
+            "creationOptions": gdal_translate_options,
+        }
+
+        if not is_integer:
+            translate_kwargs["outputType"] = gdal.GDT_Float32
+
         out_ds = gdal.Translate(
             temp_file,
             filename,
-            creationOptions=gdal_translate_options
+            **translate_kwargs
         )
-
         if out_ds is None:
             raise RuntimeError(f'gdal.Translate failed for {filename}')
 
@@ -1786,9 +1803,12 @@ def write_raster_block(out_raster, data,
 
     # Write COG is cog_flag is True and last block.
     if (block_param.write_start_line + block_param.block_length ==
-       block_param.data_length) and cog_flag:
-        _save_as_cog(out_raster, scratch_dir)
+    block_param.data_length) and cog_flag:
 
+        if datatype in ['float32', 'float64', 'float']:
+            _save_as_cog(out_raster, scratch_dir, nbits=None)
+        else:
+            _save_as_cog(out_raster, scratch_dir)
 
 def block_param_generator(lines_per_block, data_shape, pad_shape):
     ''' Generator for block specific parameter class.

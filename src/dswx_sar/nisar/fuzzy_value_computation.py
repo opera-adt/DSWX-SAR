@@ -30,6 +30,40 @@ PIXEL_RESOLUTION_X = 30  # Replace with appropriate value
 PIXEL_RESOLUTION_Y = 30  # Replace with appropriate value
 RAD_TO_DEG = 180 / np.pi
 
+FUZZY_VALUE_QUANT = 1.0e-3
+INTENSITY_DB_QUANT = 1.0e-3
+THRESHOLD_DB_QUANT = 1.0e-2
+COMPARE_EPS_DB = 1.0e-6
+
+
+def _round_float(a, q):
+    a = np.asarray(a, dtype=np.float32)
+    out = np.array(a, dtype=np.float32, copy=True)
+    valid = np.isfinite(out)
+    out[valid] = np.round(out[valid] / q) * q
+    return out.astype(np.float32)
+
+
+def _lt_eps(a, b, eps=COMPARE_EPS_DB):
+    # Stable version of a < b
+    return a < (b - eps)
+
+
+def _gt_eps(a, b, eps=COMPARE_EPS_DB):
+    # Stable version of a > b
+    return a > (b + eps)
+
+
+def _ge_eps(a, b, eps=COMPARE_EPS_DB):
+    # Stable version of a >= b
+    return a >= (b - eps)
+
+
+def _le_eps(a, b, eps=COMPARE_EPS_DB):
+    # Stable version of a <= b
+    return a <= (b + eps)
+
+
 def zmf_recenter(values, peak, valley, alpha=1.0, min_width=1e-3):
     """
     Make zmf(. , minv=peak, maxv=adj_maxv) such that membership == 0.5 at
@@ -145,7 +179,15 @@ def compute_fuzzy_value(intensity,
             thresh_valley_str, block_param)
         peak_threshold_raster = _dswx_sar_util.get_raster_block(
             thresh_peak_str, block_param)
+        valley_threshold_raster = _round_float(
+            valley_threshold_raster,
+            THRESHOLD_DB_QUANT,
+        )
 
+        peak_threshold_raster = _round_float(
+            peak_threshold_raster,
+            THRESHOLD_DB_QUANT,
+        )
         intensity_band = intensity[int_id, :, :]
 
         # Fuzzy membership computation from intensity
@@ -157,19 +199,31 @@ def compute_fuzzy_value(intensity,
             peak_threshold_raster,
             valley_threshold_raster,
             alpha=fuzzy_option['intensity_mid_alpha'])
-
+        temp = _round_float(temp, FUZZY_VALUE_QUANT)
         intensity_z_set.append(temp)
 
-        intensity_mask_peak = intensity_band < peak_threshold_raster
+        intensity_mask_peak = _lt_eps(
+            intensity_band,
+            peak_threshold_raster,
+            eps=COMPARE_EPS_DB,
+        )
         initial_map[intensity_mask_peak == 0] = 0
 
         if pol in ['VH', 'HV']:
             pol_threshold = fuzzy_option['dark_area_land']
             water_threshold = fuzzy_option['dark_area_water']
-            low_backscatter = (intensity[int_id, :, :] < pol_threshold)
+            low_backscatter = _lt_eps(
+                intensity[int_id, :, :],
+                pol_threshold,
+                eps=COMPARE_EPS_DB,
+            )
             # Low backscattering candidates
             low_backscatter_cand &= low_backscatter
-            dark_water_cand &= intensity[int_id, :, :] < water_threshold
+            dark_water_cand &= _lt_eps(
+                intensity[int_id, :, :],
+                water_threshold,
+                eps=COMPARE_EPS_DB,
+            )
 
     intensity_z_set = np.array(intensity_z_set)
 
@@ -185,15 +239,32 @@ def compute_fuzzy_value(intensity,
         (landcover == landcover_label['Grassland']) | \
         (landcover == landcover_label['Herbaceous wetland'])
 
-    landcover_flat_area = (landcover_flat_area_cand) & \
-                          (slope < 5) & \
-                          (low_backscatter_cand)
-    high_frequent_water = \
-        (reference_water > fuzzy_option['high_frequent_water_min']) & \
-        (reference_water < fuzzy_option['high_frequent_water_max']) & \
-        (low_backscatter_cand)
-    dark_water = (dark_water_cand) & \
-                 (reference_water >= fuzzy_option['high_frequent_water_max'])
+    landcover_flat_area = (
+        landcover_flat_area_cand
+        & _lt_eps(slope, 5.0, eps=1.0e-6)
+        & low_backscatter_cand
+    )
+    high_frequent_water = (
+        _gt_eps(
+            reference_water,
+            fuzzy_option['high_frequent_water_min'],
+            eps=1.0e-6,
+        )
+        & _lt_eps(
+            reference_water,
+            fuzzy_option['high_frequent_water_max'],
+            eps=1.0e-6,
+        )
+        & low_backscatter_cand
+    )
+    dark_water = (
+        dark_water_cand
+        & _ge_eps(
+            reference_water,
+            fuzzy_option['high_frequent_water_max'],
+            eps=1.0e-6,
+        )
+    )
 
     co_pol_ind = []
     cross_pol_ind = []
@@ -234,27 +305,45 @@ def compute_fuzzy_value(intensity,
     nanmean_intensity_z_set = np.nanmean(intensity_z_set, axis=0)
 
     # Compute HAND membership
+    hand = np.asarray(hand, dtype=np.float32)
     hand[np.isnan(hand)] = 0
-    hand_z = zmf(hand, fuzzy_option['hand_min'], fuzzy_option['hand_max'])
 
+    # Optional: stabilize HAND input itself
+    hand = np.round(hand / 0.001) * 0.001
+
+    hand_z = zmf(
+        hand,
+        fuzzy_option['hand_min'],
+        fuzzy_option['hand_max']
+    )
+
+    # Stabilize fuzzy HAND membership
+    hand_z = np.asarray(hand_z, dtype=np.float32)
+    hand_z = np.round(hand_z / 0.001) * 0.001
+    hand_z = np.clip(hand_z, 0.0, 1.0).astype(np.float32)
+    hand_z = _round_float(hand_z, FUZZY_VALUE_QUANT)
     # compute slope membership
     slope_z = zmf(slope,
                   fuzzy_option['slope_min'],
                   fuzzy_option['slope_max'])
-
+    slope_z = _round_float(slope_z, FUZZY_VALUE_QUANT)
     # Compute area membership
-    handem = hand < fuzzy_option['hand_threshold']
+    handem = _lt_eps(
+        hand,
+        fuzzy_option['hand_threshold'],
+        eps=1.0e-6,
+    )
     wbsmask = (initial_map == 1) & (handem)
     watermap = calculate_water_area(wbsmask)
     area_s = smf(watermap,
                  fuzzy_option['area_min'],
                  fuzzy_option['area_max'])
-
+    area_s = _round_float(area_s, FUZZY_VALUE_QUANT)
     # Reference water map membership
     reference_water_s = smf(reference_water,
                             fuzzy_option['reference_water_min'],
                             fuzzy_option['reference_water_max'])
-
+    reference_water_s = _round_float(reference_water_s, FUZZY_VALUE_QUANT)
     # Compute fuzzy-logic-based value
     # The Opera dswx s1 algorithm calculates fuzzy-logic-based values based on
     # input parameters, including intensity, hand, slope, and reference water.
@@ -277,7 +366,7 @@ def compute_fuzzy_value(intensity,
                           (hand_z + slope_z + area_s) / 3 * 0.5)
     }
     avgvalue = method_dict[workflow]()
-
+    avgvalue = _round_float(avgvalue, FUZZY_VALUE_QUANT)
     return avgvalue, intensity_z_set, hand_z, \
         slope_z, area_s, reference_water_s, copol_only
 
@@ -404,12 +493,15 @@ def run(cfg):
         # Compute slope angle from DEM
         slope = _dswx_sar_util.get_raster_block(
             slope_gdal_str, block_param)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            intensity_db = 10.0 * np.log10(intensity.astype(np.float32))
 
+        intensity_db = _round_float(intensity_db, INTENSITY_DB_QUANT)
         # compute fuzzy value
         (fuzzy_avgvalue, intensity_z, hand_z,
          slope_z, area_s, ref_water, copol_only) = \
             compute_fuzzy_value(
-                intensity=10*np.log10(intensity),
+                intensity=intensity_db,
                 slope=slope,
                 hand=interphand,
                 landcover=landcover_map,
@@ -421,9 +513,18 @@ def run(cfg):
                 workflow=workflow,
                 block_param=block_param)
 
-        fuzzy_avgvalue[interphand > option_dict['hand_threshold']] = 0
+        fuzzy_avgvalue[no_data_raster == 1] = -1
+        fuzzy_avgvalue[
+            _gt_eps(interphand, option_dict['hand_threshold'], eps=1.0e-6)
+        ] = 0
         fuzzy_avgvalue[no_data_raster == 1] = -1
 
+        valid_fuzzy = fuzzy_avgvalue != -1
+        fuzzy_avgvalue[valid_fuzzy] = _round_float(
+            fuzzy_avgvalue[valid_fuzzy],
+            FUZZY_VALUE_QUANT,
+        )
+        fuzzy_avgvalue = fuzzy_avgvalue.astype(np.float32)
         _dswx_sar_util.write_raster_block(
             out_raster=fuzzy_output_str,
             data=fuzzy_avgvalue,

@@ -31,13 +31,25 @@ def compute_slope_dem(dem):
     sl : numpy.ndarray
         slope angle raster
     '''
-    sobelx = cv2.Sobel(dem, cv2.CV_64F, 1, 0, ksize=SOBEL_KERNEL_SIZE)  # x
-    sobely = cv2.Sobel(dem, cv2.CV_64F, 0, 1, ksize=SOBEL_KERNEL_SIZE)  # y
 
-    # Compute slope
-    slope_angle = np.arctan(np.sqrt(
-        (sobelx / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_X) ** 2 +
-        (sobely / SOBEL_KERNEL_SIZE / PIXEL_RESOLUTION_Y) ** 2)) * RAD_TO_DEG
+    dem = np.asarray(dem, dtype=np.float64)
+
+    valid = np.isfinite(dem)
+    dem_filled = np.where(valid, dem, np.nanmedian(dem))
+
+    dz_dy, dz_dx = np.gradient(
+        dem_filled,
+        PIXEL_RESOLUTION_Y,
+        PIXEL_RESOLUTION_X,
+    )
+
+    slope_angle = np.degrees(
+        np.arctan(
+            np.sqrt(dz_dx**2 + dz_dy**2)
+        )
+    )
+
+    slope_angle[~valid] = np.nan
 
     return slope_angle
 

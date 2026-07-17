@@ -1,8 +1,8 @@
 FROM oraclelinux:8
 
 LABEL author="OPERA ADT" \
-    description="DSWX-SAR CalVal release R4" \
-    version="0.4.0-calval"
+    description="DSWX-SAR CalVal release R4.1" \
+    version="0.4.1-calval-patch"
 
 RUN yum -y update &&\
     yum -y install curl &&\
@@ -33,7 +33,7 @@ COPY --chown=dswx_user:dswx_user . /home/dswx_user/OPERA/DSWX-SAR
 RUN conda config --remove channels defaults || true
 RUN conda config --add channels conda-forge
 RUN conda config --set channel_priority strict
-RUN conda create --name "DSWX-SAR" --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock &&  conda clean -afy
+RUN conda create -c nodefaults --name "DSWX-SAR" --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock &&  conda clean -afy
 
 SHELL ["conda", "run", "-n", "DSWX-SAR", "/bin/bash", "-c"]
 

@@ -13,6 +13,7 @@ from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 from scipy.stats import norm
 from skimage.filters import threshold_multiotsu, threshold_otsu
+from scipy.ndimage import gaussian_filter1d
 
 from dswx_sar.common import (
     _dswx_sar_util,
@@ -28,6 +29,352 @@ from dswx_sar.nisar.dswx_ni_runconfig import (
 
 
 logger = logging.getLogger('dswx_sar')
+
+import json
+from pathlib import Path
+
+
+def _safe_float(x):
+    try:
+        x = float(x)
+        if np.isfinite(x):
+            return x
+        return None
+    except Exception:
+        return None
+
+
+def _array_summary(a):
+    a = np.asarray(a)
+    finite = np.isfinite(a)
+
+    out = {
+        "shape": list(a.shape),
+        "dtype": str(a.dtype),
+        "size": int(a.size),
+        "n_finite": int(finite.sum()),
+        "n_nan": int(np.isnan(a).sum()) if np.issubdtype(a.dtype, np.number) else None,
+        "n_inf": int(np.isinf(a).sum()) if np.issubdtype(a.dtype, np.number) else None,
+    }
+
+    if finite.any():
+        af = a[finite].astype(np.float64)
+        out.update({
+            "min": _safe_float(np.min(af)),
+            "max": _safe_float(np.max(af)),
+            "mean": _safe_float(np.mean(af)),
+            "std": _safe_float(np.std(af)),
+            "p01": _safe_float(np.percentile(af, 1)),
+            "p50": _safe_float(np.percentile(af, 50)),
+            "p99": _safe_float(np.percentile(af, 99)),
+        })
+    else:
+        out.update({
+            "min": None,
+            "max": None,
+            "mean": None,
+            "std": None,
+            "p01": None,
+            "p50": None,
+            "p99": None,
+        })
+
+    return out
+
+import hashlib
+
+
+def _array_hash(a, round_decimals=3, sort_values=True):
+    """
+    Create a stable hash for numerical arrays.
+
+    This is for debugging Intel/Mac reproducibility.
+    Rounding removes tiny numerical noise, and sorting makes the hash
+    insensitive to ordering if we only care about value distribution.
+    """
+    a = np.asarray(a)
+    a = a[np.isfinite(a)]
+
+    if a.size == 0:
+        return None
+
+    a = a.astype(np.float64)
+
+    if round_decimals is not None:
+        a = np.round(a, round_decimals)
+
+    if sort_values:
+        a = np.sort(a)
+
+    a = a.astype(np.float32)
+    return hashlib.sha256(a.tobytes()).hexdigest()
+
+def _pick_stable_peak_index(
+        counts,
+        candidate_indices=None,
+        prefer="first",
+        rel_tol=0.002,
+        abs_tol=1e-4):
+    """
+    Pick a histogram peak deterministically using a tolerance band.
+
+    Instead of selecting the exact maximum, this selects all peaks whose
+    heights are close to the maximum, then applies a fixed tie-break rule.
+    This avoids Intel/Mac flips when several histogram peaks are nearly equal.
+    """
+    counts = np.asarray(counts, dtype=np.float64)
+    counts = np.nan_to_num(counts, nan=0.0, posinf=0.0, neginf=0.0)
+
+    if counts.size == 0:
+        return 0
+
+    if candidate_indices is None or len(candidate_indices) == 0:
+        candidate_indices = np.arange(counts.size, dtype=int)
+    else:
+        candidate_indices = np.asarray(candidate_indices, dtype=int)
+
+    candidate_indices = candidate_indices[
+        (candidate_indices >= 0) & (candidate_indices < counts.size)
+    ]
+
+    if candidate_indices.size == 0:
+        candidate_indices = np.arange(counts.size, dtype=int)
+
+    vals = counts[candidate_indices]
+    max_val = np.max(vals)
+
+    tol = max(abs_tol, abs(max_val) * rel_tol)
+
+    # Include near-maximum peaks, not only the exact maximum.
+    tied = candidate_indices[vals >= max_val - tol]
+
+    if tied.size == 0:
+        return int(candidate_indices[np.argmax(vals)])
+
+    if prefer == "last":
+        return int(tied[-1])
+
+    if prefer == "center":
+        center = 0.5 * (counts.size - 1)
+        return int(tied[np.argmin(np.abs(tied - center))])
+
+    # default: stable low-index choice
+    return int(tied[0])
+
+
+def _pick_dominant_hist_mode(
+        bins,
+        counts,
+        candidate_slice=None,
+        rel_tol=0.002,
+        abs_tol=1e-4,
+        merge_gap=5,
+        smooth_sigma=1.0):
+    """
+    Pick a histogram mode deterministically.
+
+    Use a smoothed histogram only for selecting the dominant mode location.
+    The original counts are still returned for the selected bin amplitude.
+    """
+    bins = np.asarray(bins, dtype=np.float64)
+    counts = np.asarray(counts, dtype=np.float64)
+    counts = np.nan_to_num(counts, nan=0.0, posinf=0.0, neginf=0.0)
+
+    if candidate_slice is None:
+        offset = 0
+        sub_bins = bins
+        sub_counts = counts
+    else:
+        start = 0 if candidate_slice.start is None else candidate_slice.start
+        stop = len(counts) if candidate_slice.stop is None else candidate_slice.stop
+        offset = start
+        sub_bins = bins[start:stop]
+        sub_counts = counts[start:stop]
+
+    if sub_counts.size == 0 or np.all(sub_counts <= 0):
+        idx = min(max(offset, 0), len(bins) - 1)
+        return idx, float(bins[idx]), float(counts[idx]), {
+            "near_indices": [],
+            "groups": [],
+            "selected_group": None,
+            "centroid": None,
+            "smooth_sigma": smooth_sigma,
+        }
+
+    if smooth_sigma is not None and smooth_sigma > 0:
+        score_counts = gaussian_filter1d(sub_counts, sigma=smooth_sigma)
+    else:
+        score_counts = sub_counts.copy()
+
+    max_val = float(np.max(score_counts))
+    tol = max(abs_tol, abs(max_val) * rel_tol)
+    near_rel = np.where(score_counts >= max_val - tol)[0]
+
+    if near_rel.size == 0:
+        rel_idx = int(np.argmax(score_counts))
+        idx = offset + rel_idx
+        return idx, float(bins[idx]), float(counts[idx]), {
+            "near_indices": [],
+            "groups": [],
+            "selected_group": None,
+            "centroid": float(bins[idx]),
+            "smooth_sigma": smooth_sigma,
+        }
+
+    groups = []
+    current = [int(near_rel[0])]
+
+    for ii in near_rel[1:]:
+        ii = int(ii)
+        if ii - current[-1] <= merge_gap:
+            current.append(ii)
+        else:
+            groups.append(current)
+            current = [ii]
+    groups.append(current)
+
+    group_scores = []
+    for g in groups:
+        lo = max(0, min(g) - 1)
+        hi = min(sub_counts.size, max(g) + 2)
+
+        # Use smoothed counts for mass/centroid stability.
+        w = score_counts[lo:hi]
+        x = sub_bins[lo:hi]
+        mass = float(np.sum(w))
+
+        if mass > 0:
+            centroid = float(np.sum(x * w) / mass)
+        else:
+            centroid = float(sub_bins[g[0]])
+
+        group_scores.append((mass, centroid, lo, hi, g))
+
+    # Highest mass; deterministic tie by earlier centroid/bin
+    best = max(group_scores, key=lambda z: (z[0], -z[2]))
+    _, centroid, lo, hi, best_group = best
+
+    rel_idx = int(np.argmin(np.abs(sub_bins - centroid)))
+    idx = offset + rel_idx
+    idx = int(np.clip(idx, 0, len(bins) - 1))
+
+    debug = {
+        "near_indices": [int(offset + i) for i in near_rel],
+        "near_bins": [float(bins[offset + i]) for i in near_rel],
+        "groups": [[int(offset + j) for j in g] for g in groups],
+        "selected_group": [int(offset + j) for j in best_group],
+        "centroid": centroid,
+        "selected_index": int(idx),
+        "selected_bin": float(bins[idx]),
+        "selected_count": float(counts[idx]),
+        "smooth_sigma": smooth_sigma,
+    }
+
+    return idx, float(bins[idx]), float(counts[idx]), debug
+
+
+def _write_stage_record(out_dir, record):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    path = out_dir / "stage_manifest.jsonl"
+    with open(path, "a") as f:
+        f.write(json.dumps(record, sort_keys=True) + "\n")
+
+import json
+from pathlib import Path
+
+
+def _json_safe(v):
+    """Convert numpy scalars/arrays to JSON-safe objects."""
+    if isinstance(v, np.ndarray):
+        return v.tolist()
+    if isinstance(v, (np.floating, np.integer)):
+        return v.item()
+    if isinstance(v, (list, tuple)):
+        return [_json_safe(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _json_safe(val) for k, val in v.items()}
+    return v
+
+
+def save_curve_fit_case(
+        out_dir,
+        case_id,
+        *,
+        model_name,
+        pol=None,
+        block_ij=None,
+        coord=None,
+        absolute_coord=None,
+        intensity_sub=None,
+        intensity_bins=None,
+        intensity_counts=None,
+        expected=None,
+        bounds=None,
+        threshold_before_fit=None,
+        idx_threshold=None,
+        tau_mode_left=None,
+        tau_mode_right=None,
+        tau_amp_left=None,
+        tau_amp_right=None,
+        method=None,
+        threshold_scale=None):
+    """
+    Save one exact curve_fit test case.
+
+    Files:
+      curvefit_case_xxxxxx.npz  : numerical arrays
+      curvefit_case_xxxxxx.json : metadata
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    npz_path = out_dir / f"curvefit_case_{case_id:06d}_{model_name}.npz"
+    json_path = out_dir / f"curvefit_case_{case_id:06d}_{model_name}.json"
+
+    # Keep intensity_sub optional because it can be large.
+    arrays = {
+        "intensity_bins": np.asarray(intensity_bins, dtype=np.float64),
+        "intensity_counts": np.asarray(intensity_counts, dtype=np.float64),
+        "expected": np.asarray(expected, dtype=np.float64),
+        "lower_bounds": np.asarray(bounds[0], dtype=np.float64),
+        "upper_bounds": np.asarray(bounds[1], dtype=np.float64),
+    }
+
+    if intensity_sub is not None:
+        arrays["intensity_sub"] = np.asarray(intensity_sub, dtype=np.float32)
+
+    np.savez_compressed(npz_path, **arrays)
+
+    meta = {
+        "case_id": case_id,
+        "model_name": model_name,
+        "npz_path": str(npz_path),
+        "pol": pol,
+        "block_ij": block_ij,
+        "coord_local": coord,
+        "coord_absolute": absolute_coord,
+        "method": method,
+        "threshold_scale": threshold_scale,
+        "threshold_before_fit": threshold_before_fit,
+        "idx_threshold": idx_threshold,
+        "tau_mode_left": tau_mode_left,
+        "tau_mode_right": tau_mode_right,
+        "tau_amp_left": tau_amp_left,
+        "tau_amp_right": tau_amp_right,
+        "n_intensity_sub": None if intensity_sub is None else int(np.asarray(intensity_sub).size),
+        "n_bins": None if intensity_bins is None else int(np.asarray(intensity_bins).size),
+        "finite_counts": None if intensity_counts is None else int(np.isfinite(intensity_counts).sum()),
+        "counts_min": None if intensity_counts is None else float(np.nanmin(intensity_counts)),
+        "counts_max": None if intensity_counts is None else float(np.nanmax(intensity_counts)),
+    }
+
+    with open(json_path, "w") as f:
+        json.dump(_json_safe(meta), f, indent=2)
+
+    return str(npz_path), str(json_path)
+
 
 
 def convert_db2pow(db):
@@ -101,6 +448,79 @@ def _solve_gaussian_intersections_(m1, s1, A1, m2, s2, A2):
                    (-b + sqrt_disc) / (2.0 * a)])
 
 
+def _multiotsu_from_hist_deterministic(intensity_bins, intensity_counts):
+    """
+    Deterministic 3-class Otsu threshold from an existing histogram.
+
+    Returns two thresholds corresponding to skimage threshold_multiotsu(..., classes=3),
+    but uses canonical histogram bins/counts instead of rebuilding histogram
+    from samples.
+    """
+    x = np.asarray(intensity_bins, dtype=np.float64)
+    h = np.asarray(intensity_counts, dtype=np.float64)
+
+    h = np.nan_to_num(h, nan=0.0, posinf=0.0, neginf=0.0)
+    h = np.round(h, 12)
+
+    valid = np.isfinite(x) & np.isfinite(h) & (h >= 0)
+    x = x[valid]
+    h = h[valid]
+
+    if x.size < 3 or np.sum(h) <= 0:
+        return None
+
+    # Normalize, but keep deterministic float64 path.
+    p = h / np.sum(h)
+
+    P = np.cumsum(p)
+    S = np.cumsum(p * x)
+    S2 = np.cumsum(p * x * x)
+
+    total_mean = S[-1]
+
+    best_score = -np.inf
+    best_i = None
+    best_j = None
+
+    n = x.size
+
+    # classes: [0:i], [i+1:j], [j+1:end]
+    for i in range(0, n - 2):
+        w0 = P[i]
+        if w0 <= 0:
+            continue
+
+        m0 = S[i] / w0
+
+        for j in range(i + 1, n - 1):
+            w1 = P[j] - P[i]
+            w2 = 1.0 - P[j]
+
+            if w1 <= 0 or w2 <= 0:
+                continue
+
+            m1 = (S[j] - S[i]) / w1
+            m2 = (S[-1] - S[j]) / w2
+
+            score = (
+                w0 * (m0 - total_mean) ** 2
+                + w1 * (m1 - total_mean) ** 2
+                + w2 * (m2 - total_mean) ** 2
+            )
+
+            # Deterministic tie rule:
+            # if scores are extremely close, choose the lower thresholds.
+            if score > best_score + 1e-15:
+                best_score = score
+                best_i = i
+                best_j = j
+
+    if best_i is None or best_j is None:
+        return None
+
+    return np.array([x[best_i], x[best_j]], dtype=np.float64)
+
+
 def _tile_relaxed_threshold_from_boundary(
         intensity_tile_db,  # 2D (dB)
         tau_strict,         # scalar (dB)
@@ -170,6 +590,73 @@ def _tile_relaxed_threshold_from_boundary(
     return float(tau_new)
 
 
+def _otsu_threshold_from_hist(intensity_bins, intensity_counts):
+    x = np.asarray(intensity_bins, dtype=np.float64)
+    w = np.asarray(intensity_counts, dtype=np.float64)
+    w = np.nan_to_num(w, nan=0.0, posinf=0.0, neginf=0.0)
+
+    valid = np.isfinite(x) & np.isfinite(w) & (w > 0)
+    x = x[valid]
+    w = w[valid]
+
+    if x.size < 2 or np.sum(w) <= 0:
+        return np.nan
+
+    cw = np.cumsum(w)
+    cx = np.cumsum(w * x)
+
+    total_w = cw[-1]
+    total_x = cx[-1]
+
+    w0 = cw
+    w1 = total_w - cw
+
+    valid_split = (w0 > 0) & (w1 > 0)
+    if not np.any(valid_split):
+        return np.nan
+
+    mu0 = np.zeros_like(x)
+    mu1 = np.zeros_like(x)
+
+    mu0[valid_split] = cx[valid_split] / w0[valid_split]
+    mu1[valid_split] = (total_x - cx[valid_split]) / w1[valid_split]
+
+    between_var = np.full_like(x, -np.inf)
+    between_var[valid_split] = (
+        w0[valid_split]
+        * w1[valid_split]
+        * (mu0[valid_split] - mu1[valid_split]) ** 2
+    )
+
+    idx = int(np.argmax(between_var))
+    return float(x[idx])
+
+
+def _valid_bimodal_fit_for_threshold(first_mode, second_mode):
+    try:
+        f = np.asarray(first_mode, dtype=np.float64).ravel()
+        s = np.asarray(second_mode, dtype=np.float64).ravel()
+
+        if f.size < 3 or s.size < 3:
+            return False
+
+        m1, sig1, amp1 = f[:3]
+        m2, sig2, amp2 = s[:3]
+
+        sep = abs(m2 - m1)
+
+        return (
+            np.all(np.isfinite([m1, sig1, amp1, m2, sig2, amp2]))
+            and 0.05 <= sig1 <= 3.5
+            and 0.05 <= sig2 <= 3.5
+            and 0.01 <= amp1 <= 0.50
+            and 0.01 <= amp2 <= 0.50
+            and 0.5 <= sep <= 8.0
+        )
+    except Exception:
+        return False
+
+
 def determine_threshold(
         intensity,
         candidate_tile_coords,
@@ -182,6 +669,12 @@ def determine_threshold(
         adjust_if_nonoverlap=True,
         adjust_thresh_low_dist_percent=None,
         adjust_thresh_high_dist_percent=None,
+        extract_curvefit=False,
+        curvefit_out_dir=None,
+        pol=None,
+        block_ij=None,
+        block_origin=None,
+        threshold_scale=None,
         ):
     """Compute the thresholds and peak values for left Gaussian
     from intensity image for given candidate coordinates.
@@ -263,21 +756,92 @@ def determine_threshold(
     mode_array = []
     negligible_value = _dswx_sar_util.Constants.negligible_value
     min_threshold, max_threshold = bounds[0], bounds[1]
-
+    curvefit_case_id = 0
     for coord in candidate_tile_coords:
 
         # assume that coord consists of 5 elements
         ystart, yend, xstart, xend = coord[1:]
 
+        # Debug trace for threshold changes after stage_3
+        threshold_initial = None
+        threshold_after_ki_or_otsu = None
+        threshold_after_multiotsu = None
+        threshold_after_bimodal_fit = None
+        threshold_after_model_intersection = None
+        threshold_after_trimodal_fit = None
+        threshold_after_trimodal_override = None
+        threshold_after_rg = None
+        threshold_after_nonoverlap = None
+        threshold_after_tile_relax = None
+        threshold_after_margin_guard = None
+
+        mode_after_bimodal_fit = None
+        mode_after_model_intersection = None
+        mode_after_trimodal_fit = None
+        mode_after_margin_guard = None
+
+        bimodal_params_debug = None
+        trimodal_params_debug = None
+        first_mode_debug = None
+        second_mode_debug = None
+        tri_first_mode_debug = None
+        tri_second_mode_debug = None
+        tri_third_mode_debug = None
+
+        model_intersection_used = False
+        trimodal_override_used = False
+        tile_relax_used = False
+        margin_guard_used = False
+        hist_trimodal_override_used = False
+        threshold_before_margin_guard = None
         intensity_sub = intensity[ystart:yend,
                                   xstart:xend]
-
+        intensity_sub = np.asarray(intensity_sub, dtype=np.float64)
         # generate histogram with intensity higher than -35 dB
-        intensity_sub = intensity_sub[intensity_sub > -35]
+        if threshold_scale == "db":
+            intensity_sub = intensity_sub[intensity_sub > -35]
+        else:
+            intensity_sub = intensity_sub[intensity_sub > 0]
         intensity_sub = _initial_threshold.remove_invalid(intensity_sub)
+        intensity_sub = np.asarray(intensity_sub, dtype=np.float64)
+        intensity_sub = intensity_sub[np.isfinite(intensity_sub)]
 
+        if threshold_scale == "db":
+            # All threshold fitting in dB uses 0.001 dB precision.
+            intensity_sub = np.round(intensity_sub, 3).astype(np.float64)
+        else:
+            # Linear case keeps more precision.
+            intensity_sub = np.round(intensity_sub, 8).astype(np.float64)
+
+        if extract_curvefit and curvefit_out_dir is not None:
+
+            _write_stage_record(curvefit_out_dir, {
+                "stage": "stage_2_tile_prepare",
+                "model_context": "before_histogram",
+                "pol": pol,
+                "block_ij": list(block_ij) if block_ij is not None else None,
+                "coord_local": [int(ystart), int(yend), int(xstart), int(xend)],
+                "coord_absolute": [
+                    int(block_origin[0] + ystart),
+                    int(block_origin[0] + yend),
+                    int(block_origin[1] + xstart),
+                    int(block_origin[1] + xend),
+                ] if block_origin is not None else None,
+                "n_after_filter": int(intensity_sub.size),
+                "intensity_sub": _array_summary(intensity_sub),
+                "intensity_sub_hash_round3": _array_hash(intensity_sub, 3),
+                "intensity_sub_hash_round4": _array_hash(intensity_sub, 4),
+                "min_intensity_histogram": _safe_float(min_intensity_histogram),
+                "max_intensity_histogram": _safe_float(max_intensity_histogram),
+                "step_histogram": _safe_float(step_histogram),
+                "method": method,
+                "threshold_scale": threshold_scale,
+            })
         if intensity_sub.size == 0:
-            return np.nan, np.nan
+            threshold_array.append(np.nan)
+            threshold_idx_array.append(-1)
+            mode_array.append(np.nan)
+            continue
 
         if (not np.isfinite(min_intensity_histogram)) or (not np.isfinite(max_intensity_histogram)) \
         or (max_intensity_histogram <= min_intensity_histogram):
@@ -296,7 +860,8 @@ def determine_threshold(
                         max(2, numstep + 1))
 
         intensity_counts, bins = np.histogram(intensity_sub, bins=bins, density=True)
-
+        intensity_counts = np.asarray(intensity_counts, dtype=np.float64)
+        intensity_bins = np.asarray(bins[:-1], dtype=np.float64)
         # If density=True produced NaNs (zero bin width / empty), retry with density=False
         if not np.isfinite(intensity_counts).any():
             intensity_counts, bins = np.histogram(intensity_sub, bins=bins, density=False)
@@ -305,16 +870,22 @@ def determine_threshold(
         intensity_counts = np.nan_to_num(intensity_counts, nan=0.0, posinf=0.0, neginf=0.0)
         intensity_bins = bins[:-1]
 
+        intensity_bins = np.asarray(intensity_bins, dtype=np.float64)
+        intensity_counts = np.asarray(intensity_counts, dtype=np.float64)
+
+        # Canonicalize histogram for reproducible peak search and curve_fit.
+        intensity_bins = np.round(intensity_bins, 6).astype(np.float64)
+        intensity_counts = np.round(intensity_counts, 12).astype(np.float64)
         if method == 'ki':
-            threshold, idx_threshold = _initial_threshold.compute_ki_threshold(
-                intensity_sub,
-                min_intensity_histogram,
-                max_intensity_histogram,
-                step_histogram)
+            threshold, idx_threshold, ki_prob_array = _initial_threshold.compute_ki_threshold_from_hist(
+                intensity_bins,
+                intensity_counts
+            )
 
         elif method in ['otsu', 'rg']:
             threshold = threshold_otsu(intensity_sub)
-
+        threshold_after_ki_or_otsu = _safe_float(threshold)
+        threshold_initial = _safe_float(threshold)
         # get index of threshold from histogram.
         idx_threshold = np.searchsorted(intensity_bins, threshold)
         idx_threshold = int(np.clip(idx_threshold, 0, max(0, len(intensity_bins) - 1)))
@@ -322,44 +893,74 @@ def determine_threshold(
         # if estimated threshold is higher than bounds,
         # re-estimate threshold assuming tri-mode distribution
         if threshold > bounds[1] and multi_threshold:
-            try:
-                thresholds = threshold_multiotsu(intensity_sub)
+            thresholds = _multiotsu_from_hist_deterministic(
+                intensity_bins,
+                intensity_counts,
+            )
 
-                if thresholds[0] < threshold:
-                    threshold = thresholds[0]
-                    idx_threshold = np.searchsorted(intensity_bins, threshold)
-            except ValueError:
-                logger.info('Unable to find multi threshold')
+            if thresholds is not None and thresholds[0] < threshold:
+                threshold = float(thresholds[0])
+                idx_threshold = np.searchsorted(intensity_bins, threshold)
 
+        threshold_after_multiotsu = _safe_float(threshold)
         # Make sure idx_threshold is within bounds
         idx_threshold = int(np.clip(idx_threshold, 0, max(0, len(intensity_bins) - 1)))
+        lowmaxind, tau_mode_left, tau_amp_left, low_peak_debug = \
+            _pick_dominant_hist_mode(
+                intensity_bins,
+                intensity_counts,
+                candidate_slice=slice(0, idx_threshold + 1),
+                rel_tol=0.002,
+                abs_tol=1e-4,
+                merge_gap=5,
+                smooth_sigma=1.0,
+            )
 
-        # Low-side slice (<= threshold)
-        low_slice = intensity_counts[:idx_threshold + 1]
-        low_slice = np.nan_to_num(low_slice, nan=0.0)
+        highmaxind, tau_mode_right, tau_amp_right, high_peak_debug = \
+            _pick_dominant_hist_mode(
+                intensity_bins,
+                intensity_counts,
+                candidate_slice=slice(idx_threshold, len(intensity_counts)),
+                rel_tol=0.002,
+                abs_tol=1e-4,
+                merge_gap=5,
+                smooth_sigma=1.0,
+            )
+        # # Low-side slice (<= threshold)
+        # low_slice = intensity_counts[:idx_threshold + 1]
+        # low_slice = np.nan_to_num(low_slice, nan=0.0, posinf=0.0, neginf=0.0)
 
-        if low_slice.size == 0 or not np.isfinite(low_slice).any() or np.all(low_slice == 0):
-            lowmaxind = max(0, idx_threshold)   # safe fallback
-        else:
-            lowmaxind_cands, _ = find_peaks(low_slice, distance=5)
-            if lowmaxind_cands.size == 0:
-                lowmaxind = int(np.argmax(low_slice))
-            else:
-                lowmaxind = int(lowmaxind_cands[np.argmax(low_slice[lowmaxind_cands])])
+        # if low_slice.size == 0 or not np.isfinite(low_slice).any() or np.all(low_slice == 0):
+        #     lowmaxind = max(0, idx_threshold)
+        #     lowmaxind_cands = np.array([], dtype=int)
+        # else:
+        #     lowmaxind_cands, _ = find_peaks(low_slice, distance=5)
 
-        # High-side slice (>= threshold)
-        high_slice = intensity_counts[idx_threshold:]
-        high_slice = np.nan_to_num(high_slice, nan=0.0)
+        #     lowmaxind = _pick_stable_peak_index(
+        #         low_slice,
+        #         lowmaxind_cands,
+        #         prefer="first",
+        #         rel_tol=0.002,
+        #         abs_tol=1e-4,
+        #     )
+        # # High-side slice (>= threshold)
+        # high_slice = intensity_counts[idx_threshold:]
+        # high_slice = np.nan_to_num(high_slice, nan=0.0, posinf=0.0, neginf=0.0)
 
-        if high_slice.size == 0 or not np.isfinite(high_slice).any() or np.all(high_slice == 0):
-            highmaxind = idx_threshold
-        else:
-            highmaxind_cands, _ = find_peaks(high_slice, distance=5)
-            if highmaxind_cands.size == 0:
-                highmaxind_rel = int(np.argmax(high_slice))
-            else:
-                highmaxind_rel = int(highmaxind_cands[np.argmax(high_slice[highmaxind_cands])])
-            highmaxind = idx_threshold + highmaxind_rel
+        # if high_slice.size == 0 or not np.isfinite(high_slice).any() or np.all(high_slice == 0):
+        #     highmaxind = idx_threshold
+        #     highmaxind_cands = np.array([], dtype=int)
+        # else:
+        #     highmaxind_cands, _ = find_peaks(high_slice, distance=5)
+
+        #     highmaxind_rel = _pick_stable_peak_index(
+        #         high_slice,
+        #         highmaxind_cands,
+        #         prefer="first",
+        #         rel_tol=0.002,
+        #         abs_tol=1e-4,
+        #     )
+        #     highmaxind = idx_threshold + highmaxind_rel
 
         # Clamp indices
         lowmaxind  = int(np.clip(lowmaxind,  0, len(intensity_bins) - 1))
@@ -375,20 +976,99 @@ def determine_threshold(
 
         tau_amp_left = intensity_counts[lowmaxind]
         tau_amp_right = intensity_counts[highmaxind]
-
+        modevalue = float(tau_mode_left)
+        optimization = False
+        tri_optimization = False
+        lock_mode_from_model = False
         try:
-            expected = (tau_mode_left, .5, tau_amp_left,
-                        tau_mode_right, .5, tau_amp_right)
 
-            params, _ = curve_fit(
-                _initial_threshold.bimodal,
-                intensity_bins,
-                intensity_counts,
-                expected,
-                bounds=((-30, 0.001, 0.01,
+            expected = np.array(
+                [tau_mode_left, .5, tau_amp_left,
+                tau_mode_right, .5, tau_amp_right],
+                dtype=np.float64
+            )
+            expected = np.round(expected, 12)
+
+            fit_bounds = ((-30, 0.001, 0.01,
                         -30, 0.001, 0.01),
                         (5, 5, 0.95,
-                        5, 5, 0.95)))
+                        5, 5, 0.95))
+
+            if extract_curvefit and curvefit_out_dir is not None:
+                if block_origin is not None:
+                    abs_coord = [
+                        int(block_origin[0] + ystart),
+                        int(block_origin[0] + yend),
+                        int(block_origin[1] + xstart),
+                        int(block_origin[1] + xend),
+                    ]
+                else:
+                    abs_coord = None
+                _write_stage_record(curvefit_out_dir, {
+                    "stage": "stage_3_fit_ready",
+                    "model_name": "bimodal",
+                    "pol": pol,
+                    "block_ij": list(block_ij) if block_ij is not None else None,
+                    "coord_local": [int(ystart), int(yend), int(xstart), int(xend)],
+                    "coord_absolute": [
+                        int(block_origin[0] + ystart),
+                        int(block_origin[0] + yend),
+                        int(block_origin[1] + xstart),
+                        int(block_origin[1] + xend),
+                    ] if block_origin is not None else None,
+                    "threshold_before_fit": _safe_float(threshold),
+                    "idx_threshold": int(idx_threshold),
+                    "tau_mode_left": _safe_float(tau_mode_left),
+                    "tau_mode_right": _safe_float(tau_mode_right),
+                    "tau_amp_left": _safe_float(tau_amp_left),
+                    "tau_amp_right": _safe_float(tau_amp_right),
+                    "intensity_bins": _array_summary(intensity_bins),
+                    "intensity_bins_hash_round6": _array_hash(intensity_bins, 6),
+                    "intensity_counts_hash_round12": _array_hash(intensity_counts, 12),
+                    "intensity_counts": _array_summary(intensity_counts),
+                    "expected": [float(x) for x in expected],
+                    "lowmaxind": int(lowmaxind),
+                    "highmaxind": int(highmaxind),
+                    "low_peak_debug": low_peak_debug,
+                    "high_peak_debug": high_peak_debug,
+                    "ki_threshold_from_hist": _safe_float(threshold),
+                    "ki_idx_from_hist": int(idx_threshold),
+
+                })
+                save_curve_fit_case(
+                    curvefit_out_dir,
+                    curvefit_case_id,
+                    model_name="bimodal",
+                    pol=pol,
+                    block_ij=block_ij,
+                    coord=[int(ystart), int(yend), int(xstart), int(xend)],
+                    absolute_coord=abs_coord,
+                    intensity_sub=intensity_sub,
+                    intensity_bins=intensity_bins,
+                    intensity_counts=intensity_counts,
+                    expected=expected,
+                    bounds=fit_bounds,
+                    threshold_before_fit=float(threshold),
+                    idx_threshold=int(idx_threshold),
+                    tau_mode_left=float(tau_mode_left),
+                    tau_mode_right=float(tau_mode_right),
+                    tau_amp_left=float(tau_amp_left),
+                    tau_amp_right=float(tau_amp_right),
+                    method=method,
+                    threshold_scale=threshold_scale,
+                )
+                curvefit_case_id += 1
+            x_fit = np.asarray(intensity_bins, dtype=np.float64)
+            y_fit = np.asarray(intensity_counts, dtype=np.float64)
+            p0_fit = np.asarray(expected, dtype=np.float64)
+            params, _ = curve_fit(
+                _initial_threshold.bimodal,
+                x_fit,
+                y_fit,
+                p0=p0_fit,
+                bounds=fit_bounds
+            )
+
             if params[0] > params[3]:
                 second_mode = params[:3]
                 first_mode = params[3:]
@@ -396,19 +1076,55 @@ def determine_threshold(
                 first_mode = params[:3]
                 second_mode = params[3:]
 
-            if USE_MODEL_INTERSECTION:
+            bimodal_params_debug = [float(x) for x in np.asarray(params).ravel()]
+            first_mode_debug = [float(x) for x in np.asarray(first_mode).ravel()]
+            second_mode_debug = [float(x) for x in np.asarray(second_mode).ravel()]
+
+            bimodal_fit_valid = _valid_bimodal_fit_for_threshold(
+                first_mode,
+                second_mode,
+            )
+            threshold_after_bimodal_fit = _safe_float(threshold)
+            mode_after_bimodal_fit = _safe_float(tau_mode_left)
+            min_sigma_for_model_intersection = 0.05
+
+            use_model_intersection_this_tile = (
+                USE_MODEL_INTERSECTION
+                and bimodal_fit_valid
+            )
+
+            if use_model_intersection_this_tile:
                 try:
                     threshold_model, mode_lower = _threshold_from_bimodal_fit(
                         first_mode, second_mode, bounds=bounds, p_low=0.98, p_high=0.02
                     )
-                    threshold = threshold_model
-                    modevalue = mode_lower
+
+                    model_intersection_used = True
+
+                    MODEL_INTERSECTION_MAX_SHIFT_DB = 0.25
+                    model_shift = abs(threshold_model - threshold)
+
+                    if model_shift <= MODEL_INTERSECTION_MAX_SHIFT_DB:
+                        threshold = threshold_model
+                        modevalue = mode_lower
+                        model_intersection_used = True
+                    else:
+                        model_intersection_used = False
+                        threshold = threshold
+                        modevalue = float(tau_mode_left)
                     idx_threshold = np.searchsorted(intensity_bins, threshold)
                     idx_threshold = int(np.clip(idx_threshold, 0, max(0, len(intensity_bins) - 1)))
+                    threshold_after_model_intersection = _safe_float(threshold)
+                    mode_after_model_intersection = _safe_float(modevalue)
                 except Exception as e:
+                    modevalue = float(tau_mode_left)
+                    threshold_after_model_intersection = _safe_float(threshold)
+                    mode_after_model_intersection = _safe_float(modevalue)
                     logger.info(f'Model-intersection override skipped (error: {e}); keeping KI/Otsu.')
-
-            lock_mode_from_model = USE_MODEL_INTERSECTION
+            else:
+                threshold_after_model_intersection = _safe_float(threshold)
+                mode_after_model_intersection = _safe_float(modevalue if 'modevalue' in locals() else tau_mode_left)
+            lock_mode_from_model = model_intersection_used
 
             simul_first = _initial_threshold.gauss(intensity_bins, *first_mode)
             simul_second = _initial_threshold.gauss(intensity_bins, *second_mode)
@@ -432,31 +1148,81 @@ def determine_threshold(
 
             optimization = True
 
-        except:
+        except Exception as e:
             optimization = False
             logger.info(
-                'Bimodal curve Fitting fails in threshold computation.')
+                f'Bimodal curve Fitting fails in threshold computation: {e}')
             modevalue = tau_mode_left
+
+            threshold_after_bimodal_fit = _safe_float(threshold)
+            mode_after_bimodal_fit = _safe_float(modevalue)
+            threshold_after_model_intersection = _safe_float(threshold)
+            mode_after_model_intersection = _safe_float(modevalue)
         try:
             dividers = threshold_multiotsu(intensity_sub)
 
             expected = (dividers[0], .5, tau_amp_left,
                         dividers[1], .5, tau_amp_right,
                         (dividers[0]+dividers[1])/2, .5, 0.1)
-            # curve_fit fits the trimodal distributions
-            # All distributions are assumed to be in the bound
-            # -35 to 5 dB, with standard deviation of 0 - 10[dB]
-            # and amplitudes of 0.01 to 0.95.
-            params, _ = curve_fit(_initial_threshold.trimodal,
-                                  intensity_bins,
-                                  intensity_counts,
-                                  expected,
-                                  bounds=((-35, 0.001, 0.01,
-                                           -35, 0.001, 0.01,
-                                           -35, 0.001, 0.01),
-                                          (5, 10, 0.95,
-                                           5, 10, 0.95,
-                                           5, 10, 0.95)))
+            expected = np.array(
+                [dividers[0], .5, tau_amp_left,
+                dividers[1], .5, tau_amp_right,
+                (dividers[0] + dividers[1]) / 2, .5, 0.1],
+                dtype=np.float64
+            )
+            expected = np.round(expected, 12)
+            fit_bounds = ((-35, 0.001, 0.01,
+                        -35, 0.001, 0.01,
+                        -35, 0.001, 0.01),
+                        (5, 10, 0.95,
+                        5, 10, 0.95,
+                        5, 10, 0.95))
+
+            if extract_curvefit and curvefit_out_dir is not None:
+                if block_origin is not None:
+                    abs_coord = [
+                        int(block_origin[0] + ystart),
+                        int(block_origin[0] + yend),
+                        int(block_origin[1] + xstart),
+                        int(block_origin[1] + xend),
+                    ]
+                else:
+                    abs_coord = None
+
+                save_curve_fit_case(
+                    curvefit_out_dir,
+                    curvefit_case_id,
+                    model_name="trimodal",
+                    pol=pol,
+                    block_ij=block_ij,
+                    coord=[int(ystart), int(yend), int(xstart), int(xend)],
+                    absolute_coord=abs_coord,
+                    intensity_sub=intensity_sub,
+                    intensity_bins=intensity_bins,
+                    intensity_counts=intensity_counts,
+                    expected=expected,
+                    bounds=fit_bounds,
+                    threshold_before_fit=float(threshold),
+                    idx_threshold=int(idx_threshold),
+                    tau_mode_left=float(tau_mode_left),
+                    tau_mode_right=float(tau_mode_right),
+                    tau_amp_left=float(tau_amp_left),
+                    tau_amp_right=float(tau_amp_right),
+                    method=method,
+                    threshold_scale=threshold_scale,
+                )
+                curvefit_case_id += 1
+
+            x_fit = np.asarray(intensity_bins, dtype=np.float64)
+            y_fit = np.asarray(intensity_counts, dtype=np.float64)
+            p0_fit = np.asarray(expected, dtype=np.float64)
+            params, _ = curve_fit(
+                _initial_threshold.trimodal,
+                    x_fit,
+                    y_fit,
+                    p0=p0_fit,
+                    bounds=fit_bounds
+                )
 
             # re-sort the order of estimated modes using amplitudes
             first_setind = 0
@@ -473,21 +1239,34 @@ def determine_threshold(
             tri_first_mode = params[first_setind:first_setind+3]
             tri_second_mode = params[second_setind:second_setind+3]
             tri_third_mode = params[third_setind:third_setind+3]
+            tri_modes = [tri_first_mode, tri_second_mode, tri_third_mode]
 
-            simul_second_sum = np.sum(simul_second)
-            if simul_second_sum == 0:
-                simul_second_sum = negligible_value
-            converge_ind = np.where((intensity_bins < tau_mode_right)
-                                    & (intensity_bins > tau_mode_left)
-                                    & (intensity_bins < threshold)
-                                    & (np.cumsum(simul_second) /
-                                       simul_second_sum < 0.03))
+            tri_sigmas = np.array([m[1] for m in tri_modes], dtype=np.float64)
+            tri_amps = np.array([m[2] for m in tri_modes], dtype=np.float64)
+            tri_means = np.array([m[0] for m in tri_modes], dtype=np.float64)
 
-            if len(converge_ind[0]):
-                modevalue = intensity_bins[converge_ind[0][-1]]
+            trimodal_params_debug = [float(x) for x in np.asarray(params).ravel()]
+            tri_first_mode_debug = [float(x) for x in np.asarray(tri_first_mode).ravel()]
+            tri_second_mode_debug = [float(x) for x in np.asarray(tri_second_mode).ravel()]
+            tri_third_mode_debug = [float(x) for x in np.asarray(tri_third_mode).ravel()]
 
-            else:
-                modevalue = tau_mode_left
+            threshold_after_trimodal_fit = _safe_float(threshold)
+            mode_after_trimodal_fit = _safe_float(modevalue)
+
+            # simul_second_sum = np.sum(simul_second)
+            # if simul_second_sum == 0:
+            #     simul_second_sum = negligible_value
+            # converge_ind = np.where((intensity_bins < tau_mode_right)
+            #                         & (intensity_bins > tau_mode_left)
+            #                         & (intensity_bins < threshold)
+            #                         & (np.cumsum(simul_second) /
+            #                            simul_second_sum < 0.03))
+
+            # if len(converge_ind[0]):
+            #     modevalue = intensity_bins[converge_ind[0][-1]]
+
+            # else:
+            #     modevalue = tau_mode_left
 
             large_amp = np.max([tri_first_mode[2],
                                 tri_second_mode[2],
@@ -509,50 +1288,149 @@ def determine_threshold(
 
             else:
                 third_second_dist_bool = False
+            tri_means = np.array([
+                tri_first_mode[0],
+                tri_second_mode[0],
+                tri_third_mode[0],
+            ], dtype=np.float64)
 
+            tri_sigmas = np.array([
+                tri_first_mode[1],
+                tri_second_mode[1],
+                tri_third_mode[1],
+            ], dtype=np.float64)
+
+            tri_amps = np.array([
+                tri_first_mode[2],
+                tri_second_mode[2],
+                tri_third_mode[2],
+            ], dtype=np.float64)
+
+            tri_fit_valid = (
+                np.all(np.isfinite(tri_means))
+                and np.all(np.isfinite(tri_sigmas))
+                and np.all(np.isfinite(tri_amps))
+                and np.all(tri_sigmas >= 0.05)
+                and np.all(tri_sigmas <= 3.5)
+                and np.all(tri_amps >= 0.01)
+                and np.all(tri_amps <= 0.50)
+                            )
+
+            tri_modes_separated = (
+                abs(tri_second_mode[0] - tri_first_mode[0]) >= 1.0
+                and abs(tri_third_mode[0] - tri_second_mode[0]) >= 1.0
+            )
+
+            tri_middle_reasonable = (
+                tri_second_mode[1] <= 3.0
+                and tri_second_mode[2] >= 0.02
+            )
+
+            degenerate_trimodal = not (
+                tri_fit_valid
+                and tri_modes_separated
+                and tri_middle_reasonable
+            )
             intensity_sub_min = np.nanmin(intensity_sub)
-            if tri_ratio_bool and third_second_dist_bool and \
-               first_second_dist_bool and tri_first_mode[0] > -32 and \
-               intensity_sub_min < tri_second_mode[0]:
+            if (
+                (not degenerate_trimodal)
+                and tri_ratio_bool
+                and third_second_dist_bool
+                and first_second_dist_bool
+                and tri_first_mode[0] > -32
+                and intensity_sub_min < tri_second_mode[0]
+            ):
                 tri_optimization = True
-            else:
-                tri_optimization = False
 
-        except:
+        except Exception as e:
+            logger.info(
+                "Trimodal curve fitting failed in threshold computation: %s",
+                e,
+            )
             tri_optimization = False
+            trimodal_params_debug = None
+            tri_first_mode_debug = None
+            tri_second_mode_debug = None
+            tri_third_mode_debug = None
             logger.info(
                 'Trimodal curve Fitting fails in threshold computation.')
+        threshold_after_trimodal_fit = _safe_float(threshold)
+        mode_after_trimodal_fit = _safe_float(modevalue)
 
-        if tri_optimization:
-            intensity_sub2 = intensity_sub[intensity_sub < tri_second_mode[0]]
+        ENABLE_HIST_TRIMODAL_OVERRIDE = True
 
-            if intensity_sub2.size > 0:
-                tau_bound_gauss = threshold_otsu(intensity_sub2)
+        hist_trimodal_override_used = False
+        threshold_before_hist_trimodal = float(threshold)
 
-                if threshold > tau_bound_gauss:
-                    threshold = tau_bound_gauss
-                    idx_tau_bound_gauss = np.searchsorted(intensity_bins,
-                                                          threshold)
-                    tri_lowmaxind_cands, _ = find_peaks(
-                        intensity_counts[0:idx_tau_bound_gauss+1],
-                        distance=5)
+        if ENABLE_HIST_TRIMODAL_OVERRIDE and multi_threshold:
+            try:
+                # Use deterministic histogram-based multi-Otsu.
+                dividers = _multiotsu_from_hist_deterministic(
+                    intensity_bins,
+                    intensity_counts,
+                )
 
-                    if not tri_lowmaxind_cands.any():
-                        tri_lowmaxind_cands = np.array(
-                            [np.nanargmax(
-                             intensity_counts[: idx_tau_bound_gauss+1])])
-                    intensity_counts_cand = intensity_counts[
-                        tri_lowmaxind_cands]
-                    tri_lowmaxind = tri_lowmaxind_cands[
-                        np.nanargmax(intensity_counts_cand)]
-                    tri_lowmaxind = np.squeeze(tri_lowmaxind)
+                if dividers is not None and len(dividers) >= 2:
+                    low_mid_divider = float(dividers[0])
+                    mid_high_divider = float(dividers[1])
 
-                    if tri_lowmaxind.size > 1:
-                        tri_lowmaxind = tri_lowmaxind[tri_lowmaxind <=
-                                                      idx_tau_bound_gauss]
-                        tri_lowmaxind = tri_lowmaxind[0]
-                    modevalue = intensity_bins[tri_lowmaxind]
+                    hist_mask = intensity_bins < mid_high_divider
 
+                    if (
+                        np.count_nonzero(hist_mask) > 2
+                        and np.sum(intensity_counts[hist_mask]) > 0
+                    ):
+                        tau_bound_hist = _otsu_threshold_from_hist(
+                            intensity_bins[hist_mask],
+                            intensity_counts[hist_mask],
+                        )
+
+                        TRI_Q = 0.01
+
+                        threshold_before_q = (
+                            np.round(threshold_before_hist_trimodal / TRI_Q) * TRI_Q
+                        )
+                        proposed_q = (
+                            np.round(tau_bound_hist / TRI_Q) * TRI_Q
+                        )
+
+                        shift_db = abs(proposed_q - threshold_before_q)
+
+                        # Conservative: do not accept one-bin / borderline corrections.
+                        min_trimodal_shift_db = 0.11
+                        max_trimodal_shift_db = 0.25
+
+                        accept_hist_trimodal = (
+                            np.isfinite(proposed_q)
+                            and threshold_before_q > proposed_q
+                            and min_trimodal_shift_db <= shift_db <= max_trimodal_shift_db
+                            and proposed_q >= bounds[0]
+                            and proposed_q <= bounds[1]
+                        )
+
+                        if accept_hist_trimodal:
+                            threshold = float(proposed_q)
+                            trimodal_override_used = True
+                            hist_trimodal_override_used = True
+                        else:
+                            threshold = float(threshold_before_q)
+                            trimodal_override_used = False
+                            hist_trimodal_override_used = False
+                    else:
+                        threshold = float(
+                            np.round(threshold_before_hist_trimodal / 0.01) * 0.01
+                        )
+                        trimodal_override_used = False
+                        hist_trimodal_override_used = False
+
+            except Exception as e:
+                threshold = float(
+                    np.round(threshold_before_hist_trimodal / 0.01) * 0.01
+                )
+                trimodal_override_used = False
+                hist_trimodal_override_used = False
+                logger.info(f'Histogram trimodal override skipped: {e}')
+        threshold_after_trimodal_override = _safe_float(threshold)
         if method == 'rg':
             intensity_countspp, _ = np.histogram(
                 intensity_sub,
@@ -570,11 +1448,8 @@ def determine_threshold(
                 diff_dist = intensity_counts - simul_first
                 diff_dist[idx_threshold:] = np.nan
 
-                if len(lowmaxind_cands) > 1:
-                    lowmaxind_cands = lowmaxind_cands[-1]
-                diff_dist[:int(lowmaxind_cands)] = np.nan
+                diff_dist[:int(lowmaxind)] = np.nan
                 diff_dist_ind = np.where(diff_dist > 0.05)
-
                 if len(diff_dist_ind[0]) > 0:
                     diverse_ind = diff_dist_ind[0][0]
                     modevalue = (modevalue + intensity_bins[diverse_ind]) / 2
@@ -615,15 +1490,19 @@ def determine_threshold(
                             rms_xx.append(hist_bin)
                         else:
                             rms_sss.append(np.nan)
-                            rms_sss.append(hist_bin)
+                            rms_xx.append(hist_bin)
+                valid = np.isfinite(rms_sss) & np.isfinite(rms_xx)
+                if np.any(valid):
+                    valid_indices = np.flatnonzero(valid)
+                    best_index = valid_indices[np.argmin(rms_sss[valid])]
+                    rg_tolerance = rms_xx[best_index]
+                    threshold = 0.5 * (rg_tolerance + threshold)
 
-                min_rms_ind = np.where(rms_sss)
-                rg_tolerance = rms_xx[min_rms_ind[0][0]]
-                threshold = (rg_tolerance + threshold) / 2
-
+        threshold_after_rg = _safe_float(threshold)
+        threshold_before_nonoverlap = None
         if adjust_if_nonoverlap:
             old_threshold = threshold
-
+            threshold_before_nonoverlap = None
             if optimization:
                 mean1, std1 = first_mode[0:2]
                 mean2, std2 = second_mode[0:2]
@@ -638,25 +1517,41 @@ def determine_threshold(
                     max_iterations=100,
                     thresh_low_dist_percent=adjust_thresh_low_dist_percent,
                     thresh_high_dist_percent=adjust_thresh_high_dist_percent)
-
+            threshold_before_nonoverlap = _safe_float(old_threshold)
+        threshold_after_nonoverlap = _safe_float(threshold)
         # --- TILE-WISE RELAXED THRESHOLD (data-driven; optional) ---
+        threshold_before_tile_relax = None
+        threshold_before_tile_relax = _safe_float(threshold)
+
         if TILE_RELAX:
             try:
-                # use the tile's intensities (already in dB)
+                threshold_before_relax = float(threshold)
+
                 tau_relaxed = _tile_relaxed_threshold_from_boundary(
                     intensity_tile_db=intensity_sub,
-                    tau_strict=float(threshold),
+                    tau_strict=threshold_before_relax,
                     max_band_px=3,
-                    core_iter=1)
-                threshold = float(tau_relaxed)
-            except Exception:
-                pass
+                    core_iter=1,
+                )
 
-        # add final threshold to threshold list
-        threshold_array.append(threshold)
-        threshold_idx_array.append(idx_threshold)
-        mode_array.append(modevalue)
+                if np.isfinite(tau_relaxed):
+                    tau_relaxed = float(tau_relaxed)
 
+                    max_tile_relax_shift_db = 0.5
+                    relax_shift_db = abs(tau_relaxed - threshold_before_relax)
+
+                    if relax_shift_db <= max_tile_relax_shift_db:
+                        if relax_shift_db > 1e-12:
+                            tile_relax_used = True
+                        threshold = tau_relaxed
+                    else:
+                        tile_relax_used = False
+                        threshold = threshold_before_relax
+
+            except Exception as e:
+                logger.info(f'Tile relaxed threshold skipped: {e}')
+
+        threshold_after_tile_relax = _safe_float(threshold)
 
         idx_threshold = np.searchsorted(intensity_bins, threshold)
         idx_threshold = int(np.clip(idx_threshold, 0, max(0, len(intensity_bins) - 1)))
@@ -664,36 +1559,127 @@ def determine_threshold(
         # Recompute the lower slice up to the final threshold
         low_slice_final = np.nan_to_num(intensity_counts[:idx_threshold + 1], nan=0.0)
 
-        if optimization:
-            # left Gaussian mean
-            if lock_mode_from_model:
-                # keep the lower-Gaussian mean from the model
-                modevalue_final = first_mode[0]
-            else:
-                # legacy behavior
-                modevalue_final = min(first_mode[0], intensity_bins[idx_threshold])
-            # modevalue_final = min(first_mode[0], intensity_bins[idx_threshold])
+        if low_slice_final.size == 0 or np.all(low_slice_final == 0):
+            hist_mode_final = intensity_bins[max(0, idx_threshold)]
         else:
-            # fallback: histogram peak on low side
-            if low_slice.size == 0 or np.all(low_slice == 0):
-                modevalue_final = intensity_bins[max(0, idx_threshold)]
-            else:
-                lowmaxind_cands_final, _ = find_peaks(low_slice_final, distance=5)
-                if lowmaxind_cands_final.size == 0:
-                    lowmaxind_final = int(np.argmax(low_slice_final))
-                else:
-                    lowmaxind_final = int(lowmaxind_cands_final[
-                        np.argmax(low_slice_final[lowmaxind_cands_final])])
-                lowmaxind_final = int(np.clip(lowmaxind_final, 0, idx_threshold))
-                modevalue_final = intensity_bins[lowmaxind_final]
+            lowmaxind_final, hist_mode_final, _, low_final_debug = \
+                _pick_dominant_hist_mode(
+                    intensity_bins,
+                    intensity_counts,
+                    candidate_slice=slice(0, idx_threshold + 1),
+                    rel_tol=0.002,
+                    abs_tol=1e-4,
+                    merge_gap=5,
+                    smooth_sigma=1.0,
+                )
+
+        # Critical reproducibility rule:
+        # Do not use first_mode[0] for final mode unless the fitted model was
+        # actually accepted to modify the threshold.
+        if model_intersection_used and optimization and bimodal_fit_valid:
+            modevalue_final = float(tau_mode_left)
+        else:
+            modevalue_final = float(hist_mode_final)
+        FINAL_QUANTIZE_DB = 0.01
+
+        if threshold_scale == "db":
+            if np.isfinite(threshold):
+                threshold = np.round(threshold / FINAL_QUANTIZE_DB) * FINAL_QUANTIZE_DB
+
+            if np.isfinite(modevalue_final):
+                modevalue_final = np.round(modevalue_final / FINAL_QUANTIZE_DB) * FINAL_QUANTIZE_DB
+
+        threshold_before_margin_guard = _safe_float(threshold)
         margin = 0.05
         if np.isfinite(modevalue_final) and np.isfinite(threshold) and (modevalue_final >= threshold):
+            margin_guard_used = True
             threshold = modevalue_final + margin
-            # keep idx consistent after guard tweak
             idx_threshold = np.searchsorted(intensity_bins, threshold)
             idx_threshold = int(np.clip(idx_threshold, 0, max(0, len(intensity_bins) - 1)))
+        else:
+            margin_guard_used = False
         modevalue = modevalue_final
- 
+
+        threshold_after_margin_guard = _safe_float(threshold)
+        mode_after_margin_guard = _safe_float(modevalue)
+
+
+        # Quantize final outputs
+        if threshold_scale == "db":
+            threshold = np.round(threshold / FINAL_QUANTIZE_DB) * FINAL_QUANTIZE_DB if np.isfinite(threshold) else threshold
+            modevalue = np.round(modevalue / FINAL_QUANTIZE_DB) * FINAL_QUANTIZE_DB if np.isfinite(modevalue) else modevalue
+        if extract_curvefit and curvefit_out_dir is not None:
+            _write_stage_record(curvefit_out_dir, {
+                "stage": "stage_4_threshold_final",
+                "pol": pol,
+                "block_ij": list(block_ij) if block_ij is not None else None,
+                "coord_local": [int(ystart), int(yend), int(xstart), int(xend)],
+                "coord_absolute": [
+                    int(block_origin[0] + ystart),
+                    int(block_origin[0] + yend),
+                    int(block_origin[1] + xstart),
+                    int(block_origin[1] + xend),
+                ] if block_origin is not None else None,
+
+                "threshold_final": _safe_float(threshold),
+                "idx_threshold_final": int(idx_threshold),
+                "mode_final": _safe_float(modevalue),
+
+                # Main threshold trace
+                "threshold_initial": threshold_initial,
+                "threshold_after_ki_or_otsu": threshold_after_ki_or_otsu,
+                "threshold_after_multiotsu": threshold_after_multiotsu,
+                "threshold_after_bimodal_fit": threshold_after_bimodal_fit,
+                "threshold_after_model_intersection": threshold_after_model_intersection,
+                "threshold_after_trimodal_fit": threshold_after_trimodal_fit,
+                "threshold_after_trimodal_override": threshold_after_trimodal_override,
+                "threshold_after_rg": threshold_after_rg,
+                "threshold_before_nonoverlap": threshold_before_nonoverlap,
+                "threshold_after_nonoverlap": threshold_after_nonoverlap,
+                "threshold_before_tile_relax": threshold_before_tile_relax,
+                "threshold_after_tile_relax": threshold_after_tile_relax,
+                "threshold_before_margin_guard": threshold_before_margin_guard,
+                "threshold_after_margin_guard": threshold_after_margin_guard,
+                "hist_trimodal_override_used": bool(hist_trimodal_override_used),
+                # Mode trace
+                "mode_after_bimodal_fit": mode_after_bimodal_fit,
+                "mode_after_model_intersection": mode_after_model_intersection,
+                "mode_after_trimodal_fit": mode_after_trimodal_fit,
+                "mode_after_margin_guard": mode_after_margin_guard,
+
+                # Flags
+                "optimization": bool(optimization),
+                "tri_optimization": bool(tri_optimization),
+                "model_intersection_used": bool(model_intersection_used),
+                "trimodal_override_used": bool(trimodal_override_used),
+                "tile_relax_used": bool(tile_relax_used),
+                "margin_guard_used": bool(margin_guard_used),
+                "threshold_scale": threshold_scale,
+
+                # Fit params
+                "bimodal_params": bimodal_params_debug,
+                "first_mode": first_mode_debug,
+                "second_mode": second_mode_debug,
+                "trimodal_params": trimodal_params_debug,
+                "tri_first_mode": tri_first_mode_debug,
+                "tri_second_mode": tri_second_mode_debug,
+                "tri_third_mode": tri_third_mode_debug,
+            })
+
+        if threshold_scale == "db":
+            if np.isfinite(threshold):
+                threshold = np.round(threshold / FINAL_QUANTIZE_DB) * FINAL_QUANTIZE_DB
+
+            if np.isfinite(modevalue):
+                modevalue = np.round(modevalue / FINAL_QUANTIZE_DB) * FINAL_QUANTIZE_DB
+        else:
+            # Linear case: keep more precision, or quantize in dB then convert back if needed.
+            if np.isfinite(threshold):
+                threshold = np.round(threshold, 8)
+
+            if np.isfinite(modevalue):
+                modevalue = np.round(modevalue, 8)
+
         # add final threshold to threshold list
         threshold_array.append(threshold)
         threshold_idx_array.append(idx_threshold)
@@ -716,7 +1702,11 @@ def run_sub_block(intensity,
                   water_body_subset,
                   cfg,
                   winsize=200,
-                  thres_max=None):
+                  thres_max=None,
+                  extract_curvefit=False,
+                  curvefit_out_dir=None,
+                  block_ij=None,
+                  block_origin=None):
     """
     Process sub-blocks of SAR intensity data for water detection based on
     the specified configuration.
@@ -800,19 +1790,80 @@ def run_sub_block(intensity,
 
     # Tile Selection (with water body)
     for polind, pol in enumerate(pol_list):
+        src_im = np.asarray(intensity[polind], dtype=np.float32)
+        src_im = np.round(src_im, 8).astype(np.float32)
+        tile_selection_im = src_im.copy()
+        tile_selection_im[~np.isfinite(tile_selection_im)] = np.nan
+        tile_selection_im = np.round(tile_selection_im, 8).astype(np.float32)
 
-        candidate_tile_coords = tile_selection_object.tile_selection_wbd(
-                           intensity=intensity[polind, :, :],
-                           water_mask=water_body_subset,
-                           win_size=winsize,
-                           selection_methods=tile_selection_method)
+        if pol in ['VV', 'VH', 'HH', 'HV', 'span', 'ratio']:
+            if threshold_scale == 'db':
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    target_im = _initial_threshold.convert_pow2db(src_im)
 
-        if len(candidate_tile_coords) > 0:
-            if pol in ['VV', 'VH', 'HH', 'HV', 'span', 'ratio']:
-                target_im = _initial_threshold.convert_pow2db(intensity[polind]) \
-                    if threshold_scale == 'db' else intensity[polind]
             else:
-                target_im = intensity[polind]
+                target_im = src_im
+        else:
+            target_im = src_im
+
+        target_im = np.asarray(target_im, dtype=np.float32)
+        tile_im = np.asarray(target_im, dtype=np.float32).copy()
+
+        # Remove non-finite values before tile-selection metrics
+        tile_im[~np.isfinite(tile_im)] = np.nan
+        if threshold_scale == "db":
+            tile_im = np.round(tile_im, 3).astype(np.float32)
+        else:
+            tile_im = np.round(tile_im, 8).astype(np.float32)
+        debug_dir = os.path.join(
+            cfg.groups.product_path_group.scratch_path,
+            "curvefit_debug"
+        )
+        debug_curvefit = False
+        if debug_curvefit:
+            _write_stage_record(debug_dir, {
+                "stage": "stage_1_before_tile_selection",
+                "pol": pol,
+                "polind": int(polind),
+                "block_ij": list(block_ij) if block_ij is not None else None,
+                "input_to_tile_selection": _array_summary(tile_im),
+                "tile_selection_input_linear": _array_summary(tile_selection_im),
+                "threshold_input_db": _array_summary(tile_im),
+                "water_mask": _array_summary(water_body_subset),
+                "winsize": int(winsize),
+                "selection_methods": tile_selection_method,
+            })
+
+        tile_selection_object.debug_tile_metric = False
+        tile_selection_object.debug_metric_dir = debug_dir
+        tile_selection_object.debug_context = {
+            "stage": "stage_1_tile_metric",
+            "pol": pol,
+            "polind": int(polind),
+            "block_ij": list(block_ij) if block_ij is not None else None,
+            "block_origin": list(block_origin) if block_origin is not None else None,
+            "threshold_scale": threshold_scale,
+            "selection_methods": tile_selection_method,
+        }
+        candidate_tile_coords = tile_selection_object.tile_selection_wbd(
+                        intensity=tile_selection_im,
+                        water_mask=water_body_subset,
+                        win_size=winsize,
+                        selection_methods=tile_selection_method)
+        candidate_tile_coords_arr = np.asarray(candidate_tile_coords)
+
+        if debug_curvefit:
+
+            _write_stage_record(debug_dir, {
+                "stage": "stage_1_after_tile_selection",
+                "pol": pol,
+                "polind": int(polind),
+                "block_ij": list(block_ij) if block_ij is not None else None,
+                "n_candidate_tiles": int(len(candidate_tile_coords)),
+                "candidate_tile_coords": candidate_tile_coords_arr.tolist(),
+            })
+        if len(candidate_tile_coords) > 0:
+            target_im = tile_im
             (min_intensity_histogram,
              max_intensity_histogram,
              step_histogram) = _get_histogram_params(pol, threshold_scale)
@@ -857,7 +1908,13 @@ def run_sub_block(intensity,
                 adjust_if_nonoverlap=adjust_threshold_flag,
                 adjust_thresh_low_dist_percent=low_dist_percentile,
                 adjust_thresh_high_dist_percent=high_dist_percentile,
-                )
+                extract_curvefit=extract_curvefit,
+                curvefit_out_dir=curvefit_out_dir,
+                pol=pol,
+                block_ij=block_ij,
+                block_origin=block_origin,
+                threshold_scale=threshold_scale,
+            )
 
             if threshold_scale == 'linear':
                 # intensity_threshold and mode_tau are arrays (or NaNs) in linear power
@@ -954,7 +2011,9 @@ def compute_water_spatial_coverage(
         valid_area = no_data_area == 0
         water_pixel_number += np.sum(water_binary[valid_area])
         valid_pixel_number += np.sum(valid_area)
-
+    if valid_pixel_number == 0:
+        logger.warning("No valid pixels found for water spatial coverage.")
+        return 0.0
     water_percentage = water_pixel_number / valid_pixel_number
     return water_percentage
 
@@ -1014,25 +2073,37 @@ def fill_threshold_and_mode_decoupled_with_gdal(threshold_dict,
     delta_dict = _build_delta_dict(threshold_dict, mode_dict)
 
     # 1) Interpolate threshold -> T
-    _initial_threshold.fill_threshold_with_gdal(threshold_array=threshold_dict,
-                             rows=rows, cols=cols,
-                             filename=filename_threshold,
-                             outputdir=outputdir,
-                             pol_list=pol_list,
-                             filled_value=None,
-                             no_data=no_data,
-                             average_tile=average_tile)
+    _initial_threshold.fill_threshold_with_gdal(
+        threshold_array=threshold_dict,
+        rows=rows,
+        cols=cols,
+        filename=filename_threshold,
+        outputdir=outputdir,
+        pol_list=pol_list,
+        filled_value=None,
+        no_data=no_data,
+        average_tile=average_tile,
+        smooth_sigma=0.75,
+        resample_alg="bilinear",
+        save_cog=True,
+    )
 
     # 2) Interpolate delta -> D  (temporary filename)
     tmp_delta_name = filename_threshold + "_delta"
-    _initial_threshold.fill_threshold_with_gdal(threshold_array=delta_dict,
-                             rows=rows, cols=cols,
-                             filename=tmp_delta_name,
-                             outputdir=outputdir,
-                             pol_list=pol_list,
-                             filled_value=None,
-                             no_data=no_data,
-                             average_tile=average_tile)
+    _initial_threshold.fill_threshold_with_gdal(
+        threshold_array=delta_dict,
+        rows=rows,
+        cols=cols,
+        filename=tmp_delta_name,
+        outputdir=outputdir,
+        pol_list=pol_list,
+        filled_value=None,
+        no_data=no_data,
+        average_tile=average_tile,
+        smooth_sigma=0.75,
+        resample_alg="bilinear",
+        save_cog=False,
+    )
 
     # 3) Compose mode = threshold - max(delta, margin) and write out
     for pol in pol_list:
@@ -1065,7 +2136,7 @@ def fill_threshold_and_mode_decoupled_with_gdal(threshold_dict,
         d_ds = None
 
         _dswx_sar_util._save_as_cog(m_path, outputdir, logger,
-                                   compression='DEFLATE', nbits=16)
+                                   compression='DEFLATE', nbits=None)
 
 
 def process_block(ii, jj,
@@ -1129,21 +2200,55 @@ def process_block(ii, jj,
     image_sub = filt_raster_tif.ReadAsArray(jj * block_col,
                                             ii * block_row,
                                             x_size,
-                                            y_size)
+                                            y_size,
+                                            buf_type=gdal.GDT_Float32
+                                            )
+    image_sub = np.asarray(image_sub, dtype=np.float32)
+    if getattr(cfg.groups.processing.initial_threshold, "force_float16_debug", False):
+        image_sub = image_sub.astype(np.float16).astype(np.float32)
     filt_raster_tif = None
 
     wbd_gdal = gdal.Open(wbd_im_str)
     wbd_sub = wbd_gdal.ReadAsArray(jj * block_col,
                                    ii * block_row,
                                    x_size,
-                                   y_size)
+                                   y_size,
+                                   buf_type=gdal.GDT_Byte
+                                )
     wbd_gdal = None
+    wbd_sub = np.asarray(wbd_sub, dtype=np.uint8)
+    debug_dir = os.path.join(
+        cfg.groups.product_path_group.scratch_path,
+        "curvefit_debug"
+    )
+    debug_curvefit = False
+    if debug_curvefit:
+        _write_stage_record(debug_dir, {
+            "stage": "stage_0_block_read",
+            "block_ij": [int(ii), int(jj)],
+            "block_origin": [int(ii * block_row), int(jj * block_col)],
+            "x_size": int(x_size),
+            "y_size": int(y_size),
+            "image": _array_summary(image_sub),
+            "wbd": _array_summary(wbd_sub),
+        })
+    block_origin = (ii * block_row, jj * block_col)
+    block_ij = (ii, jj)
+    curvefit_out_dir = os.path.join(
+        cfg.groups.product_path_group.scratch_path,
+        "curvefit_cases"
+    )
+
     threshold_tau_block, mode_tau_block, candidate_tile_coords = \
         run_sub_block(
             image_sub,
             wbd_sub,
             cfg,
-            thres_max=thres_max)
+            thres_max=thres_max,
+            extract_curvefit=False,
+            curvefit_out_dir=curvefit_out_dir,
+            block_ij=block_ij,
+            block_origin=block_origin)
 
     if average_tile_flag:
         threshold_list = [np.nanmedian(test_threshold)
@@ -1348,11 +2453,11 @@ def run(cfg):
                 block_col)
 
         else:
-            threshold_tau_set = [[], [], []]
-            mode_tau_set = [[], [], []]
-            coord_row_list = [[], [], []]
-            coord_col_list = [[], [], []]
-            window_coord_list = [[], [], []]
+            threshold_tau_set = [[] for _ in range(band_number)]
+            mode_tau_set = [[] for _ in range(band_number)]
+            coord_row_list = [[] for _ in range(band_number)]
+            coord_col_list = [[] for _ in range(band_number)]
+            window_coord_list = [[] for _ in range(band_number)]
 
             for ii, jj, threshold_tau_blocks, mode_tau_blocks, window_coords \
                     in results:
@@ -1414,24 +2519,20 @@ def run(cfg):
             logger.info('No threshold_tau')
         # Currently, only 'gdal_grid' method is supported.
         if threshold_extending_method == 'gdal_grid':
-            dict_threshold_list = [threshold_tau_dict, mode_tau_dict]
-            interp_thres_str_list = ['intensity_threshold_filled',
-                                     'mode_tau_filled']
-            for dict_thres, thres_str in zip(dict_threshold_list,
-                                             interp_thres_str_list):
-                fill_threshold_and_mode_decoupled_with_gdal(
-                    threshold_dict=threshold_tau_dict,
-                    mode_dict=mode_tau_dict,
-                    rows=height,
-                    cols=width,
-                    filename_threshold='intensity_threshold_filled',
-                    filename_mode='mode_tau_filled',
-                    outputdir=outputdir,
-                    pol_list=pol_list,
-                    margin=0.05,
-                    no_data=-50,
-                    average_tile=average_threshold_flag
-                )
+
+            fill_threshold_and_mode_decoupled_with_gdal(
+                threshold_dict=threshold_tau_dict,
+                mode_dict=mode_tau_dict,
+                rows=height,
+                cols=width,
+                filename_threshold='intensity_threshold_filled',
+                filename_mode='mode_tau_filled',
+                outputdir=outputdir,
+                pol_list=pol_list,
+                margin=0.05,
+                no_data=-50,
+                average_tile=average_threshold_flag
+            )
                 # fill_threshold_with_gdal(
                 #     threshold_array=dict_thres,
                 #     rows=height,
@@ -1446,6 +2547,7 @@ def run(cfg):
     if processing_cfg.debug_mode:
 
         intensity_whole = _dswx_sar_util.read_geotiff(filt_im_str)
+        intensity_whole = np.asarray(intensity_whole, dtype=np.float32)
         if intensity_whole.ndim == 2:
             intensity_whole = np.expand_dims(intensity_whole,
                                              axis=0)

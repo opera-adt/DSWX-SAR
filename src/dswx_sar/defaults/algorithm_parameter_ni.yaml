@@ -239,14 +239,32 @@ runconfig:
             copol_threshold: -10
             line_per_block: 300
 
+            # Class-specific thresholds
+            tree_dual_pol_ratio_threshold: 8.0
+            tree_cross_pol_min: -13.0
+            tree_copol_threshold: -10.0
+
+            short_vegetation_dual_pol_ratio_threshold: 8.5
+            short_vegetation_cross_pol_min: -14.0
+            short_vegetation_copol_threshold: -12.0
+
             # If 'auto' is selected and GLAD is available, GLAD will be
             # used for inundated vegetation. In the 'auto' option,
             # GLAD is not provided, then WorldCover will be used to extract
             # the target areas.
             target_area_file_type: 'auto'
             target_worldcover_class: ['Herbaceous wetland', 'Tree Cover', 'Shrubs', 'Grassland', 'Mangrove', 'Moss and lichen', 'Crop']
-            target_glad_class: ['200-207', '125-148'] #['112-124', '200-207', '19-24', '125-148']
+            target_glad_class:
+                - 123-148
+                - 200-207
 
+            # New class split
+            target_glad_tree_class:
+                - 125-148
+
+            target_glad_short_vegetation_class:
+                - 123-124
+                - 200-207
             # Optional refinement for inundated vegetation using fuzzy logic
             # and region growing. Reference water is intentionally excluded.
             fuzzy_refinement:
@@ -260,7 +278,7 @@ runconfig:
 
                 # 'intersection' is conservative and reduces false positives.
                 # 'union' expands IV areas and may reduce omission errors.
-                combine_mode: intersection
+                combine_mode: union
 
                 # Dual-pol ratio fuzzy membership range in dB.
                 # The current hard IV threshold is 8 dB, so this makes
@@ -283,6 +301,14 @@ runconfig:
 
                 # Block size for IV fuzzy computation.
                 line_per_block: 300
+                cross_pol_fuzzy_mode: soft
+                cross_pol_weight: 0.5
+                cross_pol_soft_margin: 2.0
+            water_connectivity:
+                enabled: true
+                dz_max: 1.0
+                max_distance_pixels: 100
+                connectivity: 8
 
             filter:
                 enabled: True

@@ -20,6 +20,67 @@ from dswx_sar.common import (_region_growing)
 logger = logging.getLogger('dswx_sar')
 
 
+import json
+from pathlib import Path
+import numpy as np
+
+
+
+def _debug_safe_float(x):
+    try:
+        x = float(x)
+        if np.isfinite(x):
+            return x
+        return None
+    except Exception:
+        return None
+
+
+def _debug_array_summary(a):
+    a = np.asarray(a)
+    finite = np.isfinite(a)
+
+    out = {
+        "shape": list(a.shape),
+        "size": int(a.size),
+        "n_finite": int(finite.sum()),
+        "n_nan": int(np.isnan(a).sum()) if np.issubdtype(a.dtype, np.number) else None,
+        "n_inf": int(np.isinf(a).sum()) if np.issubdtype(a.dtype, np.number) else None,
+    }
+
+    if finite.any():
+        af = a[finite].astype(np.float64)
+        out.update({
+            "min": _debug_safe_float(np.min(af)),
+            "max": _debug_safe_float(np.max(af)),
+            "mean": _debug_safe_float(np.mean(af)),
+            "std": _debug_safe_float(np.std(af)),
+            "median": _debug_safe_float(np.median(af)),
+        })
+    else:
+        out.update({
+            "min": None,
+            "max": None,
+            "mean": None,
+            "std": None,
+            "median": None,
+        })
+
+    return out
+
+
+def _write_tile_metric_record(out_dir, record):
+    if out_dir is None:
+        return
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    path = out_dir / "tile_metric_manifest.jsonl"
+    with open(path, "a") as f:
+        f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
 def convert_pow2db(intensity):
     """Convert power to decibels
 
@@ -42,7 +103,9 @@ class TileSelection:
         self.wbd_max_value = ref_water_max
         self.threshold_twele = [0.09, 0.8, 0.97]
         self.threshold_bimodality = 0.7
-
+        self.debug_tile_metric = False
+        self.debug_metric_dir = None
+        self.debug_context = {}
     def rescale_value(self,
                       raster,
                       min_value,
@@ -73,7 +136,8 @@ class TileSelection:
                                threshold=0.7,
                                min_intensity_histogram=-30,
                                max_intensity_histogram=5,
-                               numstep=100):
+                               numstep=100,
+                           return_metric=False):
         ''' Select tiles with bimodal distribution
 
         Parameters
@@ -141,7 +205,18 @@ class TileSelection:
         max_sigma = np.nanmax(sigma)
         select_flag = max_sigma > threshold
 
-        return max_sigma, sigma, select_flag
+        if not return_metric:
+            return max_sigma, sigma, select_flag
+
+        metric = {
+            "bimodality_max_sigma": _debug_safe_float(max_sigma),
+            "bimodality_threshold": _debug_safe_float(threshold),
+            "bimodality_select_flag": bool(select_flag),
+            "intensity_db": _debug_array_summary(intensity_db),
+            "sigma": _debug_array_summary(sigma),
+        }
+
+        return max_sigma, sigma, select_flag, metric
 
     def select_tile_twele(self,
                           intensity_gray,
@@ -195,7 +270,8 @@ class TileSelection:
         return select_flag, cvx, rx
 
     def select_tile_chini(self,
-                          intensity):
+                          intensity, return_metric=False
+                          ):
         """Select tiles based on Chini's method
         Chini, M., Hostache, R., Giustarini, L., & Matgen, P. (2017).
         A hierarchical split-based approach for parametric thresholding
@@ -214,12 +290,151 @@ class TileSelection:
             Returns True if the tile's intensity distribution is bimodal,
             and False otherwise.
         """
-        metric_obj = _refine_with_bimodality.BimodalityMetrics(
-                    intensity)
+        metric_obj = _refine_with_bimodality.BimodalityMetrics(intensity)
         select_flag = metric_obj.compute_metric()
 
-        return select_flag
+        if not return_metric:
+            return select_flag
 
+        metric = {
+            "chini_select_flag": bool(select_flag),
+            "chini_enough_number": bool(getattr(metric_obj, "enough_number", False)),
+            "chini_optimization": bool(getattr(metric_obj, "optimization", False)),
+            "threshold_global_otsu": _debug_safe_float(
+                getattr(metric_obj, "threshold_global_otsu", np.nan)
+            ),
+        }
+
+        try:
+            ashman, bhc, surface_ratio, bm_coeff, bc_coeff = metric_obj.get_metric()
+
+            thresholds = [1.5, 0.97, 0.1, 0.7]
+
+            ashman_bool = ashman > thresholds[0]
+            bm_coeff_bool = bm_coeff > thresholds[3]
+            surface_ratio_bool = surface_ratio > thresholds[2]
+            bc_coeff_bool = bc_coeff > 5 / 9
+
+            bimodal_metrics = (
+                int(ashman_bool) +
+                int(bm_coeff_bool) +
+                int(bc_coeff_bool)
+            )
+            first_mode = getattr(metric_obj, "first_mode", None)
+            second_mode = getattr(metric_obj, "second_mode", None)
+            params = getattr(metric_obj, "params", None)
+
+            chini_fit_invalid = False
+
+            if first_mode is None or second_mode is None or params is None:
+                chini_fit_invalid = True
+            else:
+                first_mode_arr = np.asarray(first_mode, dtype=np.float64).ravel()
+                second_mode_arr = np.asarray(second_mode, dtype=np.float64).ravel()
+                params_arr = np.asarray(params, dtype=np.float64).ravel()
+
+                if first_mode_arr.size < 3 or second_mode_arr.size < 3:
+                    chini_fit_invalid = True
+                else:
+                    m1, s1, a1 = first_mode_arr[:3]
+                    m2, s2, a2 = second_mode_arr[:3]
+
+                    tile_db = convert_pow2db(intensity)
+                    tile_db = tile_db[np.isfinite(tile_db)]
+
+                    if tile_db.size > 0:
+                        tile_min = float(np.nanmin(tile_db))
+                        tile_max = float(np.nanmax(tile_db))
+                    else:
+                        tile_min = None
+                        tile_max = None
+
+                    mean_sep = abs(m2 - m1)
+
+                    chini_fit_invalid = (
+                        (not np.all(np.isfinite(params_arr))) or
+                        (not np.all(np.isfinite(first_mode_arr))) or
+                        (not np.all(np.isfinite(second_mode_arr))) or
+                        (s1 < 0.05) or
+                        (s2 < 0.05) or
+                        (s1 > 3.0) or
+                        (s2 > 3.0) or
+                        (a1 >= 0.98) or
+                        (a2 >= 0.98) or
+                        (mean_sep < 0.5) or
+                        (mean_sep > 8.0)
+                    )
+
+                    if tile_min is not None and tile_max is not None:
+                        pad = 1.0
+                        if not (tile_min - pad <= m1 <= tile_max + pad):
+                            chini_fit_invalid = True
+                        if not (tile_min - pad <= m2 <= tile_max + pad):
+                            chini_fit_invalid = True
+
+            if chini_fit_invalid:
+                select_flag = False
+                ashman_bool = False
+                bm_coeff_bool = False
+                surface_ratio_bool = False
+                bc_coeff_bool = False
+                bimodal_metrics = 0
+
+            metric.update({
+                "chini_ashman": _debug_safe_float(ashman),
+                "chini_bhc": _debug_safe_float(bhc),
+                "chini_surface_ratio": _debug_safe_float(surface_ratio),
+                "chini_bm_coeff": _debug_safe_float(bm_coeff),
+                "chini_bc_coeff": _debug_safe_float(bc_coeff),
+
+                "chini_ashman_bool": bool(ashman_bool),
+                "chini_bm_coeff_bool": bool(bm_coeff_bool),
+                "chini_surface_ratio_bool": bool(surface_ratio_bool),
+                "chini_bc_coeff_bool": bool(bc_coeff_bool),
+                "chini_bimodal_metrics": int(bimodal_metrics),
+
+                "chini_condition_1": bool((bimodal_metrics >= 2) or (ashman > 3)),
+                "chini_condition_2": bool(surface_ratio_bool),
+            })
+            metric.update({
+
+                "chini_first_mode": [
+                    _debug_safe_float(x) for x in np.asarray(
+                        getattr(metric_obj, "first_mode", [])
+                    ).ravel()
+                ] if hasattr(metric_obj, "first_mode") else None,
+
+                "chini_second_mode": [
+                    _debug_safe_float(x) for x in np.asarray(
+                        getattr(metric_obj, "second_mode", [])
+                    ).ravel()
+                ] if hasattr(metric_obj, "second_mode") else None,
+                "chini_params": [
+                    _debug_safe_float(x) for x in np.asarray(
+                        getattr(metric_obj, "params", [])
+                    ).ravel()
+                ],
+                "chini_expected": [
+                    _debug_safe_float(x) for x in np.asarray(
+                        getattr(metric_obj, "expected", [])
+                    ).ravel()
+                ],
+            })
+        except Exception as e:
+            metric["chini_metric_error"] = str(e)
+
+        # Also save fitted modes if available.
+        for attr in ["first_mode", "second_mode"]:
+            if hasattr(metric_obj, attr):
+                val = getattr(metric_obj, attr)
+                try:
+                    metric[f"chini_{attr}"] = [
+                        _debug_safe_float(x) for x in np.asarray(val).ravel()
+                    ]
+                except Exception:
+                    pass
+
+        return select_flag, metric
     def get_water_portion_mask(self, water_mask):
         """
         Check if a water mask image contains both water and non-water areas.
@@ -415,13 +630,54 @@ class TileSelection:
 
                                 # Initially set flag as True
                                 tile_selected_flag = True
-
+                                tile_metric_record = {
+                                    **(getattr(self, "debug_context", {}) or {}),
+                                    "tile_id": int(ind_subtile),
+                                    "subrun": int(subrun),
+                                    "win_size": int(win_size),
+                                    "coord_local": [
+                                        int(x_start), int(x_end),
+                                        int(y_start), int(y_end)
+                                    ],
+                                    "validnum": int(validnum),
+                                    "water_number_sample_sub": int(water_number_sample_sub),
+                                    "water_area_sublock_flag": bool(water_area_sublock_flag),
+                                    "num_pixel_max": _debug_safe_float(num_pixel_max),
+                                    "intensity_sub": _debug_array_summary(intensity_sub),
+                                    "water_mask_sublock": _debug_array_summary(water_mask_sublock),
+                                    "checked": True,
+                                    "pass_twele": None,
+                                    "pass_chini": None,
+                                    "pass_bimodality": None,
+                                }
+                                ctx = getattr(self, "debug_context", {}) or {}
+                                if ctx.get("block_origin") is not None:
+                                    row0, col0 = ctx["block_origin"]
+                                    tile_metric_record["coord_absolute"] = [
+                                        int(row0 + x_start), int(row0 + x_end),
+                                        int(col0 + y_start), int(col0 + y_end),
+                                    ]
                                 if {'twele', 'combined'}.intersection(
                                         set(selection_methods)):
-                                    tile_selected_flag, _, _ = \
-                                        self.select_tile_twele(
-                                            intensity_sub_gray,
-                                            mean_intensity_global)
+                                    # tile_selected_flag, _, _ = \
+                                    #     self.select_tile_twele(
+                                    #         intensity_sub_gray,
+                                    #         mean_intensity_global)
+                                    # if tile_selected_flag:
+                                    #     selected_tile_twele.append(True)
+                                    # else:
+                                    #     selected_tile_twele.append(False)
+
+
+
+                                    tile_selected_flag, cvx, rx = self.select_tile_twele(
+                                        intensity_sub_gray,
+                                        mean_intensity_global)
+
+                                    tile_metric_record["pass_twele"] = bool(tile_selected_flag)
+                                    tile_metric_record["twele_cvx"] = _debug_safe_float(cvx)
+                                    tile_metric_record["twele_rx"] = _debug_safe_float(rx)
+
                                     if tile_selected_flag:
                                         selected_tile_twele.append(True)
                                     else:
@@ -440,16 +696,27 @@ class TileSelection:
                                         selected_tile_chini.append(False)
 
                                     else:
-                                        tile_selected_flag = \
-                                            self.select_tile_chini(
-                                                intensity_sub
-                                                )
+                                        # tile_selected_flag = \
+                                        #     self.select_tile_chini(
+                                        #         intensity_sub
+                                        #         )
+
+                                        # if tile_selected_flag:
+                                        #     selected_tile_chini.append(True)
+                                        # else:
+                                        #     selected_tile_chini.append(False)
+                                        tile_selected_flag, chini_metric = self.select_tile_chini(
+                                            intensity_sub,
+                                            return_metric=True
+                                        )
+
+                                        tile_metric_record["pass_chini"] = bool(tile_selected_flag)
+                                        tile_metric_record.update(chini_metric)
 
                                         if tile_selected_flag:
                                             selected_tile_chini.append(True)
                                         else:
                                             selected_tile_chini.append(False)
-
                                 else:
                                     selected_tile_chini.append(False)
 
@@ -461,11 +728,14 @@ class TileSelection:
 
                                         selected_tile_bimodality.append(False)
                                     else:
-                                        _, _, tile_bimode_flag = \
-                                            self.select_tile_bimodality(
-                                                intensity_sub,
-                                                threshold=self.threshold_bimodality
-                                                )
+                                        _, _, tile_bimode_flag, bimodality_metric = self.select_tile_bimodality(
+                                            intensity_sub,
+                                            threshold=self.threshold_bimodality,
+                                            return_metric=True
+                                        )
+
+                                        tile_metric_record["pass_bimodality"] = bool(tile_bimode_flag)
+                                        tile_metric_record.update(bimodality_metric)
 
                                         if tile_bimode_flag:
                                             selected_tile_bimodality.append(
@@ -478,12 +748,62 @@ class TileSelection:
                                 else:
                                     selected_tile_bimodality.append(False)
 
+                                if getattr(self, "debug_tile_metric", False):
+                                    if "combined" in selection_methods:
+                                        final_pass = (
+                                            bool(tile_metric_record.get("pass_twele")) and
+                                            bool(tile_metric_record.get("pass_chini")) and
+                                            bool(tile_metric_record.get("pass_bimodality"))
+                                        )
+                                    else:
+                                        final_pass = True
+                                        if "twele" in selection_methods:
+                                            final_pass = final_pass and bool(tile_metric_record.get("pass_twele"))
+                                        if "chini" in selection_methods:
+                                            final_pass = final_pass and bool(tile_metric_record.get("pass_chini"))
+                                        if "bimodality" in selection_methods:
+                                            final_pass = final_pass and bool(tile_metric_record.get("pass_bimodality"))
+
+                                    tile_metric_record["passed_final_estimate"] = bool(final_pass)
+
+                                    _write_tile_metric_record(
+                                        getattr(self, "debug_metric_dir", None),
+                                        tile_metric_record
+                                    )
+
+
                             else:
                                 bimodality_max_set.append(np.nan)
                                 selected_tile_twele.append(False)
                                 selected_tile_chini.append(False)
                                 selected_tile_bimodality.append(False)
+                                if getattr(self, "debug_tile_metric", False):
+                                    ctx = getattr(self, "debug_context", {}) or {}
+                                    record = {
+                                        **ctx,
+                                        "tile_id": int(ind_subtile),
+                                        "subrun": int(subrun),
+                                        "win_size": int(win_size),
+                                        "coord_local": [
+                                            int(x_start), int(x_end),
+                                            int(y_start), int(y_end)
+                                        ],
+                                        "validnum": int(validnum),
+                                        "water_number_sample_sub": int(water_number_sample_sub),
+                                        "water_area_sublock_flag": bool(water_area_sublock_flag),
+                                        "num_pixel_max": _debug_safe_float(num_pixel_max),
+                                        "checked": False,
+                                        "skip_reason": "not_enough_valid_or_no_water_land_boundary",
+                                        "pass_twele": False,
+                                        "pass_chini": False,
+                                        "pass_bimodality": False,
+                                        "passed_final_estimate": False,
+                                    }
 
+                                    _write_tile_metric_record(
+                                        getattr(self, "debug_metric_dir", None),
+                                        record
+                                    )
                             # keep coordinates for the searching window.
                             coordinate.append(
                                 [ind_subtile,
@@ -758,6 +1078,78 @@ def compute_ki_threshold(
     threshold = intensity_bins[index_ki_threshold]
 
     return threshold, index_ki_threshold
+
+
+def compute_ki_threshold_from_hist(intensity_bins, intensity_counts):
+    """
+    Compute KI threshold from a precomputed canonical histogram.
+
+    This avoids recomputing np.histogram inside _initial_threshold.compute_ki_threshold,
+    which can reintroduce Intel/Mac differences.
+    """
+    intensity_bins = np.asarray(intensity_bins, dtype=np.float64)
+    intensity_counts = np.asarray(intensity_counts, dtype=np.float64)
+    intensity_counts = np.nan_to_num(
+        intensity_counts,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0
+    )
+
+    negligible_value = _dswx_sar_util.Constants.negligible_value
+
+    intensity_cumsum = np.cumsum(intensity_counts)
+    intensity_cumsum = np.where(
+        intensity_cumsum <= 0,
+        negligible_value,
+        intensity_cumsum
+    )
+
+    intensity_area = np.cumsum(intensity_counts * intensity_bins)
+    intensity_s = np.cumsum(intensity_counts * intensity_bins ** 2)
+
+    var_f = intensity_s / intensity_cumsum - (
+        intensity_area / intensity_cumsum
+    ) ** 2
+    var_f = np.where(var_f <= 0, negligible_value, var_f)
+    sigma_f = np.sqrt(var_f)
+
+    cb = intensity_cumsum[-1] - intensity_cumsum
+    cb = np.where(cb <= 0, negligible_value, cb)
+
+    mb = intensity_area[-1] - intensity_area
+    sb = intensity_s[-1] - intensity_s
+
+    var_b = sb / cb - (mb / cb) ** 2
+    var_b = np.where(var_b <= 0, negligible_value, var_b)
+    sigma_b = np.sqrt(var_b)
+
+    norm_cumsum = intensity_cumsum / intensity_cumsum[-1]
+    norm_cumsum = np.where(
+        norm_cumsum >= 1,
+        1 - negligible_value,
+        norm_cumsum
+    )
+    norm_cumsum = np.where(
+        norm_cumsum <= 0,
+        negligible_value,
+        norm_cumsum
+    )
+
+    minus_cumsum = 1 - norm_cumsum
+
+    prob_array = (
+        norm_cumsum * np.log(sigma_f)
+        + minus_cumsum * np.log(sigma_b)
+        - norm_cumsum * np.log(norm_cumsum)
+        - minus_cumsum * np.log(minus_cumsum)
+    )
+    prob_array[~np.isfinite(prob_array)] = np.inf
+
+    idx_threshold = int(np.argmin(prob_array))
+    threshold = float(intensity_bins[idx_threshold])
+
+    return threshold, idx_threshold, prob_array
 
 
 def determine_threshold(
@@ -1280,7 +1672,371 @@ def fill_threshold_with_gdal(threshold_array,
                              pol_list,
                              filled_value,
                              no_data=-50,
-                             average_tile=True):
+                             average_tile=True,
+                             smooth_sigma=0.75,
+                             resample_alg="bilinear",
+                             save_cog=True):
+    """
+    Fast deterministic threshold filling.
+
+    For average_tile=True:
+      1. Use the regular coarse threshold grid directly.
+      2. Fill NaNs on the coarse grid with deterministic nearest neighbor.
+      3. Optionally smooth the coarse grid.
+      4. Write coarse GeoTIFF.
+      5. Upsample to full image size with GDAL bilinear/cubic.
+
+    This avoids:
+      - scipy.griddata Delaunay platform differences
+      - sparse gdal_grid circular IDW artifacts
+      - slow CSV/VRT/gdal_grid path
+
+    Parameters
+    ----------
+    threshold_array : dict
+        Dictionary with keys 'array', 'block_row', 'block_col'.
+        For average_tile=True, array shape is [tau_row, tau_col, n_pol].
+    rows, cols : int
+        Full output raster size.
+    filename : str
+        Output base name, e.g. 'intensity_threshold_filled'.
+    outputdir : str
+        Scratch/output directory.
+    pol_list : list[str]
+        Polarizations.
+    filled_value : unused
+        Kept for API compatibility.
+    no_data : float
+        No-data value.
+    average_tile : bool
+        True for tile-averaged threshold grid.
+    smooth_sigma : float or None
+        Gaussian smoothing sigma in coarse-grid pixels.
+        Use None or 0 to disable.
+    resample_alg : str
+        'bilinear', 'cubic', or 'nearest'.
+    save_cog : bool
+        Whether to save final full-resolution raster as COG.
+        Set False for temporary delta rasters.
+    """
+
+    import os
+    import numpy as np
+    from osgeo import gdal
+    from scipy import ndimage, interpolate
+
+    def _fill_nan_nearest_regular_grid(z, no_data_value=-50):
+        """
+        Fill NaNs in a regular 2D grid using nearest valid cell.
+        Deterministic and fast.
+        """
+        z = np.asarray(z, dtype=np.float32).copy()
+        z[z == no_data_value] = np.nan
+
+        valid = np.isfinite(z)
+
+        if np.all(valid):
+            return z
+
+        if not np.any(valid):
+            return z
+
+        # distance_transform_edt returns indices of nearest valid cell
+        # when applied to invalid mask.
+        nearest_indices = ndimage.distance_transform_edt(
+            ~valid,
+            return_distances=False,
+            return_indices=True,
+        )
+
+        z_filled = z.copy()
+        z_filled[~valid] = z[
+            nearest_indices[0][~valid],
+            nearest_indices[1][~valid],
+        ]
+
+        return z_filled
+
+    def _smooth_only_if_requested(z, sigma):
+        """
+        Smooth the filled coarse grid.
+        """
+        if sigma is None or sigma <= 0:
+            return z.astype(np.float32)
+
+        return ndimage.gaussian_filter(
+            z.astype(np.float32),
+            sigma=float(sigma),
+            mode="nearest",
+        ).astype(np.float32)
+
+    def _write_geotiff(path, arr, geotransform, projection=""):
+        driver = gdal.GetDriverByName("GTiff")
+        ds = driver.Create(
+            path,
+            arr.shape[1],
+            arr.shape[0],
+            1,
+            gdal.GDT_Float32,
+            options=["COMPRESS=DEFLATE", "TILED=YES"],
+        )
+        ds.SetGeoTransform(geotransform)
+        if projection:
+            ds.SetProjection(projection)
+        band = ds.GetRasterBand(1)
+        band.WriteArray(arr.astype(np.float32))
+        band.SetNoDataValue(no_data)
+        ds.FlushCache()
+        ds = None
+
+    def _upsample_coarse_to_full(coarse_path, full_path, rows, cols, alg):
+        """
+        Upsample coarse raster to full image size using GDAL.
+        This replaces gdal_grid for average_tile=True.
+        """
+        src = gdal.Open(coarse_path, gdal.GA_ReadOnly)
+        if src is None:
+            raise RuntimeError(f"Cannot open coarse raster: {coarse_path}")
+
+        # Keep same coordinate extent as coarse raster, but force full pixel size.
+        gdal.Translate(
+            full_path,
+            src,
+            width=int(cols),
+            height=int(rows),
+            resampleAlg=alg,
+            outputType=gdal.GDT_Float32,
+            creationOptions=["COMPRESS=DEFLATE", "TILED=YES"],
+        )
+        src = None
+
+    if average_tile:
+        tau_row, tau_col, n_pol = threshold_array["array"].shape
+        block_row = threshold_array["block_row"]
+        block_col = threshold_array["block_col"]
+
+        # Coarse raster extent should match full image extent: x=[0, cols], y=[0, rows].
+        # Pixel size is approximately block_col/block_row.
+        #
+        # Use north-up geotransform with y decreasing.
+        coarse_gt = (
+            0.0,
+            float(cols) / float(tau_col),
+            0.0,
+            float(rows),
+            0.0,
+            -float(rows) / float(tau_row),
+        )
+
+        for polind, pol in enumerate(pol_list):
+            z = np.asarray(
+                threshold_array["array"][:, :, polind],
+                dtype=np.float32,
+            ).copy()
+
+            z[z == no_data] = np.nan
+
+            tif_file_str = os.path.join(outputdir, f"{filename}_{pol}.tif")
+            coarse_file_str = os.path.join(
+                outputdir,
+                f"{filename}_{pol}_coarse_tmp.tif",
+            )
+
+            if np.count_nonzero(np.isfinite(z)) > 1:
+                z_filled = _fill_nan_nearest_regular_grid(
+                    z,
+                    no_data_value=no_data,
+                )
+
+                z_filled = _smooth_only_if_requested(
+                    z_filled,
+                    smooth_sigma,
+                )
+
+                _write_geotiff(
+                    coarse_file_str,
+                    z_filled,
+                    coarse_gt,
+                    projection="",
+                )
+
+                _upsample_coarse_to_full(
+                    coarse_file_str,
+                    tif_file_str,
+                    rows=rows,
+                    cols=cols,
+                    alg=resample_alg,
+                )
+
+            elif np.count_nonzero(np.isfinite(z)) == 1:
+                value = float(z[np.isfinite(z)][0])
+                _dswx_sar_util.create_geotiff_with_one_value(
+                    tif_file_str,
+                    shape=[rows, cols],
+                    filled_value=value,
+                )
+
+            else:
+                logger.info(f"threshold array is empty for {pol}")
+
+                empty_data = np.ones((rows, cols), dtype=np.float32) * no_data
+
+                geotransform = (0.0, 1.0, 0.0, float(rows), 0.0, -1.0)
+                _write_geotiff(
+                    tif_file_str,
+                    empty_data,
+                    geotransform,
+                    projection="",
+                )
+
+            if save_cog:
+                _dswx_sar_util._save_as_cog(
+                    tif_file_str,
+                    outputdir,
+                    logger,
+                    compression="DEFLATE",
+                    nbits=16,
+                )
+
+            # Optional cleanup
+            try:
+                if os.path.exists(coarse_file_str):
+                    os.remove(coarse_file_str)
+            except Exception:
+                pass
+
+        return
+
+    # ------------------------------------------------------------------
+    # Fallback for average_tile=False.
+    # Keep original sparse-point path, but write dense regular grid first
+    # to reduce circular artifacts.
+    # ------------------------------------------------------------------
+    x_coarse_grid = np.arange(0, cols + 1, 400)
+    y_coarse_grid = np.arange(0, rows + 1, 400)
+    x_arr_tau, y_arr_tau = np.meshgrid(x_coarse_grid, y_coarse_grid)
+
+    for polind, pol in enumerate(pol_list):
+        z_tau = np.array(
+            threshold_array["array"][polind],
+            dtype=np.float32,
+            copy=True,
+        )
+        x_tau = np.array(
+            threshold_array["block_col"][polind],
+            dtype=np.float32,
+            copy=True,
+        )
+        y_tau = np.array(
+            threshold_array["block_row"][polind],
+            dtype=np.float32,
+            copy=True,
+        )
+
+        z_tau[z_tau == no_data] = np.nan
+        valid = np.isfinite(z_tau)
+
+        tif_file_str = os.path.join(outputdir, f"{filename}_{pol}.tif")
+        coarse_file_str = os.path.join(
+            outputdir,
+            f"{filename}_{pol}_coarse_tmp.tif",
+        )
+
+        if np.count_nonzero(valid) > 1:
+            # For scattered samples, linear griddata is still needed.
+            interp_tau = interpolate.griddata(
+                (x_tau[valid], y_tau[valid]),
+                z_tau[valid],
+                (x_arr_tau.flatten(), y_arr_tau.flatten()),
+                method="linear",
+            )
+
+            interp_tau = interp_tau.reshape(x_arr_tau.shape)
+
+            # Fill outside convex hull by nearest.
+            missing = ~np.isfinite(interp_tau)
+            if np.any(missing):
+                nearest_tau = interpolate.griddata(
+                    (x_tau[valid], y_tau[valid]),
+                    z_tau[valid],
+                    (x_arr_tau.flatten(), y_arr_tau.flatten()),
+                    method="nearest",
+                ).reshape(x_arr_tau.shape)
+
+                interp_tau[missing] = nearest_tau[missing]
+
+            interp_tau = _smooth_only_if_requested(
+                interp_tau,
+                smooth_sigma,
+            )
+
+            coarse_gt = (
+                0.0,
+                float(cols) / float(interp_tau.shape[1]),
+                0.0,
+                float(rows),
+                0.0,
+                -float(rows) / float(interp_tau.shape[0]),
+            )
+
+            _write_geotiff(
+                coarse_file_str,
+                interp_tau.astype(np.float32),
+                coarse_gt,
+                projection="",
+            )
+
+            _upsample_coarse_to_full(
+                coarse_file_str,
+                tif_file_str,
+                rows=rows,
+                cols=cols,
+                alg=resample_alg,
+            )
+
+        elif np.count_nonzero(valid) == 1:
+            _dswx_sar_util.create_geotiff_with_one_value(
+                tif_file_str,
+                shape=[rows, cols],
+                filled_value=float(z_tau[valid][0]),
+            )
+
+        else:
+            logger.info(f"threshold array is empty for {pol}")
+            empty_data = np.ones((rows, cols), dtype=np.float32) * no_data
+            geotransform = (0.0, 1.0, 0.0, float(rows), 0.0, -1.0)
+            _write_geotiff(
+                tif_file_str,
+                empty_data,
+                geotransform,
+                projection="",
+            )
+
+        if save_cog:
+            _dswx_sar_util._save_as_cog(
+                tif_file_str,
+                outputdir,
+                logger,
+                compression="DEFLATE",
+                nbits=16,
+            )
+
+        try:
+            if os.path.exists(coarse_file_str):
+                os.remove(coarse_file_str)
+        except Exception:
+            pass
+
+def fill_threshold_with_gdal_original(
+        threshold_array,
+        rows,
+        cols,
+        filename,
+        outputdir,
+        pol_list,
+        filled_value,
+        no_data=-50,
+        average_tile=True):
     """Interpolate thresholds over a 2-D grid.
 
     Parameters

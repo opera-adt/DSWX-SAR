@@ -27,6 +27,8 @@ from dswx_sar.common._dswx_sar_util import (
 logger = logging.getLogger('dswx_sar')
 
 
+
+
 class BimodalityMetrics:
     '''Estimate metrics for bimodality'''
 
@@ -54,8 +56,14 @@ class BimodalityMetrics:
         """
         if gauss_dist_thres_bound is None:
             gauss_dist_thres_bound = [-18, 0]
-        self.intensity_array = intensity_array.flatten()
-        int_db = 10 * np.log10(self.intensity_array)
+        self.intensity_array = np.asarray(intensity_array, dtype=np.float32).flatten()
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            int_db = 10.0 * np.log10(self.intensity_array)
+
+        int_db = np.asarray(int_db, dtype=np.float32)
+        int_db = np.round(int_db, 3).astype(np.float64)
+
         self.int_db = int_db
 
         bins_hist = np.linspace(hist_min,
@@ -65,8 +73,9 @@ class BimodalityMetrics:
         self.counts, bins = np.histogram(int_db,
                                          bins=bins_hist,
                                          density=True)
-        self.bincenter = (bins[:-1] + bins[1:]) / 2
-        self.binstep = bins[2] - bins[1]
+        self.counts = np.asarray(self.counts, dtype=np.float64)
+        self.bincenter = np.asarray((bins[:-1] + bins[1:]) / 2, dtype=np.float64)
+        self.binstep = float(bins[2] - bins[1])
 
         # remove invalid values
         mask = (np.isnan(int_db)) | (np.isinf(int_db)) | (np.isinf(-int_db))
@@ -119,45 +128,158 @@ class BimodalityMetrics:
             amp_gt = self.prob[amp_gt_ind]
 
             try:
-                # starting value for curve_fit
-                # mean, std, amplitude, mean, std, amplitude
                 expected = (mean_lt, std_lt, amp_lt,
                             mean_gt, std_gt, amp_gt)
-                params, _ = curve_fit(self.bimodal,
-                                      self.bincenter,
-                                      self.prob,
-                                      expected,
-                                      bounds=(
-                                        (-30, 1e-10, 0,
-                                         -30, 1e-10, 0),
-                                        (5, 5, 1,
-                                         5, 5, 1)))
-                if params[0] > params[3]:
-                    self.second_mode = params[:3]
-                    self.first_mode = params[3:]
-                else:
-                    self.first_mode = params[:3]
-                    self.second_mode = params[3:]
-                # Left Gaussian
-                self.simul_first = self.gauss(self.bincenter,
-                                              *self.first_mode)
-                self.simul_second = self.gauss(self.bincenter,
-                                               *self.second_mode)
+
+                fit = self._fit_bimodal_deterministic(expected)
+
+                self.params = fit["params"]
+                self.first_mode = fit["first_mode"]
+                self.second_mode = fit["second_mode"]
+                self.fit_rss = fit["rss"]
+                self.fit_score = fit["score"]
+
+                self.simul_first = self.gauss(self.bincenter, *self.first_mode)
+                self.simul_second = self.gauss(self.bincenter, *self.second_mode)
                 self.simul_all = self.simul_first + self.simul_second
                 self.optimization = True
 
-            except ValueError:
-                logger.info('ValueError: Bimodal curve Fitting fails in '
-                            'BimodalityMetrics.')
-                self.optimization = False
-            except RuntimeError:
-                logger.info('RuntimeError: Bimodal curve Fitting fails in '
-                            'BimodalityMetrics.')
+            except Exception as e:
+                logger.info(f'Bimodal curve fitting fails in BimodalityMetrics: {e}')
                 self.optimization = False
         else:
             self.optimization = False
             self.enough_number = False
 
+        expected = (mean_lt, std_lt, amp_lt,
+            mean_gt, std_gt, amp_gt)
+        self.expected = expected
+
+    def _fit_bimodal_deterministic(self, expected):
+        """
+        Deterministic multi-start bimodal Gaussian fitting.
+
+        Keeps the original Chini/Gaussian-fit method, but avoids accepting
+        platform-dependent local minima from a single curve_fit call.
+        """
+
+        x = np.asarray(self.bincenter, dtype=np.float64)
+        y = np.asarray(self.prob, dtype=np.float64)
+
+        y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
+        y = np.round(y, 12).astype(np.float64)
+        x = np.round(x, 6).astype(np.float64)
+
+        # More physical bounds than 0~1 amplitude and sigma 1e-10~5.
+        lower = np.array([-30, 0.05, 1e-4,
+                        -30, 0.05, 1e-4], dtype=np.float64)
+        upper = np.array([5, 3.5, 0.50,
+                        5, 3.5, 0.50], dtype=np.float64)
+
+        expected = np.asarray(expected, dtype=np.float64)
+        expected = np.clip(expected, lower + 1e-6, upper - 1e-6)
+        expected = np.round(expected, 12)
+
+        # Deterministic alternative initial guesses.
+        # These are not random. Same input -> same p0 list.
+        p0_list = [expected]
+
+        try:
+            q10, q25, q50, q75, q90 = np.nanpercentile(self.int_db, [10, 25, 50, 75, 90])
+            amp_max = max(float(np.nanmax(y)), 1e-4)
+
+            p0_list.extend([
+                [q25, 0.5, amp_max * 0.5, q75, 0.5, amp_max * 0.5],
+                [q10, 0.8, amp_max * 0.4, q75, 0.8, amp_max * 0.4],
+                [q25, 1.0, amp_max * 0.4, q90, 1.0, amp_max * 0.4],
+                [q10, 1.5, amp_max * 0.3, q90, 1.5, amp_max * 0.3],
+                [q50 - 1.0, 0.7, amp_max * 0.4, q50 + 1.0, 0.7, amp_max * 0.4],
+            ])
+        except Exception:
+            pass
+
+        best = None
+
+        for p0 in p0_list:
+            p0 = np.asarray(p0, dtype=np.float64)
+            p0 = np.clip(p0, lower + 1e-6, upper - 1e-6)
+            p0 = np.round(p0, 12)
+
+            try:
+                with threadpool_limits(limits=1):
+                    params, _ = curve_fit(
+                        self.bimodal,
+                        x,
+                        y,
+                        p0=p0,
+                        bounds=(lower, upper),
+                        method="trf",
+                        max_nfev=20000,
+                        ftol=1e-10,
+                        xtol=1e-10,
+                        gtol=1e-10,
+                        x_scale="jac",
+                    )
+
+                params = np.asarray(params, dtype=np.float64)
+
+                if not np.all(np.isfinite(params)):
+                    continue
+
+                # Sort modes by mean.
+                if params[0] > params[3]:
+                    first = params[3:6]
+                    second = params[0:3]
+                else:
+                    first = params[0:3]
+                    second = params[3:6]
+
+                m1, s1, a1 = first
+                m2, s2, a2 = second
+                sep = abs(m2 - m1)
+
+                # Physical validity guard.
+                fit_valid = (
+                    0.05 <= s1 <= 3.5 and
+                    0.05 <= s2 <= 3.5 and
+                    1e-4 <= a1 <= 0.50 and
+                    1e-4 <= a2 <= 0.50 and
+                    0.3 <= sep <= 12.0
+                )
+
+                if not fit_valid:
+                    continue
+
+                residual = y - self.bimodal(x, *params)
+                rss = float(np.sum(residual ** 2))
+
+                # Canonical score:
+                # round RSS so tiny platform differences do not change winner.
+                rss_key = round(rss, 12)
+
+                # Tie-breaker prefers more balanced, narrower, ordered solution.
+                balance = abs(np.log((a1 + 1e-12) / (a2 + 1e-12)))
+                width_sum = s1 + s2
+                sep_key = -sep
+
+                score = (rss_key, round(balance, 6), round(width_sum, 6), round(sep_key, 6))
+
+                if best is None or score < best["score"]:
+                    best = {
+                        "params": params,
+                        "first_mode": first,
+                        "second_mode": second,
+                        "rss": rss,
+                        "score": score,
+                    }
+
+            except Exception:
+                continue
+
+        if best is None:
+            raise RuntimeError("All deterministic bimodal curve fits failed.")
+
+        return best
     def gauss(self, array, mu, sigma, amplitude):
         """ Calculate the value of a Gaussian (normal) function.
 
@@ -664,15 +786,67 @@ class BimodalityMetrics:
                 (ashman, bhc, surface_ratio,
                  bm_coeff, bc_coeff) = self.get_metric()
 
+                sigma_bound_hit = False
+                try:
+                    sigmas = [
+                        float(self.first_mode[1]),
+                        float(self.second_mode[1]),
+                    ]
+                    sigma_bound_hit = any(s >= 4.99 for s in sigmas)
+                except Exception:
+                    sigma_bound_hit = False
+
+
+                unstable_chini_fit = (
+                    (not np.isfinite(ashman)) or
+                    (not np.isfinite(surface_ratio)) or
+                    ((ashman > 10) and (surface_ratio < 0.01)) or
+                    sigma_bound_hit
+                )
+
+                if unstable_chini_fit:
+                    return False
+
+                degenerate_fit = (
+                    (not np.isfinite(ashman)) or
+                    (not np.isfinite(surface_ratio)) or
+                    (surface_ratio < 1e-6) or
+                    (ashman > 10) or
+                    sigma_bound_hit
+                )
+
+                if degenerate_fit:
+                    bt_max, ad_max = estimate_bimodality(self.int_db)
+
+                    bimodality_flag = (
+                        np.isfinite(bt_max) and
+                        np.isfinite(ad_max) and
+                        (bt_max > thresholds[3]) and
+                        (ad_max > thresholds[0])
+                    )
+
+                    return bool(bimodality_flag)
                 # Check if the data satisfies the conditions for bimodality
-                bm_coeff_bool = bm_flag and \
-                    (bm_coeff is None or bm_coeff > thresholds[3])
-                ashman_bool = ashman_flag and \
-                    (ashman is None or ashman > thresholds[0])
-                surface_ratio_bool = surface_ratio_flag and \
-                    (surface_ratio is None or surface_ratio > thresholds[2])
-                bc_coeff_bool = bc_flag and \
-                    (bc_coeff is None or bc_coeff > 5/9)
+                EPS_ASHMAN = 0.05
+                EPS_BM = 0.02
+                EPS_SURFACE = 0.02
+                EPS_BC = 0.01
+
+                bm_coeff_bool = bm_flag and (
+                    bm_coeff is not None and bm_coeff > thresholds[3] + EPS_BM
+                )
+
+                ashman_bool = ashman_flag and (
+                    ashman is not None and ashman > thresholds[0] + EPS_ASHMAN
+                )
+
+                surface_ratio_bool = surface_ratio_flag and (
+                    surface_ratio is not None and surface_ratio > thresholds[2] + EPS_SURFACE
+                )
+
+                bc_coeff_bool = bc_flag and (
+                    bc_coeff is not None and bc_coeff > 5 / 9 + EPS_BC
+                )
                 bimodal_metrics = (int(ashman_bool) +
                                    int(bm_coeff_bool) +
                                    int(bc_coeff_bool))

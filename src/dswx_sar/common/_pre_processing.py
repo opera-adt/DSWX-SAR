@@ -35,7 +35,7 @@ def pol_ratio(array1, array2):
     return result
 
 
-def validate_gtiff(geotiff_path, value_list):
+def validate_gtiff(geotiff_path, value_list, lines_per_block=1024):
     """
     Check the validity of a GeoTIFF file based on
     the mean value of its pixels.
@@ -64,26 +64,76 @@ def validate_gtiff(geotiff_path, value_list):
         - Return 'invalid_only' if the mean pixel value matches any value
           in 'value_list', suggesting uniform pixel values across the file.
     """
-    image = _dswx_sar_util.read_geotiff(geotiff_path)
-    mean_value = np.nanmean(image)
+    dataset = gdal.Open(geotiff_path, gdal.GA_ReadOnly)
 
-    validation_result = 'okay'
+    if dataset is None:
+        raise RuntimeError(
+            f'Unable to open {geotiff_path}'
+        )
 
-    for invalid_value in value_list:
-        if np.any(image == invalid_value):
-            validation_result = 'invalid_found'
-            logger.warning(f'Some pixels in {geotiff_path} are within '
-                           'the specified value list.')
+    any_invalid = False
+    all_invalid = True
+    all_nan = True
 
-    if np.isnan(mean_value):
-        validation_result = 'nan_value'
-        logger.warning(f'NaN pixels found in {geotiff_path}.')
-    elif np.isin(image, value_list).all():
-        validation_result = 'invalid_only'
-        logger.warning(f'All pixels in {geotiff_path} are within '
-                       'the specified invalid value list.')
+    for band_index in range(1, dataset.RasterCount + 1):
+        band = dataset.GetRasterBand(band_index)
 
-    return validation_result
+        for yoff in range(0, dataset.RasterYSize, lines_per_block):
+            block_height = min(
+                lines_per_block,
+                dataset.RasterYSize - yoff,
+            )
+
+            image = band.ReadAsArray(
+                0,
+                yoff,
+                dataset.RasterXSize,
+                block_height,
+            )
+
+            invalid_mask = np.zeros(
+                image.shape,
+                dtype=bool,
+            )
+
+            for invalid_value in value_list:
+                if np.isnan(invalid_value):
+                    invalid_mask |= np.isnan(image)
+                elif np.isposinf(invalid_value):
+                    invalid_mask |= np.isposinf(image)
+                elif np.isneginf(invalid_value):
+                    invalid_mask |= np.isneginf(image)
+                else:
+                    invalid_mask |= image == invalid_value
+
+            any_invalid |= np.any(invalid_mask)
+            all_invalid &= np.all(invalid_mask)
+            all_nan &= np.all(np.isnan(image))
+
+            del image
+            del invalid_mask
+
+    dataset = None
+
+    if all_nan:
+        logger.warning(
+            f'All pixels in {geotiff_path} are NaN.'
+        )
+        return 'nan_value'
+
+    if all_invalid:
+        logger.warning(
+            f'All pixels in {geotiff_path} are invalid.'
+        )
+        return 'invalid_only'
+
+    if any_invalid:
+        logger.warning(
+            f'Some pixels in {geotiff_path} are invalid.'
+        )
+        return 'invalid_found'
+
+    return 'okay'
 
 
 class AncillaryRelocation:
@@ -173,7 +223,10 @@ class AncillaryRelocation:
 
         # COG conversion (if you already use this util)
         from dswx_sar.common import _dswx_sar_util
+        t0 = time.perf_counter()
+
         _dswx_sar_util._save_as_cog(relocated_path, self.scratch_dir)
+        logger.info(f'COG conversion completed in {time.perf_counter() - t0:.1f} seconds')
 
         if return_array:
             return relocated_array
@@ -325,21 +378,45 @@ class AncillaryRelocation:
             logger.info(
                 f'    relocating file: {input_file} to file: {relocated_file}'
             )
+            progress_state = {'next_percent': 0}
 
-            gdal.Warp(
+            t0 = time.perf_counter()
+
+            warp_result = gdal.Warp(
                 relocated_file,
                 input_file,
                 format='GTiff',
-                dstSRS=tile_srs_str,
-                outputBounds=[tile_min_x_utm, tile_min_y_utm,
-                              tile_max_x_utm, tile_max_y_utm],
+                dstSRS=projection_wkt,
+                outputBounds=[
+                    tile_min_x_utm,
+                    tile_min_y_utm,
+                    tile_max_x_utm,
+                    tile_max_y_utm,
+                ],
+                width=width + 2 * margin_in_pixels,
+                height=length + 2 * margin_in_pixels,
                 multithread=True,
-                xRes=dx,
-                yRes=abs(dy),
                 resampleAlg=resample_algorithm,
-                errorThreshold=0,
+                errorThreshold=0.125,
                 dstNodata=no_data,
-                warpOptions=["NUM_THREADS=ALL_CPUS"],
+                warpMemoryLimit=1024,
+                creationOptions=[
+                    'TILED=YES',
+                    'BIGTIFF=IF_SAFER',
+                ],
+                warpOptions=['NUM_THREADS=4'],
+                callback=_gdal_progress,
+                callback_data=progress_state,
+            )
+
+            if warp_result is None:
+                raise RuntimeError(f'GDAL Warp failed for {input_file}')
+
+            warp_result = None
+
+            logger.info(
+                f'GDAL Warp completed in '
+                f'{time.perf_counter() - t0:.1f} seconds'
             )
 
             if not return_array:
@@ -559,6 +636,14 @@ def replace_reference_water_nodata_from_ancillary(
             cog_flag=True,
             scratch_dir=scratch_dir)
 
+def _gdal_progress(complete, message, callback_data):
+    percent = int(complete * 100)
+
+    if percent >= callback_data['next_percent']:
+        logger.info(f'GDAL Warp progress: {percent}%')
+        callback_data['next_percent'] += 5
+
+    return 1
 
 def run(cfg):
 
@@ -692,10 +777,11 @@ def run(cfg):
                 no_data=no_data)
 
         # check if relocated ancillaries are filled with invalid values
+        t0 = time.perf_counter()
         validation_result = validate_gtiff(
             os.path.join(scratch_dir, anc_filename),
             [no_data, np.inf])
-
+        logger.info(f'Validation completed in {time.perf_counter() - t0:.1f} seconds')
         if validation_result not in ['okay']:
             if (anc_type in ['dem', 'hand']) and \
                (validation_result in ['nan_value', 'invalid_only']):

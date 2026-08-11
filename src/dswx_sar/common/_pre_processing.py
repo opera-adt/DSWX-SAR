@@ -34,6 +34,46 @@ def pol_ratio(array1, array2):
 
     return result
 
+def configure_gdal_for_s3():
+    """Configure GDAL for efficient access to S3 rasters."""
+
+    gdal.SetConfigOption(
+        "GDAL_DISABLE_READDIR_ON_OPEN",
+        "EMPTY_DIR",
+    )
+
+    gdal.SetConfigOption(
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS",
+        ".tif,.tiff,.vrt,.xml,.txt",
+    )
+
+    gdal.SetConfigOption(
+        "GDAL_HTTP_MULTIRANGE",
+        "YES",
+    )
+
+    gdal.SetConfigOption(
+        "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES",
+        "YES",
+    )
+
+    gdal.SetConfigOption(
+        "VSI_CACHE",
+        "TRUE",
+    )
+
+    gdal.SetConfigOption(
+        "VSI_CACHE_SIZE",
+        str(16 * 1024 * 1024),
+    )
+
+    logger.info(
+        "GDAL S3 configuration: "
+        "directory listing disabled, "
+        "multirange enabled, "
+        "VSI cache enabled"
+    )
+
 
 def validate_gtiff(geotiff_path, value_list, lines_per_block=1024):
     """
@@ -142,7 +182,7 @@ class AncillaryRelocation:
     spacing as the given rtc file.
     """
 
-    def __init__(self, rtc_file_name, scratch_dir):
+    def __init__(self, rtc_file_name, scratch_dir, warp_num_threads=1):
         """Initialize AncillaryRelocation class with rtc_file_name
 
         Parameters
@@ -178,7 +218,22 @@ class AncillaryRelocation:
         # get_projection_proj4 should take a WKT and return a proj4 string
         self.tile_srs = proj
         self.tile_srs_str = get_projection_proj4(self.projection_wkt)
+        if warp_num_threads is None:
+            warp_num_threads = 1
 
+        warp_num_threads = int(warp_num_threads)
+
+        if warp_num_threads < 1:
+            raise ValueError(
+                "warp_num_threads must be greater than or equal to 1"
+            )
+
+        self.warp_num_threads = warp_num_threads
+
+        logger.info(
+            "Ancillary GDAL Warp will use "
+            f"{self.warp_num_threads} thread(s)"
+        )
     def relocate(
         self,
         ancillary_file_name,
@@ -230,6 +285,72 @@ class AncillaryRelocation:
 
         if return_array:
             return relocated_array
+
+    def _stage_source_window(
+        self,
+        input_file,
+        output_file,
+        min_x,
+        min_y,
+        max_x,
+        max_y,
+        no_data,
+    ):
+        """Download a source-grid-aligned subset of a remote raster."""
+
+        src = gdal.Open(input_file, gdal.GA_ReadOnly)
+        if src is None:
+            raise RuntimeError(f"Could not open ancillary file: {input_file}")
+
+        gt = src.GetGeoTransform()
+        src_min_x = gt[0]
+        src_max_y = gt[3]
+        xres = gt[1]
+        yres = abs(gt[5])
+
+        # Convert geographic bounds to an outward-rounded integer source window.
+        xoff = int(np.floor((min_x - src_min_x) / xres))
+        yoff = int(np.floor((src_max_y - max_y) / yres))
+        xend = int(np.ceil((max_x - src_min_x) / xres))
+        yend = int(np.ceil((src_max_y - min_y) / yres))
+
+        # Limit the window to the available source raster.
+        xoff = max(0, xoff)
+        yoff = max(0, yoff)
+        xend = min(src.RasterXSize, xend)
+        yend = min(src.RasterYSize, yend)
+
+        xsize = xend - xoff
+        ysize = yend - yoff
+
+        if xsize <= 0 or ysize <= 0:
+            raise ValueError(
+                f"Requested area does not overlap ancillary raster: {input_file}"
+            )
+
+        logger.info(
+            f"Staging remote ancillary window: "
+            f"xoff={xoff}, yoff={yoff}, xsize={xsize}, ysize={ysize}"
+        )
+
+        result = gdal.Translate(
+            output_file,
+            src,
+            format="GTiff",
+            srcWin=[xoff, yoff, xsize, ysize],
+            noData=no_data,
+            creationOptions=[
+                "TILED=YES",
+                "BIGTIFF=IF_SAFER",
+            ],
+        )
+
+        src = None
+
+        if result is None:
+            raise RuntimeError(f"GDAL Translate failed for {input_file}")
+
+        result = None
 
     def _get_tile_srs_bbox(
         self,
@@ -362,160 +483,146 @@ class AncillaryRelocation:
         # margin in meters, for antimeridian bbox
         margin_m = 5000
 
-        tile_polygon, tile_min_y, tile_max_y, tile_min_x, tile_max_x = \
-            self._get_tile_srs_bbox(
-                tile_min_y_utm - margin_m,
-                tile_max_y_utm + margin_m,
-                tile_min_x_utm - margin_m,
-                tile_max_x_utm + margin_m,
-                tile_srs, file_srs
+        (
+            tile_polygon,
+            source_min_y,
+            source_max_y,
+            source_min_x,
+            source_max_x,
+        ) = self._get_tile_srs_bbox(
+            tile_min_y_utm - margin_m,
+            tile_max_y_utm + margin_m,
+            tile_min_x_utm - margin_m,
+            tile_max_x_utm + margin_m,
+            tile_srs,
+            file_srs,
+        )
+
+        requires_antimeridian_handling = (
+            self._antimeridian_crossing_requires_special_handling(
+                file_srs,
+                file_min_x,
+                source_min_x,
+                source_max_x,
             )
+        )
 
-        if not self._antimeridian_crossing_requires_special_handling(
-            file_srs, file_min_x, tile_min_x, tile_max_x
-        ):
-            # Simple case: no antimeridian special handling
-            logger.info(
-                f'    relocating file: {input_file} to file: {relocated_file}'
-            )
-            progress_state = {'next_percent': 0}
-
-            t0 = time.perf_counter()
-
-            warp_result = gdal.Warp(
-                relocated_file,
-                input_file,
-                format='GTiff',
-                dstSRS=projection_wkt,
-                outputBounds=[
-                    tile_min_x_utm,
-                    tile_min_y_utm,
-                    tile_max_x_utm,
-                    tile_max_y_utm,
-                ],
-                width=width + 2 * margin_in_pixels,
-                height=length + 2 * margin_in_pixels,
-                multithread=True,
-                resampleAlg=resample_algorithm,
-                errorThreshold=0.125,
-                dstNodata=no_data,
-                warpMemoryLimit=1024,
-                creationOptions=[
-                    'TILED=YES',
-                    'BIGTIFF=IF_SAFER',
-                ],
-                warpOptions=['NUM_THREADS=4'],
-                callback=_gdal_progress,
-                callback_data=progress_state,
-            )
-
-            if warp_result is None:
-                raise RuntimeError(f'GDAL Warp failed for {input_file}')
-
-            warp_result = None
+        if not requires_antimeridian_handling:
 
             logger.info(
-                f'GDAL Warp completed in '
-                f'{time.perf_counter() - t0:.1f} seconds'
+                f"Relocating file: {input_file} "
+                f"to file: {relocated_file}"
             )
+
+            is_remote = input_file.startswith(
+                (
+                    "/vsis3/",
+                    "/vsicurl/",
+                    "https://",
+                )
+            )
+
+            staged_input_file = None
+            warp_input_file = input_file
+
+            try:
+                if is_remote:
+                    fd, staged_input_file = tempfile.mkstemp(
+                        dir=scratch_dir,
+                        prefix="staged_ancillary_",
+                        suffix=".tif",
+                    )
+                    os.close(fd)
+
+                    # GDAL will create the output itself.
+                    os.unlink(staged_input_file)
+
+                    t_stage = time.perf_counter()
+
+                    self._stage_source_window(
+                        input_file=input_file,
+                        output_file=staged_input_file,
+
+                        # These coordinates are in the input
+                        # ancillary CRS, usually EPSG:4326.
+                        min_x=source_min_x,
+                        min_y=source_min_y,
+                        max_x=source_max_x,
+                        max_y=source_max_y,
+
+                        no_data=no_data,
+                    )
+
+                    logger.info(
+                        "Ancillary staging completed in "
+                        f"{time.perf_counter() - t_stage:.1f} seconds"
+                    )
+
+                    warp_input_file = staged_input_file
+
+                progress_state = {"next_percent": 0}
+                t_warp = time.perf_counter()
+                multithread = self.warp_num_threads > 1
+
+                warp_result = gdal.Warp(
+                    relocated_file,
+                    warp_input_file,
+                    format="GTiff",
+                    dstSRS=projection_wkt,
+                    outputBounds=[
+                        tile_min_x_utm,
+                        tile_min_y_utm,
+                        tile_max_x_utm,
+                        tile_max_y_utm,
+                    ],
+                    width=width + 2 * margin_in_pixels,
+                    height=length + 2 * margin_in_pixels,
+
+                    multithread=self.warp_num_threads > 1,
+
+                    resampleAlg=resample_algorithm,
+                    errorThreshold=0.125,
+                    dstNodata=no_data,
+                    warpMemoryLimit=512,
+                    creationOptions=[
+                        "TILED=YES",
+                        "BIGTIFF=IF_SAFER",
+                    ],
+                    warpOptions=[
+                        f"NUM_THREADS={self.warp_num_threads}",
+                    ],
+                    callback=_gdal_progress,
+                    callback_data=progress_state,
+                )
+
+                warp_result = None
+
+                logger.info(
+                    "Local GDAL Warp completed in "
+                    f"{time.perf_counter() - t_warp:.1f} seconds"
+                )
+
+            finally:
+                if (
+                    staged_input_file is not None
+                    and os.path.exists(staged_input_file)
+                ):
+                    try:
+                        os.remove(staged_input_file)
+                    except OSError:
+                        logger.warning(
+                            "Could not remove temporary staged file: "
+                            f"{staged_input_file}"
+                        )
 
             if not return_array:
                 return None
 
             gdal_ds = gdal.Open(relocated_file, gdal.GA_ReadOnly)
             relocated_array = gdal_ds.ReadAsArray()
-            del gdal_ds
+            gdal_ds = None
+
             return relocated_array
-
-        # Antimeridian handling
-        logger.info('    tile crosses the antimeridian')
-
-        file_max_x = file_min_x + file_width * file_dx
-
-        proj_win_antimeridian_left = [
-            tile_min_x,
-            tile_max_y,
-            file_max_x,
-            tile_min_y,
-        ]
-        cropped_input_antimeridian_left_temp = tempfile.NamedTemporaryFile(
-            dir=scratch_dir, suffix='.tif'
-        ).name
-        logger.info(
-            f'    cropping antimeridian-left side: {input_file} to '
-            f'{cropped_input_antimeridian_left_temp} with indexes '
-            f'(ulx uly lrx lry): {proj_win_antimeridian_left}'
-        )
-
-        gdal.Translate(
-            cropped_input_antimeridian_left_temp,
-            input_file,
-            projWin=proj_win_antimeridian_left,
-            outputSRS=file_srs,
-            noData=no_data,
-        )
-
-        proj_win_antimeridian_right = [
-            file_min_x,
-            tile_max_y,
-            tile_max_x - 360,
-            tile_min_y,
-        ]
-        cropped_input_antimeridian_right_temp = tempfile.NamedTemporaryFile(
-            dir=scratch_dir, suffix='.tif'
-        ).name
-        logger.info(
-            f'    cropping antimeridian-right side: {input_file} to '
-            f'{cropped_input_antimeridian_right_temp} with indexes '
-            f'(ulx uly lrx lry): {proj_win_antimeridian_right}'
-        )
-
-        gdal.Translate(
-            cropped_input_antimeridian_right_temp,
-            input_file,
-            projWin=proj_win_antimeridian_right,
-            outputSRS=file_srs,
-            noData=no_data,
-        )
-
-        if temp_files_list is not None:
-            temp_files_list.append(cropped_input_antimeridian_left_temp)
-            temp_files_list.append(cropped_input_antimeridian_right_temp)
-
-        gdalwarp_input_file_list = [
-            cropped_input_antimeridian_left_temp,
-            cropped_input_antimeridian_right_temp,
-        ]
-
-        logger.info(
-            f'    relocating file: {input_file} to file: {relocated_file}'
-            f': {tile_min_x_utm} {tile_max_x_utm}'
-            f': {tile_min_y_utm} {tile_max_y_utm}'
-        )
-
-        gdal.Warp(
-            relocated_file,
-            gdalwarp_input_file_list,
-            format='GTiff',
-            dstSRS=tile_srs_str,
-            outputBounds=[tile_min_x_utm, tile_min_y_utm,
-                          tile_max_x_utm, tile_max_y_utm],
-            multithread=True,
-            xRes=dx,
-            yRes=abs(dy),
-            resampleAlg=resample_algorithm,
-            errorThreshold=0,
-            dstNodata=no_data,
-            warpOptions=["NUM_THREADS=ALL_CPUS"],
-        )
-
-        if not return_array:
-            return None
-
-        gdal_ds = gdal.Open(relocated_file, gdal.GA_ReadOnly)
-        relocated_array = gdal_ds.ReadAsArray()
-        del gdal_ds
-        return relocated_array
 
     def _antimeridian_crossing_requires_special_handling(
         self, file_srs, file_min_x, tile_min_x, tile_max_x

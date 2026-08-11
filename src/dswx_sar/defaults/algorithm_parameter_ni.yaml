@@ -28,6 +28,7 @@ runconfig:
         partial_surface_water:
             enabled: False
             threshold: 5
+        ancillary_warp_num_threads: 1
 
         hand:
             mask_value: 200

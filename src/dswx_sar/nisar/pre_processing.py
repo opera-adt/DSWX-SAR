@@ -48,18 +48,12 @@ def run(cfg):
     pol_list = copy.deepcopy(processing_cfg.polarizations)
     pol_options = processing_cfg.polarimetric_option
 
-    print(f'\n{pol_list = }')
-    print(f'{pol_options = }')
-
     if pol_options is not None:
         pol_list += pol_options
-    print(f'{pol_list = }\n')
 
     pol_all_str = '_'.join(pol_list)
     co_pol = processing_cfg.copol
     cross_pol = processing_cfg.crosspol
-    print(f'{co_pol = }')
-    print(f'{cross_pol = }\n')
 
     filter_options = processing_cfg.filter
     filter_flag = processing_cfg.filter.enabled

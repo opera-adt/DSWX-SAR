@@ -617,7 +617,6 @@ class RTCReader(DataReader):
             mask_gtiff_list.append(output_mask_gtiff)
             geogrid_in.update_geogrid(output_mask_gtiff)
 
-        # ---- Optional: final clip of union geogrid to bbox (kept from your original) ----
         if bbox is not None:
             if bbox_epsg is None:
                 raise ValueError("bbox was provided but bbox_epsg is None")
@@ -629,11 +628,13 @@ class RTCReader(DataReader):
                 bbox_use = bbox
 
             ge_epsg = getattr(geogrid_in, "epsg", None)
+
             if ge_epsg is None or int(ge_epsg) != target_epsg:
                 geogrid_in.epsg = target_epsg
 
             geogrid_in.clip_to_bbox(bbox_use, bbox_epsg=target_epsg, snap=True)
             logger.info(f"[BBox clip] final geogrid bounds: {geogrid_in.bounds()}, epsg={geogrid_in.epsg}")
+
 
         return geogrid_in, output_gtiff_list, mask_gtiff_list, pol_gtiff_list
 

@@ -503,7 +503,6 @@ def run(cfg):
     date_str_list = []
     rtc_reader = mosaic_gcov_frame.RTCReader(row_blk_size=200,
                                              col_blk_size=200)
-
     for input_h5 in input_list:
         # Find HDF5 metadata
 
@@ -541,16 +540,13 @@ def run(cfg):
     # Set merge_layer_flag and merge_pol_list based on pol_mode
     merge_layer_flag = pol_mode.startswith('MIX')
     if merge_layer_flag:
-        if pol_mode == 'MIX_DUAL_POL':
-            pol_type1 = 'DV_POL'
+        if pol_mode == 'MIX_QD_DUAL_H_POL':
+            pol_type1 = 'QP_POL'
             pol_type2 = 'DH_POL'
-        elif pol_mode in 'MIX_DUAL_H_SINGLE_V_POL':
-            pol_type1 = 'DH_POL'
-            pol_type2 = 'SV_POL'
-        elif pol_mode in 'MIX_DUAL_V_SINGLE_H_POL':
-            pol_type1 = 'DV_POL'
-            pol_type2 = 'SH_POL'
-        elif pol_mode in 'MIX_SINGLE_POL':
+        elif pol_mode == 'MIX_QD_DUAL_V_POL':
+            pol_type1 = 'QP_POL'
+            pol_type2 = 'DV_POL'
+        elif pol_mode == 'MIX_SINGLE_POL':
             pol_type1 = 'SV_POL'
             pol_type2 = 'SH_POL'
         else:
@@ -561,6 +557,9 @@ def run(cfg):
             pol_set2 = DSWX_NI_POL_DICT[pol_type2]
             merge_pol_list = ['_'.join(pol_set1),
                               '_'.join(pol_set2)]
+            logger.info(
+                f'Merging products from {pol_type1} and {pol_type2}.'
+            )
     else:
         pol_set1 = pol_list
         pol_set2 = []
@@ -608,7 +607,7 @@ def run(cfg):
         }
 
     if total_inundated_vege_flag:
-        if len(pol_set1) == 2 and len(pol_set2) == 2:
+        if len(pol_set1) >= 2 and len(pol_set2) >= 2:
             inundated_vege_mosaic_flag = True
 
         prefix_dict['inundated_veg'] = 'temp_inundated_vegetation'
@@ -681,10 +680,21 @@ def run(cfg):
     )
 
     if os.path.exists(layover_shadow_mask_path):
-        layover_shadow_mask = _dswx_sar_util._make_block_source(
+        static_positive = _dswx_sar_util._make_block_source(
             layover_shadow_mask_path,
             operation='gt',
             value=0
+        )
+        static_nodata = _dswx_sar_util._make_block_source(
+            layover_shadow_mask_path,
+            operation='eq',
+            value=255
+        )
+
+        layover_shadow_mask = _dswx_sar_util._make_combined_mask(
+            'and_not',
+            static_positive,
+            static_nodata
         )
         logger.info('Layover/shadow mask found')
     else:

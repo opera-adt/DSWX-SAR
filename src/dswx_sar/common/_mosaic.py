@@ -272,6 +272,7 @@ def compute_mosaic_array(
     geogrid_in=None,
     temp_files_list=None,
     no_data_value=np.nan,
+    warp_resample_alg='average',
     verbose=True,
 ):
     '''
@@ -452,7 +453,7 @@ def compute_mosaic_array(
                 multithread=True,
                 xRes=geogrid_in.spacing_x,
                 yRes=abs(geogrid_in.spacing_y),
-                resampleAlg='average',
+                resampleAlg=warp_resample_alg,
                 errorThreshold=0,
                 dstNodata=np.nan,
                 options=warp_creation_options
@@ -643,6 +644,7 @@ def mosaic_single_output_file(
     geogrid_in=None,
     temp_files_list=None, 
     no_data_value=np.nan,
+    warp_resample_alg='average',
     verbose=True
 ):
     '''
@@ -679,7 +681,8 @@ def mosaic_single_output_file(
         geogrid_in=geogrid_in, 
         temp_files_list=temp_files_list,
         verbose=verbose, 
-        no_data_value=no_data_value
+        no_data_value=no_data_value,
+        warp_resample_alg=warp_resample_alg,
     )
 
     arr_numerator = mosaic_dict['mosaic_array']
@@ -715,7 +718,9 @@ def mosaic_single_output_file(
 
 def mosaic_multiple_output_files(
         list_rtc_images, list_nlooks, output_file_list, mosaic_mode,
-        scratch_dir='', geogrid_in=None, temp_files_list=None, verbose=True):
+        scratch_dir='', geogrid_in=None, temp_files_list=None,
+        warp_resample_alg='average',
+        verbose=True):
     '''
     Mosaic RTC images saving each mosaicked band into a separate file
 
@@ -739,12 +744,14 @@ def mosaic_multiple_output_files(
             Mutable list of temporary files. If provided,
             paths to the temporary files generated will be
             appended to this list
+        warp_resample_alg: 'average' or 'nearest'
         verbose : bool
             Flag to enable/disable the verbose mode
     '''
     mosaic_dict = compute_mosaic_array(
         list_rtc_images, list_nlooks, mosaic_mode, scratch_dir=scratch_dir,
         geogrid_in=geogrid_in, temp_files_list=temp_files_list,
+        warp_resample_alg=warp_resample_alg,
         verbose=verbose)
 
     arr_numerator = mosaic_dict['mosaic_array']

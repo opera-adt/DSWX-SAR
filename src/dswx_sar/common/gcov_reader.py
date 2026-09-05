@@ -193,6 +193,7 @@ class RTCReader(DataReader):
     def process_rtc_hdf5(
             self,
             input_list: list,
+            static_file_list: list,
             scratch_dir: str,
             mosaic_mode: str,
             mosaic_prefix: str,
@@ -211,6 +212,8 @@ class RTCReader(DataReader):
         ----------
         input_list: list
             The HDF5 file paths of input RTCs to be mosaicked.
+        static_file_list: list
+            NISAR STATIC HDF5 files corresponding to the input GCOV files.
         scratch_dir: str
             Directory which stores the temporary files
         mosaic_mode: str
@@ -262,6 +265,7 @@ class RTCReader(DataReader):
         input_list = new_input_list
         logger.info('data path for mosaic')
         logger.info(data_path)
+
         # Generate layover mask path
         layover_mask_name = 'mask'
         layover_path = str(self.generate_nisar_layover_name(layover_mask_name))
@@ -287,6 +291,27 @@ class RTCReader(DataReader):
                 bbox_epsg=bbox_epsg,
             )
 
+        if not np.isfinite(geogrid_in.epsg):
+            raise RuntimeError(
+                'No GCOV raster overlaps the requested bbox. '
+                'The GCOV union geogrid is empty.'
+            )
+
+        target_epsg = int(geogrid_in.epsg)
+        print(f'[STATIC mask] target EPSG: {target_epsg}')
+        if static_file_list:
+            static_mask_gtiff_list = (
+                self.write_static_layover_shadow_geotiffs(
+                    static_file_list,
+                    scratch_dir,
+                    gdal_cache_max_mb,
+                    target_epsg,
+                    bbox=bbox,
+                    bbox_epsg=bbox_epsg,
+                )
+            )
+        else:
+            static_mask_gtiff_list = []
         mask_exist = (len(mask_gtiff_list) > 0)
 
         # To Do: Use flag_mosaic_freq_a and flag_mosaic_freq_b flags to
@@ -328,6 +353,9 @@ class RTCReader(DataReader):
                         'nearest',
                         )
 
+            # Keep existing bbox clipping
+            geogrid_in = resampled_geogrid_in
+
             if bbox is not None:
                 # bbox is (xmin, ymin, xmax, ymax) in bbox_epsg
                 if bbox_epsg is None:
@@ -351,10 +379,32 @@ class RTCReader(DataReader):
                 print(f"[BBox clip] final geogrid bounds: {bx}, epsg={geogrid_in.epsg}")
             geogrid_in = resampled_geogrid_in
 
+        # Match STATIC masks to the final GCOV mosaic resolution.
+        static_mask_output_res = abs(
+            geogrid_in.spacing_x
+        )
+
+        # Resample STATIC layover/shadow masks.
+        static_mask_geogrid = DSWXGeogrid()
+
+        for static_mask_gtiff in static_mask_gtiff_list:
+            print(
+                f'[STATIC mask] resampling '
+                f'{static_mask_gtiff} '
+                f'to {resamp_out_res} m'
+            )
+
+            self.resample_rtc(
+                static_mask_gtiff,
+                scratch_dir,
+                static_mask_output_res,
+                static_mask_geogrid,
+                'nearest',
+            )
+        
         # Mosaic intermediate geotiffs
         nlooks_list = []
         self.mosaic_rtc_geotiff(
-            input_list,
             pol_gtiff_list,
             scratch_dir,
             geogrid_in,
@@ -362,8 +412,209 @@ class RTCReader(DataReader):
             mosaic_mode,
             mosaic_prefix,
             mask_exist,
+            mask_gtiff_list,
+            static_mask_gtiff_list,
         )
 
+    def write_static_layover_shadow_geotiffs(
+            self,
+            static_file_list,
+            scratch_dir,
+            gdal_cache_max_mb,
+            target_epsg,
+            bbox=None,
+            bbox_epsg=None,
+            
+        ):
+        """Read STATIC layover/shadow masks and write intermediate GeoTIFFs.
+
+        GeoTIFF writing will be added after the STATIC datasets and
+        grid metadata have been validated.
+
+        Parameters
+        ----------
+        static_file_list : list
+            NISAR L2 STATIC HDF5 files.
+        scratch_dir : str
+            Directory for intermediate GeoTIFF products.
+        gdal_cache_max_mb : int
+            Maximum GDAL cache size in megabytes.
+        bbox : tuple or None
+            Optional processing bounding box.
+        bbox_epsg : int or None
+            EPSG code of the processing bounding box.
+    
+        Returns
+        -------
+        output_mask_list : list
+            Intermediate layover/shadow mask GeoTIFF paths.
+        """
+        if not static_file_list:
+            logger.info(
+                'No STATIC layover/shadow files were provided. '
+                'Skipping STATIC mask processing.'
+            )
+            return []
+        grid_path = '/science/LSAR/STATIC/grids'
+        layover_shadow_mask_path = (
+            f'{grid_path}/layoverShadowMask'
+        )
+        projection_path = (
+            f'{grid_path}/projection'
+        )
+        x_coordinates_path = (
+            f'{grid_path}/xCoordinates'
+        )
+        y_coordinates_path = (
+            f'{grid_path}/yCoordinates'
+        )
+        x_spacing_path = (
+            f'{grid_path}/xCoordinateSpacing'
+        )
+        y_spacing_path = (
+            f'{grid_path}/yCoordinateSpacing'
+        )
+
+        output_mask_list = []
+
+        for static_idx, static_file in enumerate(
+            static_file_list
+        ):
+            with H5Reader(static_file) as static_h5:
+                required_paths = [
+                    layover_shadow_mask_path,
+                    projection_path,
+                    x_coordinates_path,
+                    y_coordinates_path,
+                    x_spacing_path,
+                    y_spacing_path,
+                ]
+
+                layover_shadow_dataset = static_h5[
+                    layover_shadow_mask_path
+                ]
+                
+                static_epsg = int(
+                    static_h5[projection_path][()]
+                )
+                x_start = float(
+                    static_h5[x_coordinates_path][0]
+                )
+                y_start = float(
+                    static_h5[y_coordinates_path][0]
+                )
+                x_spacing = float(
+                    static_h5[x_spacing_path][()]
+                )
+                y_spacing = float(
+                    static_h5[y_spacing_path][()]
+                )
+
+                geotransform = (
+                    Affine.translation(
+                        x_start - x_spacing / 2.0,
+                        y_start - y_spacing / 2.0,
+                    )
+                    * Affine.scale(
+                        x_spacing,
+                        y_spacing,
+                    )
+                )
+
+                crs = f'EPSG:{static_epsg}'
+                num_rows, num_cols = layover_shadow_dataset.shape
+
+                output_prefix = self.extract_file_name(
+                    static_file
+                )
+
+                output_mask_gtiff = (
+                    f'{scratch_dir}/'
+                    f'{output_prefix}_layover_shadow_mask.tif'
+                )
+
+                print(
+                    f'[STATIC mask] writing GeoTIFF: '
+                    f'{output_mask_gtiff}'
+                )
+
+                self.read_write_rtc_h5py(
+                    layover_shadow_dataset,
+                    output_mask_gtiff,
+                    num_rows,
+                    num_cols,
+                    self.row_blk_size,
+                    self.col_blk_size,
+                    gdal_cache_max_mb,
+                    np.float32(255),
+                    geotransform,
+                    crs,
+                    {},
+                    is_mask=True,
+                    out_dtype='uint8',
+                    row0=0,
+                    col0=0,
+                    out_rows=num_rows,
+                    out_cols=num_cols,
+                    align_to_chunks=True,
+                    K_chunks=8,
+                )
+
+                # Reproject layover and shadow mask to target EPSG if needed
+                if static_epsg != target_epsg:
+                    temporary_mask_gtiff = (
+                        f'{scratch_dir}/'
+                        f'{output_prefix}_'
+                        f'layover_shadow_mask_reprojected.tif'
+                    )
+
+                    print(
+                        f'[STATIC mask] reprojecting '
+                        f'{output_prefix}: '
+                        f'EPSG:{static_epsg} → EPSG:{target_epsg}'
+                    )
+
+                    warp_options = gdal.WarpOptions(
+                        format='GTiff',
+                        dstSRS=f'EPSG:{target_epsg}',
+                        resampleAlg='nearest',
+                        srcNodata=255,
+                        dstNodata=255,
+                        outputType=gdal.GDT_Byte,
+                        creationOptions=[
+                            'TILED=YES',
+                            'COMPRESS=DEFLATE',
+                            'BIGTIFF=IF_SAFER',
+                        ],
+                    )
+
+                    reprojected_dataset = gdal.Warp(
+                        temporary_mask_gtiff,
+                        output_mask_gtiff,
+                        options=warp_options,
+                    )
+
+                    if reprojected_dataset is None:
+                        raise RuntimeError(
+                            f'Failed to reproject STATIC mask '
+                            f'{output_mask_gtiff} from '
+                            f'EPSG:{static_epsg} to '
+                            f'EPSG:{target_epsg}'
+                        )
+
+                    # Ensure GDAL finishes writing before replacing the file.
+                    reprojected_dataset = None
+
+                    os.replace(
+                        temporary_mask_gtiff,
+                        output_mask_gtiff,
+                    )
+
+                output_mask_list.append(
+                    output_mask_gtiff
+                )
+
+        return output_mask_list
 
     def write_rtc_geotiff(
         self,
@@ -617,7 +868,6 @@ class RTCReader(DataReader):
             mask_gtiff_list.append(output_mask_gtiff)
             geogrid_in.update_geogrid(output_mask_gtiff)
 
-        # ---- Optional: final clip of union geogrid to bbox (kept from your original) ----
         if bbox is not None:
             if bbox_epsg is None:
                 raise ValueError("bbox was provided but bbox_epsg is None")
@@ -629,11 +879,18 @@ class RTCReader(DataReader):
                 bbox_use = bbox
 
             ge_epsg = getattr(geogrid_in, "epsg", None)
+
             if ge_epsg is None or int(ge_epsg) != target_epsg:
                 geogrid_in.epsg = target_epsg
 
             geogrid_in.clip_to_bbox(bbox_use, bbox_epsg=target_epsg, snap=True)
             logger.info(f"[BBox clip] final geogrid bounds: {geogrid_in.bounds()}, epsg={geogrid_in.epsg}")
+
+            print(
+                f'[BBox clip] final geogrid bounds: '
+                f'{geogrid_in.bounds()}, '
+                f'epsg={geogrid_in.epsg}'
+            )
 
         return geogrid_in, output_gtiff_list, mask_gtiff_list, pol_gtiff_list
 
@@ -769,7 +1026,6 @@ class RTCReader(DataReader):
 
     def mosaic_rtc_geotiff(
         self,
-        input_list: list,
         pol_list: dict,
         scratch_dir: str,
         geogrid_in: DSWXGeogrid,
@@ -777,13 +1033,13 @@ class RTCReader(DataReader):
         mosaic_mode: str,
         mosaic_prefix: str,
         mask_exist: bool,
+        mask_gtiff_list: list,
+        static_mask_gtiff_list: list,
     ):
         """ Create mosaicked output Geotiff from a list of input RTCs
 
         Parameters
         ----------
-        input_list: list
-            The HDF5 file paths of input RTCs to be mosaicked.
         pol_list: dictionary
             polarization dictionary with Geotiff paths
         scratch_dir: str
@@ -819,19 +1075,20 @@ class RTCReader(DataReader):
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
                 no_data_value=255,
+                warp_resample_alg='average'
             )
 
-        # Mosaic layover shadow mask
-        if mask_exist:
-            mask_inputs: list[str] = []
-            for input_rtc in input_list:
-                input_prefix = self.extract_file_name(input_rtc)
-                mask_inputs.append(f'{scratch_dir}/{input_prefix}_mask.tif')
-
+        # Mosaic GCOV Mask Layer
+        if mask_exist and mask_gtiff_list:
             mask_mosaic_gtiff = f'{scratch_dir}/{mosaic_prefix}_mask.tif'
 
+            print(
+                f'[GCOV mask mosaic] inputs: '
+                f'{mask_gtiff_list}'
+            )
+            
             mosaic_single_output_file(
-                mask_inputs,
+                mask_gtiff_list,
                 nlooks_list,
                 mask_mosaic_gtiff,
                 mosaic_mode,
@@ -841,6 +1098,38 @@ class RTCReader(DataReader):
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
                 no_data_value=255,
+                warp_resample_alg='nearest'
+            )
+
+        # Mosaic the STATIC layover/shadow layers.
+        if static_mask_gtiff_list:
+            layover_shadow_mosaic_gtiff = (
+                f'{scratch_dir}/'
+                f'{mosaic_prefix}_layovershadow_mask.tif'
+            )
+
+            print(
+                f'[STATIC mask mosaic] inputs: '
+                f'{static_mask_gtiff_list}'
+            )
+
+            print(
+                f'[STATIC mask mosaic] output: '
+                f'{layover_shadow_mosaic_gtiff}'
+            )
+
+            mosaic_single_output_file(
+                static_mask_gtiff_list,
+                nlooks_list,
+                layover_shadow_mosaic_gtiff,
+                mosaic_mode,
+                self.row_blk_size,
+                self.col_blk_size,
+                scratch_dir=scratch_dir,
+                geogrid_in=geogrid_in,
+                temp_files_list=None,
+                no_data_value=255,
+                warp_resample_alg='near'
             )
 
     def resample_rtc(
@@ -1104,6 +1393,7 @@ class RTCReader(DataReader):
 
         ds_out.FlushCache()
         ds_out = None
+
 
     def extract_file_name(self, input_rtc):
         """Extract file name identifier from input file name
@@ -1590,6 +1880,7 @@ def run(cfg):
     processing_cfg = cfg.groups.processing
 
     input_list = cfg.groups.input_file_group.input_file_path
+    static_file_list = cfg.groups.input_file_group.input_layover_shadow_file_path
 
     mosaic_cfg = processing_cfg.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
@@ -1626,6 +1917,7 @@ def run(cfg):
     # Mosaic input RTC into output Geotiff
     reader.process_rtc_hdf5(
         input_list,
+        static_file_list,
         scratch_dir,
         mosaic_mode,
         mosaic_prefix,

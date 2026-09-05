@@ -45,18 +45,15 @@ def dswx_ni_workflow(cfg):
     # Create mosaic burst RTCs
     mosaic_gcov_frame.run(cfg)
 
-    if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
-                        DSWX_NI_POL_DICT['DH_POL']]
-    elif pol_mode == 'MIX_SINGLE_POL':
+    if pol_mode == 'MIX_SINGLE_POL':
         proc_pol_set = [DSWX_NI_POL_DICT['SV_POL'],
                         DSWX_NI_POL_DICT['SH_POL']]
-    elif pol_mode == 'MIX_DUAL_H_SINGLE_V_POL':
-        proc_pol_set = [DSWX_NI_POL_DICT['DH_POL'],
-                        DSWX_NI_POL_DICT['SV_POL']]
-    elif pol_mode == 'MIX_DUAL_V_SINGLE_H_POL':
-        proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
-                        DSWX_NI_POL_DICT['SH_POL']]
+    elif pol_mode == 'MIX_QD_DUAL_H_POL':
+        proc_pol_set = [DSWX_NI_POL_DICT['QP_POL'],
+                        DSWX_NI_POL_DICT['DH_POL']]
+    elif pol_mode == 'MIX_QD_DUAL_V_POL':
+        proc_pol_set = [DSWX_NI_POL_DICT['QP_POL'],
+                        DSWX_NI_POL_DICT['DV_POL']]
     # Add Full polarization mode
     # Add more scenarios to the above options
     # I need to verify frame1 : [HH, HV], frame2: [VH, VV]

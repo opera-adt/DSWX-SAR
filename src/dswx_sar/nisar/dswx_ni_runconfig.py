@@ -25,14 +25,14 @@ WORKFLOW_SCRIPTS_DIR = os.path.dirname(dswx_sar.__file__)
 DSWX_NI_POL_DICT = {
     'CO_POL': ['HH', 'VV'],
     'CROSS_POL': ['HV', 'VH'],
-    'MIX_DUAL_POL': ['HH', 'HV', 'VV', 'VH'],
-    'MIX_DUAL_H_SINGLE_V_POL': ['HH', 'HV', 'VV'],
-    'MIX_DUAL_V_SINGLE_H_POL': ['VV', 'VH', 'HH'],
     'MIX_SINGLE_POL': ['HH', 'VV'],
     'DV_POL': ['VV', 'VH'],
     'SV_POL': ['VV'],
     'DH_POL': ['HH', 'HV'],
     'SH_POL': ['HH'],
+    'QP_POL': ['HH', 'VV', 'HV', 'VH'],
+    'MIX_QD_DUAL_H_POL': ['HH', 'VV', 'HV', 'VH'],
+    'MIX_QD_DUAL_V_POL': ['HH', 'VV', 'HV', 'VH']
     }
 
 # 2nd dictionary is for single frame only
@@ -599,7 +599,7 @@ def check_polarizations(pol_list, valid_input_info, DSWX_NI_PROC_POL_DICT):
             - valid_freqs: list[str]
     DSWX_NI_PROC_POL_DICT : dict
         Dictionary capturing possible polarization scenarios.
-
+        
     Returns
     -------
     co_pol_list : list
@@ -649,14 +649,77 @@ def check_polarizations(pol_list, valid_input_info, DSWX_NI_PROC_POL_DICT):
         else:
             cross_pol_list.append(pol)
 
-    pol_mode = None
-    for pol_mode_name, pols_in_mode in DSWX_NI_POL_DICT.items():
-        if set(sorted_pol_list).issubset(set(pols_in_mode)):
-            pol_mode = pol_mode_name
-    print(pol_mode, 'polmode')
-    if pol_mode is None:
-        logger.warning('unable to identify polarization mode.')
+    # Preserve the polarization composition of each input frame.
+    input_pol_sets = []
 
+    for item in valid_input_info:
+        input_path = item['input_path']
+        valid_freqs = item['valid_freqs']
+
+        frame_pols = set()
+
+        for valid_freq in valid_freqs:
+            frame_pols.update(
+                get_pol_rtc_hdf5(input_path, valid_freq)
+            )
+
+        # Retain only polarizations selected for processing.
+        frame_pols &= set(proc_pol_list)
+
+        if frame_pols:
+            input_pol_sets.append(frozenset(frame_pols))
+
+    unique_input_pol_sets = set(input_pol_sets)
+
+    qp_set = frozenset(DSWX_NI_POL_DICT['QP_POL'])
+    dh_set = frozenset(DSWX_NI_POL_DICT['DH_POL'])
+    dv_set = frozenset(DSWX_NI_POL_DICT['DV_POL'])
+    sh_set = frozenset(DSWX_NI_POL_DICT['SH_POL'])
+    sv_set = frozenset(DSWX_NI_POL_DICT['SV_POL'])
+
+    pol_mode = None
+
+    if unique_input_pol_sets == {qp_set}:
+        # Every input frame is quad-pol.
+        pol_mode = 'QP_POL'
+
+    elif unique_input_pol_sets == {qp_set, dh_set}:
+        # Collection contains quad-pol and horizontal dual-pol frames.
+        pol_mode = 'MIX_QD_DUAL_H_POL'
+
+    elif unique_input_pol_sets == {qp_set, dv_set}:
+        # Collection contains quad-pol and vertical dual-pol frames.
+        pol_mode = 'MIX_QD_DUAL_V_POL'
+
+    elif unique_input_pol_sets == {sh_set, sv_set}:
+        # Collection contains horizontal and vertical single-pol frames.
+        pol_mode = 'MIX_SINGLE_POL'
+
+    elif len(unique_input_pol_sets) == 1:
+        # All frames have the same polarization configuration.
+        only_pol_set = next(iter(unique_input_pol_sets))
+
+        for pol_mode_name, pols_in_mode in DSWX_NI_POL_DICT.items():
+            # Mixed modes cannot be identified from one uniform frame set.
+            if pol_mode_name.startswith('MIX'):
+                continue
+
+            if only_pol_set == frozenset(pols_in_mode):
+                pol_mode = pol_mode_name
+                break
+
+    logger.info(
+        'Input polarization sets: '
+        f'{[sorted(frame_set) for frame_set in input_pol_sets]}'
+    )
+    logger.info(f'Polarization mode: {pol_mode}')
+
+    if pol_mode is None:
+        logger.warning(
+            'Unable to identify polarization mode from input frames.'
+        )
+
+  
     return co_pol_list, cross_pol_list, sorted_pol_list, pol_mode
 
 

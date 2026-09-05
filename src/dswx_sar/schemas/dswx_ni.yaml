@@ -67,7 +67,7 @@ runconfig:
 
             # MGRS collection database sqlite file
             mgrs_collection_database_file: str(required=False)
-
+            
         primary_executable:
             product_type: enum('dswx_ni', 'twele')
 

@@ -522,10 +522,6 @@ def run(cfg):
     input_date_format = "%Y-%m-%dT%H:%M:%S"
     output_date_format = "%Y%m%dT%H%M%SZ"
 
-    date_str_id_temp = date_str_list[0][:19]
-    date_str_id = datetime.datetime.strptime(
-        date_str_id_temp, input_date_format).strftime(
-            output_date_format)
     platform_str = platform
     resolution_str = str(int(resolution))
 
@@ -1107,7 +1103,6 @@ def run(cfg):
         frame_name_path=None,  # set if you know the dataset path
     )
 
-    processing_time = datetime.datetime.now().strftime("%Y%m%dT%H%M%SZ")
     if dswx_workflow == 'opera_dswx_ni':
 
         for mgrs_num_id, mgrs_tile_id in enumerate(unique_mgrs_tile_list):
@@ -1146,6 +1141,18 @@ def run(cfg):
                      pol_list,
                      product_version=product_version,
                      extra_meta_data=mgrs_meta_dict)
+                metadata_processing_time = \
+                    dswx_metadata_dict['PROCESSING_DATETIME']
+
+                processing_time = datetime.datetime.strptime(
+                    metadata_processing_time,
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ).strftime("%Y%m%dT%H%M%SZ")
+
+                date_str_id = datetime.datetime.strptime(
+                    dswx_metadata_dict['ZERO_DOPPLER_START_TIME'],
+                    "%Y-%m-%dT%H:%M:%SZ",
+                ).strftime("%Y%m%dT%H%M%SZ")
                 dswx_name_format_prefix = (f'OPERA_L3_DSWx-NI_T{mgrs_tile_id}_'
                                            f'{date_str_id}_{processing_time}_'
                                            f'{platform_str}_{resolution_str}_'

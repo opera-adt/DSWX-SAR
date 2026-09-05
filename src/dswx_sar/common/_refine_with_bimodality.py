@@ -63,7 +63,7 @@ class BimodalityMetrics:
 
         int_db = np.asarray(int_db, dtype=np.float32)
         int_db = np.round(int_db, 3).astype(np.float64)
-
+        int_db = int_db[np.isfinite(int_db)]
         self.int_db = int_db
 
         bins_hist = np.linspace(hist_min,
@@ -80,6 +80,9 @@ class BimodalityMetrics:
         # remove invalid values
         mask = (np.isnan(int_db)) | (np.isinf(int_db)) | (np.isinf(-int_db))
         int_db = int_db[np.invert(mask)]
+
+        self.expected = None
+
         if len(int_db) >= 3:
             self.enough_number = True
             # Threshold for two Gaussian fitting
@@ -126,10 +129,10 @@ class BimodalityMetrics:
             amp_lt = self.prob[amp_lt_ind]
             amp_gt_ind = np.abs(self.bincenter - mean_gt).argmin()
             amp_gt = self.prob[amp_gt_ind]
-
+            expected = (mean_lt, std_lt, amp_lt,
+                        mean_gt, std_gt, amp_gt)
+            self.expected = expected
             try:
-                expected = (mean_lt, std_lt, amp_lt,
-                            mean_gt, std_gt, amp_gt)
 
                 fit = self._fit_bimodal_deterministic(expected)
 
@@ -150,10 +153,8 @@ class BimodalityMetrics:
         else:
             self.optimization = False
             self.enough_number = False
+            self.expected = None
 
-        expected = (mean_lt, std_lt, amp_lt,
-            mean_gt, std_gt, amp_gt)
-        self.expected = expected
 
     def _fit_bimodal_deterministic(self, expected):
         """

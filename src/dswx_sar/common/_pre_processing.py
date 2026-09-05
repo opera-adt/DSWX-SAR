@@ -562,7 +562,6 @@ class AncillaryRelocation:
 
                 progress_state = {"next_percent": 0}
                 t_warp = time.perf_counter()
-                multithread = self.warp_num_threads > 1
 
                 warp_result = gdal.Warp(
                     relocated_file,
@@ -581,7 +580,7 @@ class AncillaryRelocation:
                     multithread=self.warp_num_threads > 1,
 
                     resampleAlg=resample_algorithm,
-                    errorThreshold=0.125,
+                    errorThreshold=0.0,
                     dstNodata=no_data,
                     warpMemoryLimit=512,
                     creationOptions=[
@@ -594,6 +593,11 @@ class AncillaryRelocation:
                     callback=_gdal_progress,
                     callback_data=progress_state,
                 )
+                if warp_result is None:
+                    raise RuntimeError(
+                        f"GDAL Warp failed for {warp_input_file}"
+                    )
+                warp_result.FlushCache()
 
                 warp_result = None
 
@@ -619,10 +623,155 @@ class AncillaryRelocation:
                 return None
 
             gdal_ds = gdal.Open(relocated_file, gdal.GA_ReadOnly)
+            if gdal_ds is None:
+                raise RuntimeError(
+                    f"Unable to open warped output: {relocated_file}"
+                )
+
             relocated_array = gdal_ds.ReadAsArray()
             gdal_ds = None
 
             return relocated_array
+
+
+        # Antimeridian handling
+        logger.info("Tile crosses the antimeridian")
+
+        file_max_x = file_min_x + file_width * file_dx
+
+        source_windows = [
+            # Western side of the source raster: approximately 179° to 180°
+            [
+                source_min_x,
+                source_max_y,
+                file_max_x,
+                source_min_y,
+            ],
+            # Eastern side represented in the -180° to 180° domain
+            [
+                file_min_x,
+                source_max_y,
+                source_max_x - 360.0,
+                source_min_y,
+            ],
+        ]
+
+        temporary_files = []
+
+        try:
+            for side_name, proj_window in zip(
+                ["left", "right"],
+                source_windows,
+            ):
+                fd, temporary_file = tempfile.mkstemp(
+                    dir=scratch_dir,
+                    prefix=f"antimeridian_{side_name}_",
+                    suffix=".tif",
+                )
+                os.close(fd)
+                os.unlink(temporary_file)
+                temporary_files.append(temporary_file)
+                logger.info(
+                    f"Cropping antimeridian {side_name} side: "
+                    f"{proj_window}"
+                )
+
+                translate_result = gdal.Translate(
+                    temporary_file,
+                    input_file,
+                    format="GTiff",
+                    projWin=proj_window,
+                    projWinSRS=file_projection_wkt,
+                    noData=no_data,
+                    creationOptions=[
+                        "TILED=YES",
+                        "BIGTIFF=IF_SAFER",
+                    ],
+                )
+
+                if translate_result is None:
+                    raise RuntimeError(
+                        f"GDAL Translate failed for the "
+                        f"antimeridian {side_name} side: {input_file}"
+                    )
+
+                translate_result.FlushCache()
+                translate_result = None
+
+            progress_state = {"next_percent": 0}
+            t_warp = time.perf_counter()
+
+            warp_result = gdal.Warp(
+                relocated_file,
+                temporary_files,
+                format="GTiff",
+                dstSRS=projection_wkt,
+                outputBounds=[
+                    tile_min_x_utm,
+                    tile_min_y_utm,
+                    tile_max_x_utm,
+                    tile_max_y_utm,
+                ],
+                width=width + 2 * margin_in_pixels,
+                height=length + 2 * margin_in_pixels,
+                multithread=self.warp_num_threads > 1,
+                resampleAlg=resample_algorithm,
+                errorThreshold=0.125,
+                dstNodata=no_data,
+                warpMemoryLimit=512,
+                creationOptions=[
+                    "TILED=YES",
+                    "BIGTIFF=IF_SAFER",
+                ],
+                warpOptions=[
+                    f"NUM_THREADS={self.warp_num_threads}",
+                ],
+                callback=_gdal_progress,
+                callback_data=progress_state,
+            )
+
+            if warp_result is None:
+                raise RuntimeError(
+                    f"GDAL Warp failed for antimeridian tile: {input_file}"
+                )
+
+            warp_result.FlushCache()
+            warp_result = None
+
+            logger.info(
+                "Antimeridian GDAL Warp completed in "
+                f"{time.perf_counter() - t_warp:.1f} seconds"
+            )
+
+            if not return_array:
+                return None
+
+            output_dataset = gdal.Open(
+                relocated_file,
+                gdal.GA_ReadOnly,
+            )
+
+            if output_dataset is None:
+                raise RuntimeError(
+                    f"Unable to open warped output: {relocated_file}"
+                )
+
+            relocated_array = output_dataset.ReadAsArray()
+            output_dataset = None
+
+            return relocated_array
+
+        finally:
+            for temporary_file in temporary_files:
+                if os.path.exists(temporary_file):
+                    try:
+                        os.remove(temporary_file)
+                    except OSError:
+                        logger.warning(
+                            "Could not remove temporary file: "
+                            f"{temporary_file}"
+                        )
+
 
     def _antimeridian_crossing_requires_special_handling(
         self, file_srs, file_min_x, tile_min_x, tile_max_x

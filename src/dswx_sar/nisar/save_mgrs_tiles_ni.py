@@ -684,10 +684,21 @@ def run(cfg):
     )
 
     if os.path.exists(layover_shadow_mask_path):
-        layover_shadow_mask = _dswx_sar_util._make_block_source(
+        static_positive = _dswx_sar_util._make_block_source(
             layover_shadow_mask_path,
             operation='gt',
             value=0
+        )
+        static_nodata = _dswx_sar_util._make_block_source(
+            layover_shadow_mask_path,
+            operation='eq',
+            value=255
+        )
+
+        layover_shadow_mask = _dswx_sar_util._make_combined_mask(
+            'and_not',
+            static_positive,
+            static_nodata
         )
         logger.info('Layover/shadow mask found')
     else:

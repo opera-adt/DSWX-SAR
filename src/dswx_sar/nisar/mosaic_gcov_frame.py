@@ -95,8 +95,10 @@ def run(cfg):
     processing_cfg = cfg.groups.processing
 
     input_list = cfg.groups.input_file_group.input_file_path
-    static_file_list = cfg.groups.input_file_group.input_layover_shadow_file_path
-
+    static_file_list = (
+        cfg.groups.input_file_group.input_layover_shadow_file_path
+        or []
+    )
     mosaic_cfg = processing_cfg.mosaic
     mosaic_mode = mosaic_cfg.mosaic_mode
     mosaic_prefix = mosaic_cfg.mosaic_prefix

@@ -299,18 +299,19 @@ class RTCReader(DataReader):
 
         target_epsg = int(geogrid_in.epsg)
         print(f'[STATIC mask] target EPSG: {target_epsg}')
-
-        static_mask_gtiff_list = (
-            self.write_static_layover_shadow_geotiffs(
-                static_file_list,
-                scratch_dir,
-                gdal_cache_max_mb,
-                target_epsg,
-                bbox=bbox,
-                bbox_epsg=bbox_epsg,
+        if static_file_list:
+            static_mask_gtiff_list = (
+                self.write_static_layover_shadow_geotiffs(
+                    static_file_list,
+                    scratch_dir,
+                    gdal_cache_max_mb,
+                    target_epsg,
+                    bbox=bbox,
+                    bbox_epsg=bbox_epsg,
+                )
             )
-        )
-
+        else:
+            static_mask_gtiff_list = []
         mask_exist = (len(mask_gtiff_list) > 0)
 
         # To Do: Use flag_mosaic_freq_a and flag_mosaic_freq_b flags to
@@ -396,7 +397,7 @@ class RTCReader(DataReader):
             self.resample_rtc(
                 static_mask_gtiff,
                 scratch_dir,
-                resamp_out_res,
+                static_mask_output_res,
                 static_mask_geogrid,
                 'nearest',
             )
@@ -448,7 +449,12 @@ class RTCReader(DataReader):
         output_mask_list : list
             Intermediate layover/shadow mask GeoTIFF paths.
         """
-    
+        if not static_file_list:
+            logger.info(
+                'No STATIC layover/shadow files were provided. '
+                'Skipping STATIC mask processing.'
+            )
+            return []
         grid_path = '/science/LSAR/STATIC/grids'
         layover_shadow_mask_path = (
             f'{grid_path}/layoverShadowMask'
@@ -1069,6 +1075,7 @@ class RTCReader(DataReader):
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
                 no_data_value=255,
+                warp_resample_alg='average'
             )
 
         # Mosaic GCOV Mask Layer
@@ -1091,13 +1098,14 @@ class RTCReader(DataReader):
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
                 no_data_value=255,
+                warp_resample_alg='nearest'
             )
 
         # Mosaic the STATIC layover/shadow layers.
         if static_mask_gtiff_list:
             layover_shadow_mosaic_gtiff = (
                 f'{scratch_dir}/'
-                f'{mosaic_prefix}_layover_shadow_mask.tif'
+                f'{mosaic_prefix}_layovershadow_mask.tif'
             )
 
             print(
@@ -1121,6 +1129,7 @@ class RTCReader(DataReader):
                 geogrid_in=geogrid_in,
                 temp_files_list=None,
                 no_data_value=255,
+                warp_resample_alg='near'
             )
 
     def resample_rtc(

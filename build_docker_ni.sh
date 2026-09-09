@@ -1,19 +1,43 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-IMAGE=opera/dswx-ni
-tag=calval_0.4.2
-echo "IMAGE is $IMAGE:$tag"
+set -euo pipefail
 
-# fail on any non-zero exit codes
-set -ex
+IMAGE="${IMAGE:-opera/dswx-ni}"
+TAG="${TAG:-calval_0.4.2}"
+PLATFORM="linux/amd64"
+OUTPUT_TAR="docker/dockerimg_dswx_ni_${TAG}.tar"
 
-python3 setup_ni.py sdist
+echo "Building ${IMAGE}:${TAG} for ${PLATFORM}"
 
-# build image
-docker build --rm --force-rm --network=host -t ${IMAGE}:$tag -f docker/Dockerfile_ni .
+docker buildx build \
+    --platform "${PLATFORM}" \
+    --load \
+    --progress=plain \
+    --tag "${IMAGE}:${TAG}" \
+    --file docker/Dockerfile_ni \
+    .
 
-# create image tar
-docker save opera/dswx-ni > docker/dockerimg_dswx_ni_$tag.tar
+IMAGE_OS="$(
+    docker image inspect \
+        --format '{{.Os}}' \
+        "${IMAGE}:${TAG}"
+)"
 
-# remove image
-docker image rm opera/dswx-ni:$tag    
+IMAGE_ARCH="$(
+    docker image inspect \
+        --format '{{.Architecture}}' \
+        "${IMAGE}:${TAG}"
+)"
+
+if [[ "${IMAGE_OS}/${IMAGE_ARCH}" != "${PLATFORM}" ]]; then
+    echo "ERROR: Expected ${PLATFORM}, got ${IMAGE_OS}/${IMAGE_ARCH}"
+    exit 1
+fi
+
+echo "Saving ${IMAGE}:${TAG} to ${OUTPUT_TAR}"
+
+docker save \
+    --output "${OUTPUT_TAR}" \
+    "${IMAGE}:${TAG}"
+
+echo "Successfully created ${OUTPUT_TAR}"

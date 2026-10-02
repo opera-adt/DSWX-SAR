@@ -479,7 +479,8 @@ class TileSelection:
                            win_size=200,
                            selection_methods=['combined'],
                            minimum_tile=20,
-                           minimum_pixel_number=40):
+                           minimum_pixel_number=40,
+                           require_water_boundary=True):
         '''Select the tile candidates containing water and non-water
         from aid of water body layer based on the selection method
         {twele, chini, bimodality, combined}.
@@ -527,7 +528,7 @@ class TileSelection:
                 win_size = np.min([height, width])
                 logger.info(f'tile size changed {win_size0} -> {win_size}')
 
-            if (height != water_nrow) and (width != water_ncol):
+            if (height != water_nrow) or (width != water_ncol):
                 raise ValueError("reference water image size differ from "
                                  "intensity image")
 
@@ -566,7 +567,10 @@ class TileSelection:
                 min_value=-35,
                 max_value=10)
 
-            water_area_flag = self.get_water_portion_mask(water_mask)
+            water_area_flag = (
+                not require_water_boundary
+                or self.get_water_portion_mask(water_mask)
+            )
 
             mean_intensity_global = np.nanmean(intensity_gray)
 
@@ -591,8 +595,8 @@ class TileSelection:
                     y_step = win_size // 2
 
                     # Loop through the rectangle array with the sliding window
-                    for x_coord in range(0, width - win_size + 1, x_step):
-                        for y_coord in range(0, height - win_size + 1, y_step):
+                    for x_coord in range(0, height - win_size + 1, x_step):
+                        for y_coord in range(0, width - win_size + 1, y_step):
                             # Grab the small area using the window
                             x_start = x_coord
                             x_end = x_coord + win_size
@@ -624,10 +628,15 @@ class TileSelection:
                             water_area_sublock_flag = \
                                 self.get_water_portion_mask(water_mask_sublock)
 
-                            if water_number_sample_sub > 0 \
-                                    and water_area_sublock_flag \
-                                    and validnum > num_pixel_max:
+                            boundary_ok = (
+                                not require_water_boundary
+                                or (
+                                    water_number_sample_sub > 0
+                                    and water_area_sublock_flag
+                                )
+                            )
 
+                            if boundary_ok and validnum > num_pixel_max:
                                 # Initially set flag as True
                                 tile_selected_flag = True
                                 tile_metric_record = {
@@ -858,7 +867,8 @@ class TileSelection:
                     selected_tile_bimodality)
             else:
                 selected_tile = detected_box_array
-            coordinate = np.array(coordinate)
+            coordinate = np.asarray(coordinate, dtype=int).reshape(-1, 5)
+            selected_tile = np.asarray(selected_tile, dtype=bool)
             candidate_tile_coords = coordinate[selected_tile]
 
         return candidate_tile_coords

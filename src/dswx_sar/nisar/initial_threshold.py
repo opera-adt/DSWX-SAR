@@ -657,6 +657,185 @@ def _valid_bimodal_fit_for_threshold(first_mode, second_mode):
         return False
 
 
+def get_missing_threshold_indices(results, pol_list, no_data=-50):
+    """Find polarizations without any valid threshold/mode pair."""
+    counts = np.zeros(len(pol_list), dtype=int)
+
+    for _, _, thresholds, modes, _ in results:
+        for polind, pol in enumerate(pol_list):
+            threshold = np.atleast_1d(
+                np.asarray(thresholds[polind], dtype=float)
+            )
+            mode = np.atleast_1d(
+                np.asarray(modes[polind], dtype=float)
+            )
+
+            if threshold.shape != mode.shape:
+                raise ValueError(
+                    f"{pol}: threshold/mode shape mismatch: "
+                    f"{threshold.shape} vs {mode.shape}"
+                )
+
+            valid = (
+                np.isfinite(threshold)
+                & np.isfinite(mode)
+                & (threshold != no_data)
+                & (mode != no_data)
+            )
+            counts[polind] += np.count_nonzero(valid)
+
+    for pol, count in zip(pol_list, counts):
+        logger.info(f"{pol}: usable threshold/mode samples={count}")
+
+    return np.flatnonzero(counts == 0).tolist()
+
+
+def classify_from_reference(
+        reference_water_path,
+        reference_trust_path,
+        sar_invalid_path,
+        output_path,
+        reference_max=100.0,
+        water_min=0.95,
+        nonwater_max=0.0,
+        reference_nodata=None,
+        lines_per_block=1024):
+    """Write reference-based fallback: 0=non-water, 1=water, 255=unknown.
+
+    reference_trust_path:
+        Raster with 1 for trusted reference pixels and 0 elsewhere.
+    sar_invalid_path:
+        Existing no_data_area raster: 0=valid SAR, nonzero=invalid.
+    water_min, nonwater_max:
+        Thresholds on normalized reference occurrence (0 to 1).
+    """
+    if reference_max <= 0:
+        raise ValueError("reference_max must be positive")
+    if not 0 <= nonwater_max < water_min <= 1:
+        raise ValueError(
+            "Require 0 <= nonwater_max < water_min <= 1"
+        )
+    if lines_per_block < 1:
+        raise ValueError("lines_per_block must be positive")
+
+    paths = [
+        reference_water_path,
+        reference_trust_path,
+        sar_invalid_path,
+    ]
+    if os.path.abspath(output_path) in {
+        os.path.abspath(path) for path in paths
+    }:
+        raise ValueError("Output must differ from input rasters")
+
+    datasets = []
+    output = None
+
+    try:
+        for path in paths:
+            ds = gdal.Open(str(path), gdal.GA_ReadOnly)
+            if ds is None:
+                raise RuntimeError(f"Cannot open {path}")
+            datasets.append(ds)
+
+        reference, trust, sar_invalid = datasets
+        width = reference.RasterXSize
+        height = reference.RasterYSize
+        transform = reference.GetGeoTransform()
+        projection = reference.GetProjection()
+
+        # Inputs must already be on the same SAR grid.
+        for path, ds in zip(paths[1:], datasets[1:]):
+            if (
+                ds.RasterXSize != width
+                or ds.RasterYSize != height
+                or not np.allclose(
+                    ds.GetGeoTransform(), transform,
+                    rtol=0, atol=1e-8,
+                )
+                or ds.GetProjection() != projection
+            ):
+                raise ValueError(f"Raster grid differs: {path}")
+
+        bands = [ds.GetRasterBand(1) for ds in datasets]
+        nodata_values = [band.GetNoDataValue() for band in bands]
+
+        output = gdal.GetDriverByName("GTiff").Create(
+            str(output_path),
+            width,
+            height,
+            1,
+            gdal.GDT_Byte,
+            options=[
+                "TILED=YES",
+                "COMPRESS=DEFLATE",
+                "BIGTIFF=IF_SAFER",
+            ],
+        )
+        if output is None:
+            raise RuntimeError(f"Cannot create {output_path}")
+
+        output.SetGeoTransform(transform)
+        output.SetProjection(projection)
+        output.SetMetadataItem(
+            "CLASSIFICATION_SOURCE", "reference_water_fallback"
+        )
+
+        out_band = output.GetRasterBand(1)
+        out_band.SetNoDataValue(255)
+        out_band.SetDescription(
+            "0=reference non-water; 1=reference water; 255=unknown"
+        )
+
+        counts = {"water": 0, "nonwater": 0, "unknown": 0}
+
+        for row in range(0, height, lines_per_block):
+            nrows = min(lines_per_block, height - row)
+            arrays = [
+                band.ReadAsArray(0, row, width, nrows)
+                for band in bands
+            ]
+            wbd, trusted, invalid = arrays
+
+            valid = np.ones(wbd.shape, dtype=bool)
+            for array, nodata in zip(arrays, nodata_values):
+                valid &= np.isfinite(array)
+                if nodata is not None:
+                    valid &= array != nodata
+
+            if reference_nodata is not None:
+                valid &= wbd != reference_nodata
+
+            valid &= (
+                (invalid == 0)
+                & (trusted == 1)
+                & (wbd >= 0)
+                & (wbd <= reference_max)
+            )
+
+            occurrence = wbd.astype(np.float32) / reference_max
+
+            classified = np.full(wbd.shape, 255, dtype=np.uint8)
+            classified[valid & (occurrence <= nonwater_max)] = 0
+            classified[valid & (occurrence >= water_min)] = 1
+
+            out_band.WriteArray(classified, 0, row)
+
+            counts["water"] += int(np.count_nonzero(classified == 1))
+            counts["nonwater"] += int(np.count_nonzero(classified == 0))
+            counts["unknown"] += int(np.count_nonzero(classified == 255))
+
+        output.FlushCache()
+        logger.warning("Reference fallback pixel counts: %s", counts)
+        return counts
+
+    finally:
+        out_band = None
+        bands = None
+        output = None
+        datasets.clear()
+
+
 def determine_threshold(
         intensity,
         candidate_tile_coords,
@@ -1706,7 +1885,10 @@ def run_sub_block(intensity,
                   extract_curvefit=False,
                   curvefit_out_dir=None,
                   block_ij=None,
-                  block_origin=None):
+                  block_origin=None,
+                  require_water_boundary=True,
+                  pol_indices=None,
+                  candidate_coords_by_pol=None):
     """
     Process sub-blocks of SAR intensity data for water detection based on
     the specified configuration.
@@ -1790,6 +1972,11 @@ def run_sub_block(intensity,
 
     # Tile Selection (with water body)
     for polind, pol in enumerate(pol_list):
+        if pol_indices is not None and polind not in pol_indices:
+            threshold_tau_set.append(np.nan)
+            mode_tau_set.append(np.nan)
+            candidate_tile_coords_set.append([])
+            continue
         src_im = np.asarray(intensity[polind], dtype=np.float32)
         src_im = np.round(src_im, 8).astype(np.float32)
         tile_selection_im = src_im.copy()
@@ -1845,11 +2032,53 @@ def run_sub_block(intensity,
             "threshold_scale": threshold_scale,
             "selection_methods": tile_selection_method,
         }
-        candidate_tile_coords = tile_selection_object.tile_selection_wbd(
-                        intensity=tile_selection_im,
-                        water_mask=water_body_subset,
-                        win_size=winsize,
-                        selection_methods=tile_selection_method)
+        # candidate_tile_coords = tile_selection_object.tile_selection_wbd(
+        #                 intensity=tile_selection_im,
+        #                 water_mask=water_body_subset,
+        #                 win_size=winsize,
+        #                 selection_methods=tile_selection_method,
+        #                 require_water_boundary=require_water_boundary,)
+        if candidate_coords_by_pol is None:
+            candidate_tile_coords = tile_selection_object.tile_selection_wbd(
+                intensity=tile_selection_im,
+                water_mask=water_body_subset,
+                win_size=winsize,
+                selection_methods=tile_selection_method,
+                require_water_boundary=require_water_boundary,
+            )
+        else:
+            # Coordinates are local to this block.
+            candidate_tile_coords = np.asarray(
+                candidate_coords_by_pol.get(polind, []),
+                dtype=int,
+            ).reshape(-1, 5)
+
+            # Keep only tiles with sufficient valid target-polarization data.
+            usable_coords = []
+            for coord in candidate_tile_coords:
+                _, row_start, row_end, col_start, col_end = coord
+                tile = tile_selection_im[
+                    row_start:row_end,
+                    col_start:col_end,
+                ]
+                valid = np.isfinite(tile) & (tile > 0)
+
+                if tile.size and np.count_nonzero(valid) > tile.size / 3:
+                    usable_coords.append(coord)
+
+            candidate_tile_coords = np.asarray(
+                usable_coords, dtype=int
+            ).reshape(-1, 5)
+
+            logger.info(
+                f"block={block_ij}, pol={pol}: "
+                f"using {len(candidate_tile_coords)} donor tiles"
+            )
+        logger.info(
+            f"block={block_ij}, pol={pol}, "
+            f"require_water_boundary={require_water_boundary}, "
+            f"selected_tiles={len(candidate_tile_coords)}"
+        )
         candidate_tile_coords_arr = np.asarray(candidate_tile_coords)
 
         if debug_curvefit:
@@ -1891,7 +2120,7 @@ def run_sub_block(intensity,
             else:
                 threshold_temp_min, threshold_temp_max_cfg = convert_db2pow(bound_min_db), convert_db2pow(bound_max_db)
 
-            if water_variation > 0.1:
+            if require_water_boundary and water_variation > 0.1:
                 threshold_temp_max = thres_max[polind] if threshold_scale == 'db' else convert_db2pow(thres_max[polind])
             else:
                 threshold_temp_max = threshold_temp_max_cfg
@@ -1914,6 +2143,24 @@ def run_sub_block(intensity,
                 block_ij=block_ij,
                 block_origin=block_origin,
                 threshold_scale=threshold_scale,
+            )
+            threshold_values = np.atleast_1d(
+                np.asarray(intensity_threshold, dtype=float)
+            )
+            mode_values = np.atleast_1d(
+                np.asarray(mode_tau, dtype=float)
+            )
+
+            logger.info(
+                f"block={block_ij}, pol={pol}, "
+                f"require_water_boundary={require_water_boundary}, "
+                f"selected_tiles={len(candidate_tile_coords)}, "
+                f"finite_thresholds="
+                f"{np.count_nonzero(np.isfinite(threshold_values))}, "
+                f"finite_modes="
+                f"{np.count_nonzero(np.isfinite(mode_values))}, "
+                f"bounds=({threshold_temp_min}, {threshold_temp_max}), "
+                f"threshold_scale={threshold_scale}"
             )
 
             if threshold_scale == 'linear':
@@ -1963,6 +2210,63 @@ def _get_histogram_params(polarization, scale):
         # Use auto bounds via percentiles in determine_threshold
         # (min/max == -1000 triggers auto)
         return -1000, -1000, 0.1
+
+
+def get_failed_threshold_polarizations(
+        threshold_dict,
+        mode_dict,
+        pol_list,
+        average_tile,
+        no_data=-50):
+    """Return polarizations without usable threshold/mode pairs."""
+    failed_pols = []
+
+    for polind, pol in enumerate(pol_list):
+        if average_tile:
+            threshold = np.asarray(
+                threshold_dict["array"][:, :, polind],
+                dtype=float,
+            )
+            mode = np.asarray(
+                mode_dict["array"][:, :, polind],
+                dtype=float,
+            )
+        else:
+            threshold = np.asarray(
+                threshold_dict["array"][polind],
+                dtype=float,
+            )
+            mode = np.asarray(
+                mode_dict["array"][polind],
+                dtype=float,
+            )
+
+        if threshold.shape != mode.shape:
+            raise ValueError(
+                f"{pol}: threshold and mode shapes differ: "
+                f"{threshold.shape} vs {mode.shape}"
+            )
+
+        valid_threshold = (
+            np.isfinite(threshold)
+            & (threshold != no_data)
+        )
+        valid_mode = (
+            np.isfinite(mode)
+            & (mode != no_data)
+        )
+        valid_pair = valid_threshold & valid_mode
+
+        logger.info(
+            f"{pol}: valid thresholds={np.count_nonzero(valid_threshold)}, "
+            f"valid modes={np.count_nonzero(valid_mode)}, "
+            f"valid pairs={np.count_nonzero(valid_pair)}"
+        )
+
+        if not np.any(valid_pair):
+            failed_pols.append(pol)
+
+    return failed_pols
 
 
 def compute_water_spatial_coverage(
@@ -2145,7 +2449,10 @@ def process_block(ii, jj,
                   block_row, block_col, width,
                   filt_im_str, wbd_im_str,
                   cfg, thres_max,
-                  average_tile_flag=False):
+                  average_tile_flag=False,
+                  require_water_boundary=True,
+                  pol_indices=None,
+                  candidate_coords_by_pol=None):
     """
     Processes a specific block of an image.
 
@@ -2248,7 +2555,10 @@ def process_block(ii, jj,
             extract_curvefit=False,
             curvefit_out_dir=curvefit_out_dir,
             block_ij=block_ij,
-            block_origin=block_origin)
+            block_origin=block_origin,
+            require_water_boundary=require_water_boundary,
+            candidate_coords_by_pol=candidate_coords_by_pol,
+            pol_indices=pol_indices,)
 
     if average_tile_flag:
         threshold_list = [np.nanmedian(test_threshold)
@@ -2264,6 +2574,173 @@ def process_block(ii, jj,
                      for ind_list in mode_tau_block]
 
     return ii, jj, threshold_list, mode_list, candidate_tile_coords
+
+
+def make_donor_coords(
+        result, pol_list, failed_indices, average_tile):
+    """Collect same-block HH/HV donor coordinates for failed bands."""
+    _, _, thresholds, modes, coords = result
+    donors = {}
+
+    for target in failed_indices:
+        other_pol = {"HH": "HV", "HV": "HH"}.get(pol_list[target])
+
+        if other_pol not in pol_list:
+            continue
+
+        source = pol_list.index(other_pol)
+        if source in failed_indices:
+            continue
+
+        threshold = np.atleast_1d(
+            np.asarray(thresholds[source], dtype=float)
+        )
+        mode = np.atleast_1d(
+            np.asarray(modes[source], dtype=float)
+        )
+
+        if threshold.shape != mode.shape:
+            raise ValueError(
+                f"{other_pol}: threshold/mode shape mismatch"
+            )
+
+        valid = (
+            np.isfinite(threshold)
+            & np.isfinite(mode)
+            & (threshold != -50)
+            & (mode != -50)
+        )
+
+        donor_coords = np.asarray(
+            coords[source], dtype=int
+        ).reshape(-1, 5)
+
+        if not np.any(valid) or len(donor_coords) == 0:
+            continue
+
+        if not average_tile:
+            if len(donor_coords) != len(valid):
+                raise ValueError(
+                    f"{other_pol}: coordinate/sample count mismatch"
+                )
+            donor_coords = donor_coords[valid]
+
+        donors[target] = donor_coords.copy()
+
+    return donors
+
+
+def write_reference_fallback_thresholds(
+        reference_water_path,
+        sar_nodata_path,
+        outputdir,
+        pol_list,
+        reference_max,
+        reference_nodata,
+        permanent_water_threshold,
+        lines_per_block):
+    """Write hard-coded dB threshold/mode rasters from reference water."""
+
+    WATER_MODE_DB = 20.0
+    WATER_THRESHOLD_DB = 30.0
+    LAND_MODE_DB = -100.0
+    LAND_THRESHOLD_DB = -90.0
+    OUTPUT_NODATA = -50.0
+
+    if reference_max <= 0:
+        raise ValueError("reference_max must be positive")
+    if not 0 <= permanent_water_threshold < 1:
+        raise ValueError(
+            "permanent_water_threshold must be normalized to [0, 1)"
+        )
+
+    meta = _dswx_sar_util.get_meta_from_tif(reference_water_path)
+    block_params = _dswx_sar_util.block_param_generator(
+        lines_per_block,
+        (meta["length"], meta["width"]),
+        (0, 0),
+    )
+
+    water_count = 0
+    land_count = 0
+
+    for block_param in block_params:
+        wbd = np.asarray(
+            _dswx_sar_util.get_raster_block(
+                reference_water_path, block_param
+            ),
+            dtype=np.float32,
+        )
+        sar_nodata = _dswx_sar_util.get_raster_block(
+            sar_nodata_path, block_param
+        )
+
+        sar_valid = sar_nodata == 0
+        reference_valid = (
+            np.isfinite(wbd)
+            & (wbd >= 0)
+            & (wbd <= reference_max)
+        )
+        if reference_nodata is not None:
+            reference_valid &= wbd != reference_nodata
+
+        # Do not silently interpret missing reference data as land.
+        if np.any(sar_valid & ~reference_valid):
+            raise RuntimeError(
+                "Reference fallback cannot assign water/non-water: "
+                "reference water is invalid within the valid SAR area."
+            )
+
+        # Same strict comparison as compute_water_spatial_coverage().
+        water = (
+            sar_valid
+            & reference_valid
+            & (wbd / reference_max > permanent_water_threshold)
+        )
+        land = sar_valid & reference_valid & ~water
+
+        threshold = np.full(
+            wbd.shape, OUTPUT_NODATA, dtype=np.float32
+        )
+        mode = np.full(
+            wbd.shape, OUTPUT_NODATA, dtype=np.float32
+        )
+
+        threshold[water] = WATER_THRESHOLD_DB
+        mode[water] = WATER_MODE_DB
+
+        threshold[land] = LAND_THRESHOLD_DB
+        mode[land] = LAND_MODE_DB
+
+        for pol in pol_list:
+            for prefix, data in (
+                ("intensity_threshold_filled", threshold),
+                ("mode_tau_filled", mode),
+            ):
+                _dswx_sar_util.write_raster_block(
+                    out_raster=os.path.join(
+                        outputdir, f"{prefix}_{pol}.tif"
+                    ),
+                    data=data,
+                    block_param=block_param,
+                    geotransform=meta["geotransform"],
+                    projection=meta["projection"],
+                    datatype="float32",
+                    cog_flag=True,
+                    scratch_dir=outputdir,
+                )
+
+        water_count += int(np.count_nonzero(water))
+        land_count += int(np.count_nonzero(land))
+
+    logger.warning(
+        "Hard-coded reference fallback for %s: "
+        "water=%d pixels (mode=20, threshold=30 dB); "
+        "non-water=%d pixels (mode=-100, threshold=-90 dB)",
+        ", ".join(pol_list),
+        water_count,
+        land_count,
+    )
 
 
 def run(cfg):
@@ -2296,6 +2773,8 @@ def run(cfg):
     logger.info(f'Average_threshold_flag: {average_threshold_flag}')
 
     number_workers = init_threshold_cfg.number_cpu
+
+    reference_fallback = False
 
     # options for reference water
     ref_water_cfg = processing_cfg.reference_water
@@ -2425,6 +2904,123 @@ def run(cfg):
             for jj in range(0, n_cols_block)
             )
 
+        failed_indices = get_missing_threshold_indices(results, pol_list)
+
+        if failed_indices:
+            failed_pols = [pol_list[p] for p in failed_indices]
+            logger.warning(
+                "No usable thresholds for %s. Retrying without "
+                "the WBD boundary requirement.",
+                ", ".join(failed_pols),
+            )
+
+            retry_results = Parallel(n_jobs=n_jobs)(
+                delayed(process_block)(
+                    ii, jj,
+                    n_rows_block, n_cols_block,
+                    m_rows_block, m_cols_block,
+                    block_row, block_col,
+                    width, filt_im_str,
+                    water_mask_tif_str, cfg,
+                    thres_max, average_threshold_flag,
+                    require_water_boundary=False,
+                    pol_indices=failed_indices,
+                )
+                for ii in range(n_rows_block)
+                for jj in range(n_cols_block)
+            )
+
+            retry_by_block = {
+                (result[0], result[1]): result
+                for result in retry_results
+            }
+
+            # Replace only failed polarizations. Preserve successful results.
+            for result in results:
+                ii, jj, thresholds, modes, coords = result
+                retry = retry_by_block[(ii, jj)]
+
+                for polind in failed_indices:
+                    thresholds[polind] = retry[2][polind]
+                    modes[polind] = retry[3][polind]
+                    coords[polind] = retry[4][polind]
+
+            remaining = get_missing_threshold_indices(results, pol_list)
+
+            if remaining:
+                donor_jobs = []
+
+                for result in results:
+                    donor_coords = make_donor_coords(
+                        result,
+                        pol_list,
+                        remaining,
+                        average_threshold_flag,
+                    )
+                    if donor_coords:
+                        donor_jobs.append(
+                            (result[0], result[1], donor_coords)
+                        )
+
+                if donor_jobs:
+                    logger.warning(
+                        "Retrying %s using tile coordinates from the "
+                        "opposite polarization; donor blocks=%d",
+                        ", ".join(pol_list[p] for p in remaining),
+                        len(donor_jobs),
+                    )
+
+                    donor_results = Parallel(n_jobs=n_jobs)(
+                        delayed(process_block)(
+                            ii, jj,
+                            n_rows_block, n_cols_block,
+                            m_rows_block, m_cols_block,
+                            block_row, block_col,
+                            width, filt_im_str,
+                            water_mask_tif_str, cfg,
+                            thres_max, average_threshold_flag,
+                            require_water_boundary=False,
+                            pol_indices=list(donor_coords),
+                            candidate_coords_by_pol=donor_coords,
+                        )
+                        for ii, jj, donor_coords in donor_jobs
+                    )
+
+                    original_by_block = {
+                        (result[0], result[1]): result
+                        for result in results
+                    }
+                    donor_indices_by_block = {
+                        (ii, jj): list(donor_coords)
+                        for ii, jj, donor_coords in donor_jobs
+                    }
+
+                    for retry in donor_results:
+                        key = (retry[0], retry[1])
+                        original = original_by_block[key]
+
+                        for polind in donor_indices_by_block[key]:
+                            original[2][polind] = retry[2][polind]
+                            original[3][polind] = retry[3][polind]
+                            original[4][polind] = retry[4][polind]
+
+                remaining = get_missing_threshold_indices(results, pol_list)
+
+                if remaining:
+                    failed_pols = {pol_list[p] for p in remaining}
+
+                    if len(remaining) == len(pol_list):
+                        reference_fallback = True
+                        logger.warning(
+                            "HH and HV threshold estimation failed after all retries. "
+                            "Using hard-coded thresholds/modes from reference water."
+                        )
+                    else:
+                        raise RuntimeError(
+                            "No usable threshold/mode pairs for "
+                            f"{', '.join(pol_list[p] for p in remaining)}"
+                        )
+
         # If average_threshold_flag is True, all thresholds within
         # individual tile are averaged and assigned to the tile.
         # If not, the thresholds remain as they are and are used for
@@ -2515,23 +3111,47 @@ def run(cfg):
             threshold_tau_dict['subtile_coord'] = window_coord_list
             mode_tau_dict['array'] = mode_tau_set
 
-        if not threshold_tau_dict:
-            logger.info('No threshold_tau')
-        # Currently, only 'gdal_grid' method is supported.
-        if threshold_extending_method == 'gdal_grid':
+        failed_pols = get_failed_threshold_polarizations(
+            threshold_dict=threshold_tau_dict,
+            mode_dict=mode_tau_dict,
+            pol_list=pol_list,
+            average_tile=average_threshold_flag,
+        )
 
+        if failed_pols:
+            raise RuntimeError(
+                "Initial threshold estimation failed: no usable "
+                "threshold/mode pairs for "
+                f"{', '.join(failed_pols)}. "
+                "Stopping before interpolation to avoid producing "
+                "non-water results from missing thresholds."
+            )
+        # Currently, only 'gdal_grid' method is supported.
+        if reference_fallback:
+            write_reference_fallback_thresholds(
+                reference_water_path=wbd_im_str,
+                sar_nodata_path=no_data_geotiff_path,
+                outputdir=outputdir,
+                pol_list=pol_list,
+                reference_max=ref_water_max,
+                reference_nodata=processing_cfg.reference_water.no_data_value,
+                permanent_water_threshold=permanent_water_value,
+                lines_per_block=lines_per_block,
+            )
+
+        elif threshold_extending_method == "gdal_grid":
             fill_threshold_and_mode_decoupled_with_gdal(
                 threshold_dict=threshold_tau_dict,
                 mode_dict=mode_tau_dict,
                 rows=height,
                 cols=width,
-                filename_threshold='intensity_threshold_filled',
-                filename_mode='mode_tau_filled',
+                filename_threshold="intensity_threshold_filled",
+                filename_mode="mode_tau_filled",
                 outputdir=outputdir,
                 pol_list=pol_list,
                 margin=0.05,
                 no_data=-50,
-                average_tile=average_threshold_flag
+                average_tile=average_threshold_flag,
             )
                 # fill_threshold_with_gdal(
                 #     threshold_array=dict_thres,

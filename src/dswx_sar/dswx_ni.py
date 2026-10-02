@@ -54,6 +54,10 @@ def dswx_ni_workflow(cfg):
     elif pol_mode == 'MIX_QD_DUAL_V_POL':
         proc_pol_set = [DSWX_NI_POL_DICT['QP_POL'],
                         DSWX_NI_POL_DICT['DV_POL']]
+    elif pol_mode == 'MIX_DUAL_H_DUAL_V_POL':
+        proc_pol_set = [DSWX_NI_POL_DICT['DH_POL'],
+                        DSWX_NI_POL_DICT['DV_POL']]
+
     # Add Full polarization mode
     # Add more scenarios to the above options
     # I need to verify frame1 : [HH, HV], frame2: [VH, VV]

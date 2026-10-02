@@ -120,7 +120,16 @@ def run(cfg):
         'reference_water': wbd_file,
         'glad_classification': glad_file,
     }
-    mask_path = f'{scratch_dir}/mosaic_mask.tif'
+    mask_path = (
+        f'{scratch_dir}/'
+        f'{mosaic_prefix}_mask_{pol_all_str}.tif'
+    )
+
+    if not os.path.isfile(mask_path):
+        raise FileNotFoundError(
+            f'GCOV mask not found for polarization set '
+            f'{pol_list}: {mask_path}'
+        )
 
     landcover_label = get_label_landcover_esa_10()
 
@@ -428,8 +437,8 @@ def main():
     pol_mode = processing_cfg.polarization_mode
     pol_list = processing_cfg.polarizations
     if pol_mode == 'MIX_DUAL_POL':
-        proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
-                        DSWX_NI_POL_DICT['DH_POL']]
+        proc_pol_set = [DSWX_NI_POL_DICT['DH_POL'],
+                        DSWX_NI_POL_DICT['DV_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':
         proc_pol_set = [DSWX_NI_POL_DICT['SV_POL'],
                         DSWX_NI_POL_DICT['SH_POL']]

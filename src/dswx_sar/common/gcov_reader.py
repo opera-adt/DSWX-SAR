@@ -280,6 +280,7 @@ class RTCReader(DataReader):
             geogrid_in,
             input_gtiff_list,
             mask_gtiff_list,
+            mask_gtiff_dict,
             pol_gtiff_list) = self.write_rtc_geotiff(
                 input_list,
                 scratch_dir,
@@ -412,7 +413,7 @@ class RTCReader(DataReader):
             mosaic_mode,
             mosaic_prefix,
             mask_exist,
-            mask_gtiff_list,
+            mask_gtiff_dict,
             static_mask_gtiff_list,
         )
 
@@ -639,6 +640,7 @@ class RTCReader(DataReader):
 
         output_gtiff_list: list[str] = []
         mask_gtiff_list: list[str] = []
+        mask_gtiff_dict: dict[str, list[str]] = {}
         pol_gtiff_list: dict[str, list[str]] = {}
 
         # Small helper to compute crop window in source pixel coords
@@ -866,6 +868,35 @@ class RTCReader(DataReader):
                 os.replace(tmp, output_mask_gtiff)
 
             mask_gtiff_list.append(output_mask_gtiff)
+
+            # Associate gtiff mask list with the polarization set
+            # available in the corresponding input GCOV.
+            input_pols = set()
+
+            data_path_input = data_path[input_rtc]
+
+            for freq_group in data_path_input:
+                for dataset_path in data_path_input[freq_group]:
+                    pol = Path(dataset_path).name[:2]
+                    input_pols.add(pol)
+
+            # Use a deterministic polarization-group name.
+            pol_order = ['HH', 'VV', 'HV', 'VH']
+            input_pols_sorted = [
+                pol for pol in pol_order
+            if pol in input_pols
+            ]
+            mask_pol_key = '_'.join(input_pols_sorted)
+
+            mask_gtiff_dict.setdefault(
+                mask_pol_key, []
+            ).append(output_mask_gtiff)
+
+            print(
+                f'[GCOV mask] {output_prefix}: '
+                f'{input_pols_sorted} -> {mask_pol_key}'
+            )
+
             geogrid_in.update_geogrid(output_mask_gtiff)
 
         if bbox is not None:
@@ -892,7 +923,7 @@ class RTCReader(DataReader):
                 f'epsg={geogrid_in.epsg}'
             )
 
-        return geogrid_in, output_gtiff_list, mask_gtiff_list, pol_gtiff_list
+        return geogrid_in, output_gtiff_list, mask_gtiff_list, mask_gtiff_dict, pol_gtiff_list
 
 
     def read_write_rtc_h5py(
@@ -1033,7 +1064,7 @@ class RTCReader(DataReader):
         mosaic_mode: str,
         mosaic_prefix: str,
         mask_exist: bool,
-        mask_gtiff_list: list,
+        mask_gtiff_dict: dict[str, list[str]],
         static_mask_gtiff_list: list,
     ):
         """ Create mosaicked output Geotiff from a list of input RTCs
@@ -1057,6 +1088,11 @@ class RTCReader(DataReader):
         mask_exist: bool
             Boolean which indicates if a mask layer
             exists in input RTC
+        mask_gtiff_dict: dict[str, list[str]]
+            GCOV mask GeoTIFF paths grouped by input polarization set,
+            for example ``HH_HV`` or ``VV_VH``.
+        static_mask_gtiff_list: list
+            Intermediate STATIC layover/shadow mask GeoTIFF paths.
         """
         for pol in pol_list:
             input_gtiff_list = pol_list[pol]
@@ -1078,28 +1114,43 @@ class RTCReader(DataReader):
                 warp_resample_alg='average'
             )
 
-        # Mosaic GCOV Mask Layer
-        if mask_exist and mask_gtiff_list:
-            mask_mosaic_gtiff = f'{scratch_dir}/{mosaic_prefix}_mask.tif'
+        # Mosaic GCOV mask layers separately for each polarization group.
+        if mask_exist and mask_gtiff_dict:
+            for mask_pol_key, mask_inputs in mask_gtiff_dict.items():
+                if not mask_inputs:
+                    continue
 
-            print(
-                f'[GCOV mask mosaic] inputs: '
-                f'{mask_gtiff_list}'
-            )
-            
-            mosaic_single_output_file(
-                mask_gtiff_list,
-                nlooks_list,
-                mask_mosaic_gtiff,
-                mosaic_mode,
-                self.row_blk_size,
-                self.col_blk_size,
-                scratch_dir=scratch_dir,
-                geogrid_in=geogrid_in,
-                temp_files_list=None,
-                no_data_value=255,
-                warp_resample_alg='nearest'
-            )
+                mask_mosaic_gtiff = (
+                    f'{scratch_dir}/'
+                    f'{mosaic_prefix}_mask_{mask_pol_key}.tif'
+                )
+
+                print(
+                    f'[GCOV mask mosaic] polarization group: '
+                    f'{mask_pol_key}'
+                )
+                print(
+                    f'[GCOV mask mosaic] inputs: '
+                    f'{mask_inputs}'
+                )
+                print(
+                    f'[GCOV mask mosaic] output: '
+                    f'{mask_mosaic_gtiff}'
+                )
+
+                mosaic_single_output_file(
+                    mask_inputs,
+                    nlooks_list,
+                    mask_mosaic_gtiff,
+                    mosaic_mode,
+                    self.row_blk_size,
+                    self.col_blk_size,
+                    scratch_dir=scratch_dir,
+                    geogrid_in=geogrid_in,
+                    temp_files_list=None,
+                    no_data_value=255,
+                    warp_resample_alg='nearest'
+                )
 
         # Mosaic the STATIC layover/shadow layers.
         if static_mask_gtiff_list:

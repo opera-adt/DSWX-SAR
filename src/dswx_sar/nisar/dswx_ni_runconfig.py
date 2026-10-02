@@ -32,7 +32,8 @@ DSWX_NI_POL_DICT = {
     'SH_POL': ['HH'],
     'QP_POL': ['HH', 'VV', 'HV', 'VH'],
     'MIX_QD_DUAL_H_POL': ['HH', 'VV', 'HV', 'VH'],
-    'MIX_QD_DUAL_V_POL': ['HH', 'VV', 'HV', 'VH']
+    'MIX_QD_DUAL_V_POL': ['HH', 'VV', 'HV', 'VH'],
+    'MIX_DUAL_H_DUAL_V_POL': ['HH', 'VV', 'HV', 'VH'],
     }
 
 # 2nd dictionary is for single frame only
@@ -690,6 +691,9 @@ def check_polarizations(pol_list, valid_input_info, DSWX_NI_PROC_POL_DICT):
     elif unique_input_pol_sets == {qp_set, dv_set}:
         # Collection contains quad-pol and vertical dual-pol frames.
         pol_mode = 'MIX_QD_DUAL_V_POL'
+
+    elif unique_input_pol_sets == {dh_set, dv_set}:
+        pol_mode = 'MIX_DUAL_H_DUAL_V_POL'
 
     elif unique_input_pol_sets == {sh_set, sv_set}:
         # Collection contains horizontal and vertical single-pol frames.

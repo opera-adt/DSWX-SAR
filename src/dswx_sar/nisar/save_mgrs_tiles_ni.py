@@ -537,6 +537,7 @@ def run(cfg):
             inundated_vege_cfg.enabled
 
     inundated_vege_mosaic_flag = False
+    
     # Set merge_layer_flag and merge_pol_list based on pol_mode
     merge_layer_flag = pol_mode.startswith('MIX')
     if merge_layer_flag:
@@ -549,6 +550,9 @@ def run(cfg):
         elif pol_mode == 'MIX_SINGLE_POL':
             pol_type1 = 'SV_POL'
             pol_type2 = 'SH_POL'
+        elif pol_mode == 'MIX_DUAL_H_DUAL_V_POL':
+            pol_type1 = 'DH_POL'
+            pol_type2 = 'DV_POL'
         else:
             logger.info('There is no need to mosaic different polarizations.')
             merge_layer_flag = False

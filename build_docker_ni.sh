@@ -3,7 +3,7 @@
 set -euo pipefail
 
 IMAGE="${IMAGE:-opera/dswx-ni}"
-TAG="${TAG:-calval_0.4.2}"
+TAG="${TAG:-final_1.0}"
 PLATFORM="linux/amd64"
 OUTPUT_TAR="docker/dockerimg_dswx_ni_${TAG}.tar"
 

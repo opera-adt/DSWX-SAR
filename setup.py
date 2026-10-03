@@ -67,7 +67,7 @@ package_data_dict['dswx_sar'] = [
     os.path.join('schemas', 'dswx_ni.yaml')]
 
 setup(
-    name='dswx-s1',
+    name='dswx-sar',
     version=version,
     description = 'Compute Dynamic Surface Water Extent (DSWx)'
                   ' from SAR data',

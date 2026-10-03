@@ -1,51 +1,89 @@
+# syntax=docker/dockerfile:1
+
 FROM oraclelinux:8
 
+ARG TARGETARCH
+
 LABEL author="OPERA ADT" \
-    description="DSWX-SAR CalVal release R4.2" \
-    version="0.4.2-calval-patch"
+    description="DSWX-SAR Final release R5" \
+    version="1.0-final"
 
-RUN yum -y update &&\
-    yum -y install curl &&\
-    adduser dswx_user
+# The installer and lock file must match Linux x86_64.
+RUN test "${TARGETARCH}" = "amd64" || \
+    { echo "ERROR: Build with --platform linux/amd64" >&2; exit 1; }
 
-RUN mkdir -p /home/dswx_user/OPERA/DSWX-SAR
+RUN yum -y update && \
+    yum -y install curl ca-certificates && \
+    yum clean all && \
+    rm -rf /var/cache/yum && \
+    useradd --create-home --user-group dswx_user
 
-RUN chmod -R 755 /home/dswx_user &&\
-    chown -R dswx_user:dswx_user /home/dswx_user/OPERA
+RUN mkdir -p /home/dswx_user/OPERA/DSWX-SAR \
+             /home/dswx_user/scratch && \
+    chmod 755 /home/dswx_user && \
+    chown -R dswx_user:dswx_user /home/dswx_user
 
 USER dswx_user
 
-ENV CONDA_PREFIX=/home/dswx_user/miniconda3
+ENV HOME=/home/dswx_user
+ENV CONDA_PREFIX=/home/dswx_user/miniforge3
 
-# install Miniconda
 WORKDIR /home/dswx_user
-RUN curl -sSL https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -o miniconda.sh &&\
-    bash miniconda.sh -b -p ${CONDA_PREFIX} &&\
-    rm $HOME/miniconda.sh
+
+# Install Linux x86_64 Miniforge, including when building on macOS.
+RUN curl -fsSL \
+    https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh \
+    -o miniforge.sh && \
+    bash miniforge.sh -b -p "${CONDA_PREFIX}" && \
+    rm miniforge.sh
 
 ENV PATH=${CONDA_PREFIX}/bin:${PATH}
-RUN ${CONDA_PREFIX}/bin/conda init bash
 
-# copy DSWX-SAR source code and set dswx_user as owner
+# Miniforge initially configures conda-forge as its only channel.
+RUN conda init bash && \
+    conda config --system --set channel_priority strict
+
 COPY --chown=dswx_user:dswx_user . /home/dswx_user/OPERA/DSWX-SAR
 
-# create CONDA environment
-RUN conda config --add channels conda-forge
-RUN conda config --remove channels defaults
-RUN conda config --set channel_priority strict
+# Catch common defaults references and incompatible explicit package URLs.
+# This is a basic check, not a complete channel allowlist.
+RUN set -eu; \
+    lock_file=/home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock; \
+    test -s "${lock_file}"; \
+    if grep -nE \
+        'repo\.anaconda\.com|repo\.continuum\.io|defaults::|/osx-[^/]+/|/linux-aarch64/|/linux-ppc64le/|/win-[^/]+/' \
+        "${lock_file}"; then \
+        echo "ERROR: Regenerate the lock file for Linux x86_64 using conda-forge." >&2; \
+        exit 1; \
+    fi
 
-RUN conda create -y --name "DSWX-SAR" \
-        --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock && \
+# Explicit lock-file URLs must themselves point to conda-forge.
+RUN conda create --yes \
+    --override-channels \
+    --channel conda-forge \
+    --name DSWX-SAR \
+    --file /home/dswx_user/OPERA/DSWX-SAR/docker/lock_package.lock && \
     conda clean -afy
 
-SHELL ["conda", "run", "-n", "DSWX-SAR", "/bin/bash", "-c"]
+SHELL ["conda", "run", "--no-capture-output", "-n", "DSWX-SAR", "/bin/bash", "-c"]
 
 WORKDIR /home/dswx_user/OPERA
 
-RUN python -m pip install opencv-python-headless
-# installing OPERA DSWX-SAR
-RUN python -m pip install ./DSWX-SAR &&\
+# Resolve the application and AWS-related dependencies together.
+# Preserve the boto3 version already present in your environment.
+RUN python -m pip install --no-cache-dir \
+    "boto3==1.40.60" \
+    "botocore>=1.40.60,<1.41.0" \
+    s3fs \
+    aiobotocore \
+    earthaccess \
+    opencv-python-headless \
+    ./DSWX-SAR && \
     echo "conda activate DSWX-SAR" >> /home/dswx_user/.bashrc
+
+# Keep these checks to catch dependency and native-library problems.
+RUN python -m pip check && \
+    python -c "import numpy, cv2, earthaccess, boto3, s3fs, aiobotocore; from osgeo import gdal; import dswx_sar"
 
 WORKDIR /home/dswx_user/scratch
 

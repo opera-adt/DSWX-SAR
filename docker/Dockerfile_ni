@@ -6,7 +6,7 @@ ARG TARGETARCH
 
 LABEL author="OPERA ADT" \
     description="DSWX-SAR Final release R5" \
-    version="1.0-calval-patch"
+    version="1.0-final"
 
 # The installer and lock file must match Linux x86_64.
 RUN test "${TARGETARCH}" = "amd64" || \

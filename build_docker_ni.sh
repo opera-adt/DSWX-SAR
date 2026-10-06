@@ -11,6 +11,7 @@ echo "Building ${IMAGE}:${TAG} for ${PLATFORM}"
 
 docker buildx build \
     --platform "${PLATFORM}" \
+    --network=host \
     --load \
     --progress=plain \
     --tag "${IMAGE}:${TAG}" \

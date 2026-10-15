@@ -1,367 +1,279 @@
-import cv2
+"""SAR filters with explicit validity and scale handling.
+
+Inputs are 2-D positive LINEAR intensities or polarization ratios, not dB.
+NaN, infinity, zero (including block padding), and negative values are invalid.
+All filter outputs stay on the input grid, preserve its positive finite pixel
+footprint, and leave the input array unchanged. Failed estimates fall back to
+the original value at valid pixels.
+
+Lee uses a masked arithmetic mean. Chambolle retains the original dB domain.
+Bregman retains the original log10 domain so existing positive lambda_value
+settings keep their scale. Guided filtering retains logarithmic guidance with
+a linear source; eps therefore remains in squared dB units.
+
+TV and guided filters temporarily extend nearest valid values into missing
+areas and restore missing pixels afterward. This avoids a synthetic -30 edge;
+it is still an extension, not a fully masked TV or guided optimization.
+
+Example integration in the IV script:
+    from dswx_sar.common import _filter_SAR_corrected as _filter_SAR
+"""
+
 import numpy as np
 from scipy import ndimage, signal
-from scipy.interpolate import griddata
-from skimage.restoration import denoise_tv_chambolle, denoise_tv_bregman
-
-from dswx_sar.common._dswx_sar_util import Constants
 
 K_DEFAULT = 1.0
 CU_DEFAULT = 0.523
 CMAX_DEFAULT = 1.73
 
 
+def _linear_image(data):
+    image = np.asarray(data, dtype=np.float64)
+    if image.ndim != 2 or 0 in image.shape:
+        raise ValueError("Expected a nonempty 2-D linear SAR image or ratio")
+    valid = np.isfinite(image) & (image > 0)
+    return image, valid
+
+
+def _positive_parameter(value, name, allow_zero=False):
+    value = float(value)
+    if not np.isfinite(value) or value < 0 or (value == 0 and not allow_zero):
+        bound = "nonnegative" if allow_zero else "positive"
+        raise ValueError(f"{name} must be finite and {bound}")
+    return value
+
+
+def _window_size(value):
+    size = int(value)
+    if size < 1 or size != value:
+        raise ValueError("window_size must be a positive integer")
+    return size
+
+
+def _restore_valid_pixels(filtered, original, valid):
+    result = np.array(filtered, dtype=np.float64, copy=True)
+    if result.shape != original.shape:
+        raise ValueError("The filter changed the input array shape")
+    failed = valid & (~np.isfinite(result) | (result <= 0))
+    result[failed] = original[failed]
+    result[~valid] = np.nan
+    return result
+
+
+def _nearest_valid_extension(values, valid):
+    """Extend solver inputs only; callers restore the original missing mask."""
+    if valid.all():
+        return np.array(values, copy=True)
+    indices = ndimage.distance_transform_edt(
+        ~valid, return_distances=False, return_indices=True
+    )
+    return np.asarray(values)[tuple(indices)].copy()
+
+
 def masked_convolve2d(array, window, *args, **kwargs):
-    '''Perform convolution without spreading nan value to the neighbor pixels
+    """Masked averaging for a nonnegative, normalized 2-D averaging kernel.
 
-    Parameters
-    ----------
-    array: numpy.ndarray
-        2 dimensional array
-    window: integer
-        2 dimensional window
-    '''
-    frames_complex = np.zeros_like(array, dtype=np.complex64)
-    frames_complex[np.isnan(array)] = np.array((1j))
-    frames_complex[np.bitwise_not(np.isnan(array))] = \
-        array[np.bitwise_not(np.isnan(array))]
+    Retains the original call signature. Available kernel support is used for
+    normalization, including at array boundaries. Windows with more than 20%
+    missing support return NaN; this helper computes statistics, not a map.
+    """
+    image, valid = _linear_image(array)
+    kernel = np.asarray(window, dtype=np.float64)
+    if (kernel.ndim != 2 or not np.isfinite(kernel).all()
+            or np.any(kernel < 0) or kernel.sum() <= 0):
+        raise ValueError("window must be a finite, nonnegative averaging kernel")
+    kernel = kernel / kernel.sum()
+    numerator = signal.convolve(np.where(valid, image, 0.0), kernel,
+                                *args, **kwargs)
+    denominator = signal.convolve(valid.astype(np.float64), kernel,
+                                  *args, **kwargs)
+    available = signal.convolve(np.ones(image.shape), kernel,
+                                *args, **kwargs)
+    mean = np.full(numerator.shape, np.nan)
+    np.divide(numerator, denominator, out=mean, where=denominator > 0)
+    fraction = np.zeros(numerator.shape)
+    np.divide(denominator, available, out=fraction, where=available > 0)
+    mean[fraction < 0.8 - 1e-12] = np.nan
+    return mean.astype(np.float32)
 
-    convolved_array = signal.convolve(frames_complex, window, *args, **kwargs)
-    convolved_array[np.imag(convolved_array) > 0.2] = np.nan
-    convolved_array = convolved_array.real.astype(np.float32)
-
-    return convolved_array
-
-import numpy as np
-from scipy.ndimage import uniform_filter
 
 def compute_window_mean_std_fast(arr, winsize, nan_frac_thresh=0.2):
+    """Mean/std over valid pixels, with unavailable border support excluded.
+
+    The mean and second moment are divided by the actual valid support rather
+    than by the full window area. Insufficient support produces NaN statistics;
+    the Lee filter explicitly falls back to a valid original center value.
     """
-    Faster version of compute_window_mean_std using uniform_filter
-    while preserving the behavior:
-      - window is winsize x winsize box, normalized by area
-      - NaNs do NOT spread; pixels with > nan_frac_thresh NaNs in the window
-        are set to NaN in the output.
-    """
-    # Work in float64 for numeric stability
-    arr = np.asarray(arr, dtype=np.float64)
+    image, valid = _linear_image(arr)
+    size = _window_size(winsize)
+    threshold = float(nan_frac_thresh)
+    if not np.isfinite(threshold) or not 0 <= threshold <= 1:
+        raise ValueError("nan_frac_thresh must be between 0 and 1")
+    options = dict(size=size, mode="constant", cval=0.0)
+    finite_image = np.where(valid, image, 0.0)
+    sum_average = ndimage.uniform_filter(finite_image, **options)
+    square_average = ndimage.uniform_filter(finite_image * finite_image, **options)
+    valid_support = ndimage.uniform_filter(valid.astype(np.float64), **options)
+    available_support = ndimage.uniform_filter(np.ones(image.shape), **options)
 
-    # Valid mask: True where finite, False where NaN/inf
-    valid = np.isfinite(arr)
+    # A tiny floating-point residual is not a supported window.
+    has_support = valid_support > np.finfo(np.float64).eps
+    mean = np.full(image.shape, np.nan)
+    second_moment = np.full(image.shape, np.nan)
+    np.divide(sum_average, valid_support, out=mean, where=has_support)
+    np.divide(square_average, valid_support, out=second_moment,
+              where=has_support)
+    variance = np.maximum(second_moment - mean * mean, 0.0)
+    std = np.sqrt(variance)
 
-    # Replace invalid values with 0 for sums
-    arr0 = np.where(valid, arr, 0.0)
-
-    # uniform_filter returns the average over the window.
-    # With zeros for invalid pixels, this matches your original
-    # real-part behavior in masked_convolve2d.
-    window_mean = uniform_filter(
-        arr0,
-        size=winsize,
-        mode='constant',
-        cval=0.0
-    )
-
-    # Second moment <x^2>
-    arr_sq0 = np.where(valid, arr * arr, 0.0)
-    c2 = uniform_filter(
-        arr_sq0,
-        size=winsize,
-        mode='constant',
-        cval=0.0
-    )
-
-    # Fraction of valid pixels in the window
-    valid_frac = uniform_filter(
-        valid.astype(np.float64),
-        size=winsize,
-        mode='constant',
-        cval=0.0
-    )
-    nan_frac = 1.0 - valid_frac
-
-    # Variance
-    var = c2 - window_mean * window_mean
-
-    # Replace small negative variances with a negligible value
-    var = np.where(var < 0, Constants.negligible_value, var)
-    window_std = np.sqrt(var)
-
-    # Apply the same "too many NaNs → output NaN" rule
-    bad = nan_frac > nan_frac_thresh
-    window_mean[bad] = np.nan
-    window_std[bad] = np.nan
-
-    return window_mean.astype(np.float32), window_std.astype(np.float32)
+    valid_fraction = np.zeros(image.shape)
+    np.divide(valid_support, available_support, out=valid_fraction,
+              where=available_support > 0)
+    insufficient = (~has_support) | (valid_fraction < 1.0 - threshold - 1e-12)
+    mean[insufficient] = np.nan
+    std[insufficient] = np.nan
+    return mean, std
 
 
 def compute_window_mean_std(arr, winsize):
-    '''
-    Compute mean and standard deviation within window size
-    by moving the window from 2 dimensional array.
-
-    Parameters
-    ----------
-    arr: numpy.ndarray
-        2 dimensional array
-    winsize: integer
-        window size to compute the mean and std.
-
-    Returns
-    -------
-    mean: numpy.ndarray
-        mean array
-    std: numpy.ndarray
-        std array
-    '''
+    """Compatibility wrapper for the masked local statistics."""
     return compute_window_mean_std_fast(arr, winsize)
 
-    # window = np.ones([winsize, winsize]) / (winsize * winsize)
-    # arr_masked = np.ma.masked_equal(arr, np.nan)
-    # mean = masked_convolve2d(arr_masked, window, mode='same')
-    # c2 = masked_convolve2d(arr_masked*arr_masked, window, mode='same')
 
-    # var = c2 - mean * mean
-
-    # # The negative number in sqrt is replaced
-    # # with the negligibly small number to avoid numpy warning message.
-    # var = np.where(var < 0, Constants.negligible_value, var)
-    # std = var ** .5
-
-    # return mean, std
-
-
-def weightingarr(im, winsize, k=K_DEFAULT,
-                 cu=CU_DEFAULT, cmax=CMAX_DEFAULT):
-    """
-    Computes the weighthing function for Lee filter using cu as the noise
-    coefficient.
-
-    Parameters
-    ----------
-    im: numpy.ndarray
-        2 dimensional array
-    winsize: integer
-        window size to compute the mean and std.
-
-    Returns
-    -------
-    w_t_arr: numpy.ndarray
-    window_mean: numpy.ndarray
-        mean array
-    window_std: numpy.ndarray
-        std array
-    """
-    # cu is the noise variation coefficient
-    window_mean, window_std = compute_window_mean_std(im, winsize=winsize)
-
-    # ci is the variation coefficient in the window
-    ci = window_std / window_mean
-    w_t_arr = np.zeros(im.shape)
-    mask1 = ci <= cu
-    mask2 = (ci > cu) & (ci < cmax)
-    mask3 = ci >= cmax
-
-    w_t_arr[mask1] = 1.0
-
-    # Only compute the exponential where needed
-    ci2 = ci[mask2]
-    w_t_arr[mask2] = np.exp(
-        (-k * (ci2 - cu)) / (cmax - ci2)
+def weightingarr(im, winsize, k=K_DEFAULT, cu=CU_DEFAULT, cmax=CMAX_DEFAULT,
+                 nan_frac_thresh=0.2):
+    """Enhanced Lee weights; failed window estimates get zero weight."""
+    image, _ = _linear_image(im)
+    k = _positive_parameter(k, "k", allow_zero=True)
+    cu = _positive_parameter(cu, "cu", allow_zero=True)
+    cmax = _positive_parameter(cmax, "cmax")
+    if cmax <= cu:
+        raise ValueError("cmax must exceed cu")
+    mean, std = compute_window_mean_std_fast(
+        image, winsize, nan_frac_thresh=nan_frac_thresh
     )
+    ci = np.full(image.shape, np.inf)
+    usable = np.isfinite(mean) & np.isfinite(std) & (mean > 0)
+    np.divide(std, mean, out=ci, where=usable)
+    weights = np.zeros(image.shape)
+    weights[usable & (ci <= cu)] = 1.0
+    transition = usable & (ci > cu) & (ci < cmax)
+    ci_transition = ci[transition]
+    weights[transition] = np.exp(
+        -k * (ci_transition - cu) / (cmax - ci_transition)
+    )
+    return weights, mean, std
 
-    return w_t_arr, window_mean, window_std
 
+def lee_enhanced_filter(img, k=K_DEFAULT, cu=CU_DEFAULT, cmax=CMAX_DEFAULT,
+                        **kwargs):
+    """Enhanced Lee in linear units, preserving valid center pixels.
 
-def lee_enhanced_filter(img, k=K_DEFAULT, cu=CU_DEFAULT,
-                        cmax=CMAX_DEFAULT, **kwargs):
+    window_size defaults to 3; nan_frac_thresh defaults to 0.2. Original Lee
+    weight constants are retained. Low coefficient-of-variation windows still
+    use the local mean, so these fixes do not disable ordinary smoothing.
     """
-    Enhanced Lee filter for SAR image
-
-    Zhu, J., Wen, J., & Zhang, Y. (2013, December). A new algorithm for SAR
-    image despeckling using an enhanced Lee filter and median filter.
-    In 2013 6th International congress on image and signal processing
-    (CISP) (Vol. 1, pp. 224-228). IEEE. 10.1109/CISP.2013.6743991
-
-    Parameters
-    ----------
-    img: numpy.ndarray
-        2 dimensional array which has real intensity values
-    win_size: integer
-        window size to apply filter
-
-    Returns
-    -------
-    filter_im: numpy.ndarray
-        filtered intensity image.
-    """
-    print('>> lee_enhanced_filter', kwargs)
-    win_size = kwargs.get('window_size', 3)
-
-    # we process the entire img as float64 to avoid type overflow error
-    img = np.float64(img)
-    w_t, mean, _ = weightingarr(img, win_size, k, cu, cmax)
-    filter_im = (mean * w_t) + (img * (1 - w_t))
-
-    return filter_im
+    image, valid = _linear_image(img)
+    weights, mean, _ = weightingarr(
+        image, kwargs.get("window_size", 3), k, cu, cmax,
+        nan_frac_thresh=kwargs.get("nan_frac_thresh", 0.2),
+    )
+    result = image.copy()
+    update = valid & np.isfinite(mean) & (weights > 0)
+    result[update] = (mean[update] * weights[update]
+                      + image[update] * (1.0 - weights[update]))
+    return _restore_valid_pixels(result, image, valid)
 
 
 def fill_nan_value(data):
-    mask = np.isnan(data) | np.isinf(data)
-    data[mask] = -30
-    return data
+    """Legacy explicit -30 fill, now returning a copy instead of mutating data.
+
+    The filters below use nearest-valid extension instead of this sentinel.
+    """
+    result = np.array(data, copy=True)
+    result[~np.isfinite(result)] = -30
+    return result
 
 
 def anisotropic_diffusion(img, **kwargs):
+    """Legacy method name for Chambolle TV in dB, returning linear units.
+
+    weight defaults to 1.0 in the original dB domain. Larger weights produce
+    more smoothing. weight=0 bypasses denoising; negative weights are rejected.
     """
-    Anisotropic Diffusion
+    image, valid = _linear_image(img)
+    weight = _positive_parameter(kwargs.get("weight", 1.0), "weight",
+                                  allow_zero=True)
+    if not valid.any() or weight == 0:
+        return _restore_valid_pixels(image, image, valid)
+    from skimage.restoration import denoise_tv_chambolle
 
-    Parameters
-    ----------
-    img: numpy.ndarray
-        2 dimensional array which has real intensity values
-    weight: float
-        window size to apply filter
-
-    Returns
-    -------
-    filter_im: numpy.ndarray
-        filtered intensity image.
-
-    Notes
-    -----
-    A. Chambolle, An algorithm for total variation minimization
-    and applications, Journal of Mathematical Imaging and Vision,
-    Springer, 2004, 20, 89-97.
-    https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.denoise_tv_chambolle
-    """
-    print('anisotropic_diffusion', kwargs)
-    weight = kwargs.get('weight', 1)
-    mask = np.isnan(img)
-
-    img_db = 10 * np.log10(img)
-    img_db_filled = fill_nan_value(img_db)
-    filtered_img = denoise_tv_chambolle(img_db_filled,
-                                        weight=weight,
-                                        )
-    # Vectorize conditional replacements using masks
-    filtered_img[mask] = np.nan  # Preserve original NaN positions
-    # zero_or_negative_mask = filtered_img <= 0
-    infinite_mask = np.isinf(filtered_img)
-
-    # Directly use img values where filtered_img fails conditions
-    # filtered_img[zero_or_negative_mask] = img[zero_or_negative_mask]
-    filtered_img[infinite_mask] = img[infinite_mask]
-    return 10 ** (filtered_img / 10)
+    db = np.full(image.shape, np.nan)
+    db[valid] = 10.0 * np.log10(image[valid])
+    extended = _nearest_valid_extension(db, valid)
+    filtered_db = denoise_tv_chambolle(
+        extended, weight=weight,
+        eps=kwargs.get("eps", 2e-4),
+        max_num_iter=kwargs.get("max_num_iter", 200),
+        channel_axis=None,
+    )
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        filtered = np.power(10.0, filtered_db / 10.0)
+    return _restore_valid_pixels(filtered, image, valid)
 
 
 def guided_filter(img, **kwargs):
+    """Logarithmic guidance with a linear source, returning linear units.
+
+    radius=1 and eps=3.0 retain the original parameter conventions. The guide
+    and source are float32 copies for OpenCV; invalid input is never overwritten.
+    eps is in squared dB units because the guidance image is in dB.
     """
-    Apply a Guided Filter to an image to enhance and smooth it while
-    preserving edges.
+    image, valid = _linear_image(img)
+    if not valid.any():
+        return _restore_valid_pixels(image, image, valid)
+    radius = int(kwargs.get("radius", 1))
+    if radius < 0 or radius != kwargs.get("radius", 1):
+        raise ValueError("radius must be a nonnegative integer")
+    eps = _positive_parameter(kwargs.get("eps", 3.0), "eps")
+    depth = kwargs.get("ddepth", -1)
+    import cv2
 
-    This function applies a Guided Filter to the input image using OpenCV's
-    guidedFilter implementation. NaN values are preserved as they are in the
-    input image. The filter is applied to the logarithmic scale (10 * log10)
-    of the image after handling NaNs.
+    if not hasattr(cv2, "ximgproc") or not hasattr(cv2.ximgproc, "guidedFilter"):
+        raise ImportError("guided_filter requires OpenCV with ximgproc")
+    source = _nearest_valid_extension(image, valid).astype(np.float32)
+    guide = (10.0 * np.log10(source)).astype(np.float32)
+    filtered = cv2.ximgproc.guidedFilter(
+        guide=guide, src=source, radius=radius, eps=eps, dDepth=depth
+    )
+    return _restore_valid_pixels(filtered, image, valid)
 
-    Parameters:
-    ----------
-    img : np.ndarray
-        A 2D or 3D array representing the input image. For a 3D array, the
-        operation is applied to each channel independently.
-    **kwargs
-        Additional keyword arguments:
-        'radius' : int
-            Radius of the kernel used in the Guided Filter.
-            Default is 1.
-        'eps' : float
-            Regularization parameter in Guided Filter to smooth within
-            a radius. Default is 3.
-        'ddepth' : int
-            The depth of the output image.
-            Default is -1 (use same depth as the source).
 
-    Returns:
-    -------
-    np.ndarray
-        A 2D or 3D array of the same shape as 'img', containing the filtered
-        image. NaN values and zero or negative values are handled
-        specifically as described in the notes below.
+def tv_bregman(X, **kwargs):
+    """Bregman TV in the original log10 domain, returning linear units.
 
-   Notes
-   -----
-   He, Kaiming, Jian Sun, and Xiaoou Tang. "Guided image filtering."
-    IEEE transactions on pattern analysis and machine intelligence 35.6 (2012)
-    : 1397-1409.
-    https://docs.opencv.org/4.x/de/d73/classcv_1_1ximgproc_1_1GuidedFilter.html
+    lambda_value must be positive and defaults to the documented 20.0 instead
+    of the previous invalid -1. Larger lambda_value means LESS smoothing.
+    Keeping log10 rather than 10*log10 preserves existing positive settings;
+    Bregman and Chambolle weights are not interchangeable.
     """
-    radius = kwargs.get('radius', 1)
-    eps = kwargs.get('eps', 3)
-    ddepth = kwargs.get('ddepth', -1)
-    # Apply Guided Filter
-    mask = np.isnan(img)
-    img_filled = fill_nan_value(img)
+    image, valid = _linear_image(X)
+    weight = _positive_parameter(kwargs.get("lambda_value", 20.0),
+                                 "lambda_value")
+    if not valid.any():
+        return _restore_valid_pixels(image, image, valid)
+    from skimage.restoration import denoise_tv_bregman
 
-    img_db = 10 * np.log10(img_filled)
-    img_db_filled = fill_nan_value(img_db)
-
-    filtered_img = cv2.ximgproc.guidedFilter(
-        guide=img_db_filled,
-        src=img_filled,
-        radius=radius,
-        eps=eps,
-        dDepth=ddepth)
-
-    # Vectorize conditional replacements using masks
-    filtered_img[mask] = np.nan  # Preserve original NaN positions
-    zero_or_negative_mask = filtered_img <= 0
-    infinite_mask = np.isinf(filtered_img)
-
-    # Directly use img values where filtered_img fails conditions
-    filtered_img[zero_or_negative_mask] = img[zero_or_negative_mask]
-    filtered_img[infinite_mask] = img[infinite_mask]
-
-    return filtered_img
-
-
-def tv_bregman(X: np.ndarray, **kwargs) -> np.ndarray:
-    """
-    Denoise an input array X using Total Variation Bregman denoising.
-
-    This function applies Total Variation (TV) Bregman denoising to the
-    logarithm (base 10) of the input array, then converts it back to the
-    original domain. Values of the input array that are NaN are treated
-    specially: they are masked out during the denoising process and set
-    to NaN in the output array.
-
-    Parameters:
-    ----------
-    X : np.ndarray
-        A 2D array of input values. It is assumed that X contains
-        non-negative values since the logarithm is taken.
-
-    lamb : float, optional
-        The regularization parameter for TV Bregman denoising. It controls
-        the amount of smoothing. Higher values produce more smoothed results.
-        Default is 20.
-
-    Returns:
-    -------
-    np.ndarray
-        A 2D array of the same shape as X, containing the denoised results.
-
-    Notes
-    -----
-    Tom Goldstein and Stanley Osher, “The Split Bregman Method For L1
-    Regularized Problems”, https://ww3.math.ucla.edu/camreport/cam08-29.pdf
-    https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.denoise_tv_bregman
-    """
-    lamb = kwargs.get('lambda_value', -1)
-    X_db = np.log10(X, out=np.full(X.shape, np.nan), where=(~np.isnan(X)))
-    X_db[np.isnan(X)] = -30
-    X_db_dspkl = denoise_tv_bregman(X_db, weight=lamb)
-    X_dspkl = np.power(10, X_db_dspkl)
-    X_dspkl[np.isnan(X)] = np.nan
-
-    return X_dspkl
+    logged = np.full(image.shape, np.nan)
+    logged[valid] = np.log10(image[valid])
+    extended = _nearest_valid_extension(logged, valid)
+    filtered_log = denoise_tv_bregman(
+        extended, weight=weight,
+        eps=kwargs.get("eps", 1e-3),
+        max_num_iter=kwargs.get("max_num_iter", 100),
+        isotropic=kwargs.get("isotropic", True),
+        channel_axis=None,
+    )
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        filtered = np.power(10.0, filtered_log)
+    return _restore_valid_pixels(filtered, image, valid)

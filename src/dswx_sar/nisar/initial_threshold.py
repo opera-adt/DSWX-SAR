@@ -3278,7 +3278,7 @@ def main():
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode
     pol_list = processing_cfg.polarizations
-    if pol_mode == 'MIX_DUAL_POL':
+    if pol_mode in ('MIX_DUAL_H_DUAL_V_POL', 'MIX_DUAL_POL'):
         proc_pol_set = [DSWX_NI_POL_DICT['DV_POL'],
                         DSWX_NI_POL_DICT['DH_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':

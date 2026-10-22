@@ -9,6 +9,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from pathlib import Path
 import psutil
+import rasterio
 
 from dswx_sar.common import (_dswx_sar_util,
                              _filter_SAR,
@@ -120,16 +121,36 @@ def run(cfg):
         'reference_water': wbd_file,
         'glad_classification': glad_file,
     }
-    mask_path = (
-        f'{scratch_dir}/'
-        f'{mosaic_prefix}_mask_{pol_all_str}.tif'
-    )
+    # Select the native mask mosaic. Never silently use a stale file from
+    # an earlier run with a different GCOV mask source.
+    legacy_mask_path = os.path.join(
+        scratch_dir, f'{mosaic_prefix}_mask_{pol_all_str}.tif')
+    exception_mask_path = os.path.join(
+        scratch_dir, f'{mosaic_prefix}_mask_input_exception.{pol_all_str}.tif')
+    legacy_exists = os.path.isfile(legacy_mask_path)
+    exception_exists = os.path.isfile(exception_mask_path)
+    if legacy_exists == exception_exists:
+        raise RuntimeError(
+            'Expected exactly one GCOV mask mosaic (legacy or exception) '
+            f'for {pol_all_str}; found legacy={legacy_exists}, '
+            f'exception={exception_exists}. Remove stale mask mosaics and rerun.')
+    mask_source = 'exception' if exception_exists else 'legacy'
+    mask_path = exception_mask_path if exception_exists else legacy_mask_path
+    expected_dtype = 'uint16' if exception_exists else 'uint8'
+    logger.info('Using %s GCOV mask: %s', mask_source, mask_path)
 
-    if not os.path.isfile(mask_path):
-        raise FileNotFoundError(
-            f'GCOV mask not found for polarization set '
-            f'{pol_list}: {mask_path}'
-        )
+    with rasterio.open(ref_filename) as science_ds, \
+         rasterio.open(mask_path) as mask_ds:
+        if (science_ds.width != mask_ds.width or
+                science_ds.height != mask_ds.height or
+                science_ds.crs != mask_ds.crs or
+                not science_ds.transform.almost_equals(mask_ds.transform)):
+            raise ValueError(
+                f'GCOV mask is not aligned with science mosaic: {mask_path}')
+        if mask_ds.dtypes[0] != expected_dtype:
+            raise ValueError(
+                f'Expected {expected_dtype} GCOV {mask_source} mask, got '
+                f'{mask_ds.dtypes[0]}: {mask_path}')
 
     landcover_label = get_label_landcover_esa_10()
 
@@ -228,6 +249,7 @@ def run(cfg):
             bp, pol_list, scratch_dir, mosaic_prefix,
             filter_flag, filter_method, filter_options,
             co_pol, cross_pol, mask_path, mask_flag=True,
+            mask_source=mask_source,
         ) for bp in block_params
     )
 
@@ -303,7 +325,8 @@ def _filter_one_block(block_param,
                       co_pol,
                       cross_pol,
                       mask_path = None,
-                      mask_flag = False):
+                      mask_flag = False,
+                      mask_source = 'legacy'):
     """
     Return (block_param, stacked_float32_array) for a single block.
 
@@ -314,6 +337,10 @@ def _filter_one_block(block_param,
     needed_pols = set(pol_list)
     if 'ratio' in needed_pols or 'span' in needed_pols:
         needed_pols.update({co_pol, cross_pol})
+
+    mask_block = None
+    if mask_path is not None and mask_flag:
+        mask_block = _dswx_sar_util.get_raster_block(mask_path, block_param)
 
     real_pol_data = {}
     for pol in needed_pols:
@@ -327,10 +354,11 @@ def _filter_one_block(block_param,
         else:
             arr = _dswx_sar_util.get_raster_block(
                 intensity_path, block_param)
-        if mask_path is not None and mask_flag:
-            mask_block = _dswx_sar_util.get_raster_block(
-                mask_path, block_param)
-            arr[(mask_block == 0) | (mask_block == 255)] = np.nan
+        if mask_block is not None:
+            if mask_source == 'exception':
+                arr[mask_block != 0] = np.nan
+            else:
+                arr[(mask_block == 0) | (mask_block == 255)] = np.nan
         arr[arr == 0] = np.nan         # mask padded zeros
         real_pol_data[pol] = arr.astype(np.float32)
 
@@ -436,7 +464,7 @@ def main():
     processing_cfg = cfg.groups.processing
     pol_mode = processing_cfg.polarization_mode
     pol_list = processing_cfg.polarizations
-    if pol_mode == 'MIX_DUAL_POL':
+    if pol_mode in ('MIX_DUAL_H_DUAL_V_POL', 'MIX_DUAL_POL'):
         proc_pol_set = [DSWX_NI_POL_DICT['DH_POL'],
                         DSWX_NI_POL_DICT['DV_POL']]
     elif pol_mode == 'MIX_SINGLE_POL':

@@ -325,7 +325,8 @@ def _filter_one_block(block_param,
                       co_pol,
                       cross_pol,
                       mask_path = None,
-                      mask_flag = False):
+                      mask_flag = False,
+                      mask_source = 'legacy'):
     """
     Return (block_param, stacked_float32_array) for a single block.
 

@@ -39,6 +39,12 @@ from dswx_sar.common.read_h5_s3 import (
 import psutil
 logger = logging.getLogger('dswx_sar')
 
+# Minimum valid pixels required in a cropped source GCOV mask.
+# A frame is kept only when its count is STRICTLY greater than this value.
+GCOV_MIN_VALID_PIXELS = 16_000
+GCOV_MASK_READ_ROWS = 512
+GCOV_POLARIZATION_ORDER = ('HH', 'VV', 'HV', 'VH', 'LH', 'LV', 'RH', 'RV')
+
 # Polarization exception flags in NISAR GCOV inputDataExceptionMask.
 gcov_pol_exception_bits = {
     'HH': 1 << 8, 'HV': 1 << 9, 'VH': 1 << 10, 'VV': 1 << 11,
@@ -206,6 +212,60 @@ def reproject_bbox(
 
     return [left, bottom, right, top]
 
+def has_valid_gcov_mask_pixels(
+    dset,
+    window,
+    mask_source,
+    polarizations,
+    row_block_size=GCOV_MASK_READ_ROWS,
+    min_valid_pixel=GCOV_MIN_VALID_PIXELS,
+):
+    """Return whether the cropped mask has more than ``min_valid_pixel`` valid pixels.
+
+    ``window`` contains (row_start, row_stop, col_start, col_stop) in
+    source-HDF5 pixel coordinates; stop indices are exclusive. The same mask
+    decoding rules used for GeoTIFF writing are applied here. Reading in row
+    blocks avoids loading the entire mask, and counting stops once qualified.
+    """
+    if row_block_size <= 0:
+        raise ValueError('row_block_size must be positive')
+    if min_valid_pixel < 0:
+        raise ValueError('min_valid_pixel must be nonnegative')
+    if mask_source not in ('legacy', 'exception'):
+        raise ValueError(f'Unsupported mask source: {mask_source}')
+
+    row_start, row_stop, col_start, col_stop = window
+    valid_pixel_count = 0
+
+    for block_start in range(row_start, row_stop, row_block_size):
+        block_stop = min(block_start + row_block_size, row_stop)
+        block = dset[block_start:block_stop, col_start:col_stop]
+
+        if mask_source == 'legacy':
+            valid_mask = gcov_legacy_to_valid_mask(block)
+        else:
+            valid_mask = gcov_exception_to_valid_mask(block, polarizations)
+
+        valid_pixel_count += np.count_nonzero(valid_mask)
+        if valid_pixel_count > min_valid_pixel:
+            return True
+
+    return False
+
+
+def _debug_gcov_mask_tiff(path, stage):
+    """Diagnostic only: count mask values using bounded-memory raster blocks."""
+    with rasterio.open(path) as ds:
+        counts = {0: 0, 1: 0, 255: 0, 'other': 0}
+        for _, window in ds.block_windows(1):
+            a = ds.read(1, window=window, masked=False)
+            counts[0] += int(np.count_nonzero(a == 0))
+            counts[1] += int(np.count_nonzero(a == 1))
+            counts[255] += int(np.count_nonzero(a == 255))
+            counts['other'] += int(np.count_nonzero((a != 0) & (a != 1) & (a != 255)))
+        print(f'[MASK DEBUG] {stage}: file={path}, shape={ds.shape}, '
+              f'dtype={ds.dtypes[0]}, nodata={ds.nodata}, crs={ds.crs}, '
+              f'bounds={ds.bounds}, counts={counts}', flush=True)
 
 class DataReader(ABC):
     def __init__(self, row_blk_size: int, col_blk_size: int,
@@ -318,7 +378,9 @@ class RTCReader(DataReader):
             mask_gtiff_dict,
             pol_gtiff_list,
             input_exception_mask_gtiff_dict,
-            mask_source_by_pol) = self.write_rtc_geotiff(
+            mask_source_by_pol,
+            valid_pol_sets,
+        ) = self.write_rtc_geotiff(
                 input_list,
                 scratch_dir,
                 epsg_array,
@@ -328,6 +390,9 @@ class RTCReader(DataReader):
                 bbox=bbox,
                 bbox_epsg=bbox_epsg,
             )
+
+        if not valid_pol_sets:
+            return set()
 
         if not np.isfinite(geogrid_in.epsg):
             raise RuntimeError(
@@ -383,6 +448,7 @@ class RTCReader(DataReader):
                             )
             if mask_exist:
                 for idx, layover_geotiff in enumerate(mask_gtiff_list):
+                    _debug_gcov_mask_tiff(layover_geotiff, 'BEFORE RESAMPLE')
                     self.resample_rtc(
                         layover_geotiff,
                         scratch_dir,
@@ -455,6 +521,7 @@ class RTCReader(DataReader):
             input_exception_mask_gtiff_dict,
             mask_source_by_pol,
         )
+        return valid_pol_sets
 
     def write_static_layover_shadow_geotiffs(
             self,
@@ -746,6 +813,133 @@ class RTCReader(DataReader):
             return (row_min, row_max, col_min, col_max)
 
         geodata_cache = {}
+
+        # Preflight every source frame/frequency BEFORE writing GeoTIFFs.
+        # Count valid mask pixels only within the expanded MGRS crop. Reject
+        # a frame/frequency when its count is <= GCOV_MIN_VALID_PIXELS.
+        # A polarization group survives if at least one frame qualifies.
+        valid_frame_freqs = set()
+        valid_pol_sets = set()
+
+        for input_idx, input_rtc in enumerate(input_list):
+            geotransform, _ = self.read_geodata_hdf5(input_rtc)
+            ds_epsg = int(epsg_array[input_idx])
+
+            with H5Reader(input_rtc) as h5_file:
+                for freq_group, science_paths in data_path[input_rtc].items():
+                    if not science_paths:
+                        continue
+
+                    polarizations = {Path(path).name[:2] for path in science_paths}
+                    ordered_pols = [
+                        pol for pol in GCOV_POLARIZATION_ORDER
+                        if pol in polarizations
+                    ]
+                    if len(ordered_pols) != len(polarizations):
+                        raise ValueError(
+                            f'Unsupported GCOV polarization set: {polarizations}'
+                        )
+
+                    mask_base = f'/science/LSAR/GCOV/grids/frequency{freq_group}/'
+                    exception_path = mask_base + 'inputDataExceptionMask'
+                    legacy_path = mask_base + 'mask'
+                    exception_dset = (
+                        h5_file[exception_path]
+                        if exception_path in h5_file else None
+                    )
+                    legacy_dset = (
+                        h5_file[legacy_path]
+                        if legacy_path in h5_file else None
+                    )
+
+                    # Prefer a compatible uint16 exception mask; otherwise
+                    # fall back to the legacy uint8 mask, as in GeoTIFF writing.
+                    exception_compatible = (
+                        exception_dset is not None
+                        and exception_dset.ndim == 2
+                        and exception_dset.size > 0
+                        and exception_dset.dtype == np.dtype('uint16')
+                        and all(
+                            h5_file[path].shape == exception_dset.shape
+                            for path in science_paths
+                        )
+                    )
+                    if exception_compatible:
+                        mask_dset = exception_dset
+                        mask_source = 'exception'
+                    elif legacy_dset is not None and legacy_dset.size > 0:
+                        mask_dset = legacy_dset
+                        mask_source = 'legacy'
+                        if mask_dset.ndim != 2 or mask_dset.dtype != np.dtype('uint8'):
+                            raise ValueError(f'Invalid legacy mask: {legacy_path}')
+                    else:
+                        raise ValueError(
+                            f'No supported GCOV mask: {input_rtc} frequency{freq_group}'
+                        )
+
+                    if any(
+                        h5_file[path].shape != mask_dset.shape
+                        for path in science_paths
+                    ):
+                        raise ValueError(
+                            f'Mask/science shape mismatch: {input_rtc} frequency{freq_group}'
+                        )
+
+                    window = bbox_to_window_for_ds(
+                        bbox,
+                        bbox_epsg,
+                        ds_epsg,
+                        geotransform,
+                        mask_dset.shape[1],
+                        mask_dset.shape[0],
+                    )
+                    has_sufficient_coverage = (
+                        window is not None
+                        and has_valid_gcov_mask_pixels(
+                            mask_dset,
+                            window,
+                            mask_source,
+                            ordered_pols,
+                            min_valid_pixel=GCOV_MIN_VALID_PIXELS,
+                        )
+                    )
+
+                    if not has_sufficient_coverage:
+                        logger.warning(
+                            '[GCOV coverage] SKIP frame=%s frequency%s pols=%s '
+                            'window=%s: cropped valid pixels do not exceed %d',
+                            input_rtc,
+                            freq_group,
+                            ordered_pols,
+                            window,
+                            GCOV_MIN_VALID_PIXELS,
+                        )
+                        continue
+
+                    valid_frame_freqs.add((input_rtc, freq_group))
+                    valid_pol_sets.add(frozenset(ordered_pols))
+                    logger.info(
+                        '[GCOV coverage] KEEP frame=%s frequency%s pols=%s window=%s',
+                        input_rtc,
+                        freq_group,
+                        ordered_pols,
+                        window,
+                    )
+
+        # Filter rejected pairs once; downstream science/mask writing uses
+        # only the surviving entries in data_path.
+        data_path = {
+            path: {
+                freq: science_paths
+                for freq, science_paths in groups.items()
+                if (path, freq) in valid_frame_freqs
+            }
+            for path, groups in data_path.items()
+        }
+        if not valid_pol_sets:
+            logger.warning('[GCOV coverage] No valid polarization groups in target region')
+            return (DSWXGeogrid(), [], [], {}, {}, {}, {}, set())
+
         # ---- Write science layers (cropped if bbox provided) ----
         for input_idx, input_rtc in enumerate(input_list):
             output_prefix = self.extract_file_name(input_rtc)
@@ -904,6 +1098,18 @@ class RTCReader(DataReader):
                             f'exception metadata=' 
                             f'{None if exception_dset is None else (exception_dset.shape, str(exception_dset.dtype))}'
                         )
+                    print(
+                        f"\nDEBUG MASK SOURCE:"
+                        f"\n  input_rtc       = {input_rtc}"
+                        f"\n  polarizations   = {pols_sorted}"
+                        f"\n  exception_dtype = "
+                        f"{exception_dset.dtype if exception_dset is not None else None}"
+                        f"\n  selected_source = {source}"
+                        f"\n  selected_path   = {dset.name}"
+                        f"\n  selected_dtype  = {dset.dtype}"
+                        f"\n  selected_shape  = {dset.shape}"
+                    )
+
                     if source == 'legacy' and (
                         dset.ndim != 2 or dset.dtype != np.dtype('uint8')
                     ):
@@ -925,6 +1131,11 @@ class RTCReader(DataReader):
                     if win is None:
                         continue
                     r0, r1, c0, c1 = win
+                    print(f'[MASK DEBUG] source={input_rtc}, pol={pol_key}, '
+                          f'source_shape={dset.shape}, source_dtype={dset.dtype}, '
+                          f'crop_rows=[{r0}:{r1}], crop_cols=[{c0}:{c1}], '
+                          f'crop_shape=({r1-r0}, {c1-c0}), '
+                          f'source_epsg={ds_epsg}, target_epsg={most_freq_epsg}', flush=True)
                     mask_suffix = ('mask_input_exception' if source == 'exception'
                                    else 'mask')
                     
@@ -942,6 +1153,7 @@ class RTCReader(DataReader):
                         align_to_chunks=True, k_chunks=8,
                         mask_source=source, mask_polarizations=pols_sorted,
                     )
+                    _debug_gcov_mask_tiff(output_mask_gtiff, 'AFTER HDF5 WRITE')
                     if ds_epsg != most_freq_epsg:
                         tmp = output_mask_gtiff.replace('.tif', '_reprojected.tif')
                         warped = gdal.Warp(
@@ -959,6 +1171,7 @@ class RTCReader(DataReader):
                             raise RuntimeError(f'Failed to reproject {output_mask_gtiff}')
                         warped = None
                         os.replace(tmp, output_mask_gtiff)
+                        _debug_gcov_mask_tiff(output_mask_gtiff, 'AFTER EPSG WARP')
                     mask_gtiff_list.append(output_mask_gtiff)
                     mask_gtiff_dict.setdefault(pol_key, []).append(output_mask_gtiff)
                     if source == 'exception':
@@ -993,7 +1206,7 @@ class RTCReader(DataReader):
 
         return (geogrid_in, output_gtiff_list, mask_gtiff_list,
                 mask_gtiff_dict, pol_gtiff_list, input_exception_mask_gtiff_dict,
-                mask_source_by_pol)
+                mask_source_by_pol, valid_pol_sets)
 
 
     def read_write_rtc_h5py(
@@ -1101,6 +1314,16 @@ class RTCReader(DataReader):
 
             src_r0 = row0
             src_r1 = row0 + out_rows
+            debug_mask = is_mask and mask_source in ('legacy', 'exception')
+            debug_total_in = debug_total_decoded = debug_total_written = 0
+            debug_stripes = 0
+            if debug_mask:
+                print(f'[MASK DEBUG] START WRITE: dataset={h5_dset.name}, '
+                      f'source={mask_source}, pol={mask_polarizations}, '
+                      f'input_shape={h5_dset.shape}, input_dtype={h5_dset.dtype}, '
+                      f'crop=rows[{row0}:{row0+out_rows}], '
+                      f'cols[{col0}:{col0+out_cols}], '
+                      f'output={output_gtiff}, nodata={profile.get("nodata")}', flush=True)
             try:
                 with rasterio.Env(GDAL_CACHEMAX=gdal_cache_max_mb):
 
@@ -1127,12 +1350,34 @@ class RTCReader(DataReader):
                                 blk[blk > designated_value] = designated_value
                                 blk[blk == 0] = np.nan
 
+                            if debug_mask:
+                                if mask_source == 'legacy':
+                                    n_input = int(np.count_nonzero((ds_blk != 0) & (ds_blk != 255)))
+                                else:
+                                    n_input = int(np.count_nonzero(ds_blk != 65535))
+                                n_decoded = int(np.count_nonzero(blk == 1))
+                                debug_total_in += n_input
+                                debug_total_decoded += n_decoded
+                                debug_stripes += 1
+                                print(f'[MASK DEBUG] stripe={debug_stripes}, '
+                                      f'rows=[{rs}:{re}], cols=[{col0}:{col0+out_cols}], '
+                                      f'input_noninvalid={n_input}, decoded_ones={n_decoded}, '
+                                      f'input_minmax=({ds_blk.min()},{ds_blk.max()}), '
+                                      f'decoded_minmax=({blk.min()},{blk.max()})', flush=True)
+
                             # Write into output at row offset (destination coords start at 0)
                             dst_rs = rs - src_r0
                             dst.write(blk, 1, window=Window(0, dst_rs, out_cols, re - rs))
+                            if debug_mask:
+                                debug_total_written += int(np.count_nonzero(blk == 1))
 
                         dst.update_tags(**dswx_metadata_dict)
 
+                if debug_mask:
+                    print(f'[MASK DEBUG] WRITE SUMMARY: file={output_gtiff}, '
+                          f'stripes={debug_stripes}, input_noninvalid={debug_total_in}, '
+                          f'decoded_ones={debug_total_decoded}, '
+                          f'submitted_ones={debug_total_written}', flush=True)
             except Exception:
                 if os.path.exists(output_gtiff):
                     os.remove(output_gtiff)
@@ -1203,6 +1448,8 @@ class RTCReader(DataReader):
         # Mosaic GCOV mask layers separately for each polarization group.
         if mask_exist and mask_gtiff_dict:
             for mask_pol_key, mask_inputs in mask_gtiff_dict.items():
+                for _mask_input in mask_inputs:
+                    _debug_gcov_mask_tiff(_mask_input, f'BEFORE MOSAIC {mask_pol_key}')
                 if not mask_inputs:
                     continue
 
@@ -1241,6 +1488,7 @@ class RTCReader(DataReader):
                     no_data_value=mask_nodata,
                     warp_resample_alg='nearest'
                 )
+                _debug_gcov_mask_tiff(mask_mosaic_gtiff, f'AFTER MOSAIC {mask_pol_key}')
 
         # Mosaic the STATIC layover/shadow layers.
         if static_mask_gtiff_list:

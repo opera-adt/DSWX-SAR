@@ -159,7 +159,7 @@ def run(cfg):
     )
 
     # Mosaic input RTC into output Geotiff
-    reader.process_rtc_hdf5(
+    valid_pol_sets = reader.process_rtc_hdf5(
         input_list,
         static_file_list,
         scratch_dir,
@@ -176,6 +176,7 @@ def run(cfg):
     t_all_elapsed = time.time() - t_all
     logger.info("successfully ran mosaic GCOV in "
                 f"{t_all_elapsed:.3f} seconds")
+    return valid_pol_sets
 
 if __name__ == "__main__":
     '''Run mosaic rtc products from command line'''

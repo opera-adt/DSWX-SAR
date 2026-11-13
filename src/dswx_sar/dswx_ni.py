@@ -43,7 +43,7 @@ def dswx_ni_workflow(cfg):
     logger.info(f"NISAR Processing Mode : {nisar_uni_mode}")
 
     # Create mosaic burst RTCs
-    mosaic_gcov_frame.run(cfg)
+    valid_pol_sets = mosaic_gcov_frame.run(cfg)
 
     if pol_mode == 'MIX_SINGLE_POL':
         proc_pol_set = [DSWX_NI_POL_DICT['SV_POL'],
@@ -64,6 +64,23 @@ def dswx_ni_workflow(cfg):
     # Need to run for loop twice to generate 2 intermediate water products
     else:
         proc_pol_set = [pol_list]
+
+    # Only process polarization groups represented by at least one valid frame.
+    requested_pol_sets = proc_pol_set
+
+    # Update proc_pol_set based on valid polarization check
+    proc_pol_set = [
+        pol_set
+        for pol_set in requested_pol_sets
+        if frozenset(pol_set) in valid_pol_sets
+    ]
+
+    for skipped in requested_pol_sets:
+        if frozenset(skipped) not in valid_pol_sets:
+            logger.warning('Skipping polarization group %s: no valid cropped GCOV pixels', skipped)
+    if not proc_pol_set:
+        logger.warning('No valid polarization groups; skipping DSWx-NI processing and tile saving')
+        return
 
     for pol_set in proc_pol_set:
         processing_cfg.polarizations = pol_set
@@ -93,8 +110,23 @@ def dswx_ni_workflow(cfg):
                 detect_inundated_vegetation.run(cfg)
 
     processing_cfg.polarizations = pol_list
-    # save product as mgrs tiles.
-    save_mgrs_tiles_ni.run(cfg)
+    # The tile writer must not merge nonexistent outputs for skipped groups.
+    original_pol_mode = processing_cfg.polarization_mode
+    try:
+        if len(proc_pol_set) == 1 and len(requested_pol_sets) > 1:
+            surviving = proc_pol_set[0]
+            processing_cfg.polarizations = surviving
+            for mode_key in ('DH_POL', 'DV_POL', 'SH_POL', 'SV_POL', 'QP_POL'):
+                if list(DSWX_NI_POL_DICT[mode_key]) == list(surviving):
+                    processing_cfg.polarization_mode = mode_key
+                    break
+            else:
+                raise ValueError(f'Cannot determine single-group mode for {surviving}')
+            logger.info('Tile saving using surviving polarization group %s', surviving)
+        save_mgrs_tiles_ni.run(cfg)
+    finally:
+        processing_cfg.polarizations = pol_list
+        processing_cfg.polarization_mode = original_pol_mode
 
     t_time_end = time.time()
     logger.info(f'total processing time: {t_time_end - t_all} sec')

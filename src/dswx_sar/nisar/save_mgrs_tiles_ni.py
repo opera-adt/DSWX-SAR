@@ -539,7 +539,9 @@ def run(cfg):
     inundated_vege_mosaic_flag = False
     
     # Set merge_layer_flag and merge_pol_list based on pol_mode
-    merge_layer_flag = pol_mode.startswith('MIX')
+    pol_set1 = pol_list
+    pol_set2 = []
+    merge_layer_flag = isinstance(pol_mode, str) and pol_mode.startswith('MIX')
     if merge_layer_flag:
         if pol_mode == 'MIX_QD_DUAL_H_POL':
             pol_type1 = 'QP_POL'
@@ -550,7 +552,7 @@ def run(cfg):
         elif pol_mode == 'MIX_SINGLE_POL':
             pol_type1 = 'SV_POL'
             pol_type2 = 'SH_POL'
-        elif pol_mode == 'MIX_DUAL_H_DUAL_V_POL':
+        elif pol_mode in ('MIX_DUAL_H_DUAL_V_POL', 'MIX_DUAL_POL'):
             pol_type1 = 'DH_POL'
             pol_type2 = 'DV_POL'
         else:
@@ -565,8 +567,6 @@ def run(cfg):
                 f'Merging products from {pol_type1} and {pol_type2}.'
             )
     else:
-        pol_set1 = pol_list
-        pol_set2 = []
         count_pols = []
         for input_dir in input_list:
             pol_types = DSWX_NI_POL_DICT['DV_POL'] + \
